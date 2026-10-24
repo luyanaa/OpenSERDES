@@ -1,0 +1,24 @@
+name: gf180mcuD
+pdk_root: ${PDK_ROOT}
+pdk: gf180mcuD
+scl: gf180mcu_fd_sc_mcu7t5v0
+default_corner: nom_tt_025C_5v00
+corners:
+  nom_tt_025C_5v00:
+    - ${PDK_LIB_ROOT}/gf180mcuD/libs.ref/gf180mcu_fd_sc_mcu7t5v0/lib/gf180mcu_fd_sc_mcu7t5v0__tt_025C_5v00.lib
+  nom_ss_125C_4v50:
+    - ${PDK_LIB_ROOT}/gf180mcuD/libs.ref/gf180mcu_fd_sc_mcu7t5v0/lib/gf180mcu_fd_sc_mcu7t5v0__ss_125C_4v50.lib
+  nom_ff_n40C_5v50:
+    - ${PDK_LIB_ROOT}/gf180mcuD/libs.ref/gf180mcu_fd_sc_mcu7t5v0/lib/gf180mcu_fd_sc_mcu7t5v0__ff_n40C_5v50.lib
+track_height: 7
+cell_height_um: 3.92
+native_dff: gf180mcu_fd_sc_mcu7t5v0__dffrnq_1
+limits:
+  class: MS
+  default_period_ns: 40.0
+  serial_mbps: 25
+cts:
+  target_skew_ps: 50
+  max_slew_ns: 0.5
+  max_cap_ff: 100
+  max_fanout: 10

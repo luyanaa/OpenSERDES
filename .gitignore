@@ -1,0 +1,14 @@
+# Local build and simulation outputs
+build/
+runs/
+*.log
+*.vcd
+*.fst
+*.fsdb
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Editor/agent scratch
+.qoder/

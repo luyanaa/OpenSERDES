@@ -1,0 +1,49 @@
+name: icsprout55
+pdk_root: ${PDK_ROOT}
+pdk: icsprout55-pdk
+scl: ics55_LLSC_H7CR
+default_corner: nom_tt_025C_1v20
+scl_variants:
+  ics55_LLSC_H7CH:
+    vt: HVT
+    native_dff: DFFRQX2H7H
+    corners:
+      nom_tt_025C_1v20:
+        - ${PDK_LIB_ROOT}/libs.ref/ics55_LLSC_H7CH/liberty/ics55_LLSC_H7CH_typ_tt_1p2_25_nldm.lib
+      nom_ss_125C_1v08:
+        - ${PDK_LIB_ROOT}/libs.ref/ics55_LLSC_H7CH/liberty/ics55_LLSC_H7CH_ss_rcworst_1p08_125_nldm.lib
+      nom_ff_n40C_1v32:
+        - ${PDK_LIB_ROOT}/libs.ref/ics55_LLSC_H7CH/liberty/ics55_LLSC_H7CH_ff_rcbest_1p32_m40_nldm.lib
+  ics55_LLSC_H7CL:
+    vt: LVT
+    native_dff: DFFRQX2H7L
+    corners:
+      nom_tt_025C_1v20:
+        - ${PDK_LIB_ROOT}/libs.ref/ics55_LLSC_H7CL/liberty/ics55_LLSC_H7CL_typ_tt_1p2_25_nldm.lib
+      nom_ss_125C_1v08:
+        - ${PDK_LIB_ROOT}/libs.ref/ics55_LLSC_H7CL/liberty/ics55_LLSC_H7CL_ss_rcworst_1p08_125_nldm.lib
+      nom_ff_n40C_1v32:
+        - ${PDK_LIB_ROOT}/libs.ref/ics55_LLSC_H7CL/liberty/ics55_LLSC_H7CL_ff_rcbest_1p32_m40_nldm.lib
+  ics55_LLSC_H7CR:
+    vt: RVT
+    native_dff: DFFRQX2H7R
+    corners:
+      nom_tt_025C_1v20:
+        - ${PDK_LIB_ROOT}/libs.ref/ics55_LLSC_H7CR/liberty/ics55_LLSC_H7CR_typ_tt_1p2_25_nldm.lib
+      nom_ss_125C_1v08:
+        - ${PDK_LIB_ROOT}/libs.ref/ics55_LLSC_H7CR/liberty/ics55_LLSC_H7CR_ss_rcworst_1p08_125_nldm.lib
+      nom_ff_n40C_1v32:
+        - ${PDK_LIB_ROOT}/libs.ref/ics55_LLSC_H7CR/liberty/ics55_LLSC_H7CR_ff_rcbest_1p32_m40_nldm.lib
+track_height: 7
+cell_height_um: 1.4
+native_dff: DFFRQX2H7R   # default H7CR
+limits:
+  class: HS
+  default_period_ns: 20.0
+  serial_mbps: 50
+  note: "H7CH=HVT, H7CL=LVT, H7CR=RVT; all 7-track. PDK_ROOT is the Librelane overlay; PDK_LIB_ROOT is the icsprout55-pdk library root."
+cts:
+  target_skew_ps: 40
+  max_slew_ns: 0.2
+  max_cap_ff: 50
+  max_fanout: 12

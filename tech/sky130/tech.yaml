@@ -1,0 +1,22 @@
+name: sky130
+pdk_root: ${PDK_ROOT}
+pdk: sky130A
+scl: sky130_fd_sc_hd
+default_corner: nom_tt_025C_1v80
+corners:
+  nom_tt_025C_1v80:
+    - ${PDK_LIB_ROOT}/sky130A/libs.ref/sky130_fd_sc_hd/lib/sky130_fd_sc_hd__tt_025C_1v80.lib
+  nom_ss_100C_1v60:
+    - ${PDK_LIB_ROOT}/sky130A/libs.ref/sky130_fd_sc_hd/lib/sky130_fd_sc_hd__ss_100C_1v60.lib
+  nom_ff_n40C_1v95:
+    - ${PDK_LIB_ROOT}/sky130A/libs.ref/sky130_fd_sc_hd/lib/sky130_fd_sc_hd__ff_n40C_1v95.lib
+native_dff: sky130_fd_sc_hd__dfrtp_1
+limits:
+  class: MS
+  default_period_ns: 40.0
+  serial_mbps: 25
+cts:
+  target_skew_ps: 50
+  max_slew_ns: 0.5
+  max_cap_ff: 100
+  max_fanout: 10

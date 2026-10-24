@@ -1,0 +1,2 @@
+# Preserve legacy RTL byte-for-byte; do not flag its historical whitespace.
+legacy/rtl/*.v -whitespace

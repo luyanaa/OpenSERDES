@@ -1,0 +1,25 @@
+name: ihp-sg13g2
+pdk_root: ${PDK_ROOT}
+pdk: ihp-sg13g2
+scl: sg13g2_stdcell
+default_corner: nom_typ_1p20V_25C
+corners:
+  nom_typ_1p20V_25C:
+    - ${PDK_LIB_ROOT}/ihp-sg13g2/libs.ref/sg13g2_stdcell/lib/sg13g2_stdcell_typ_1p20V_25C.lib
+  nom_slow_1p08V_125C:
+    - ${PDK_LIB_ROOT}/ihp-sg13g2/libs.ref/sg13g2_stdcell/lib/sg13g2_stdcell_slow_1p08V_125C.lib
+  nom_fast_1p32V_m40C:
+    - ${PDK_LIB_ROOT}/ihp-sg13g2/libs.ref/sg13g2_stdcell/lib/sg13g2_stdcell_fast_1p32V_m40C.lib
+track_height: 9
+cell_height_um: 3.78
+native_dff: sg13g2_dfrbpq_1
+limits:
+  note: "PDK_ROOT is the Librelane overlay if needed; PDK_LIB_ROOT is the IHP library root."
+  class: MS
+  default_period_ns: 20.0
+  serial_mbps: 50
+cts:
+  target_skew_ps: 50
+  max_slew_ns: 0.5
+  max_cap_ff: 100
+  max_fanout: 10
