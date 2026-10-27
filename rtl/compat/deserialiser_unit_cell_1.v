@@ -28,11 +28,11 @@ module deserialiser_unit_cell_1 (
     output logic [31:0] PAR_IN6,
     output logic [31:0] PAR_IN7,
     output logic [31:0] PAR_IN8,
-    output logic [31:0] OUT,
+    output logic        COMPLETE,
+    output logic        INTERNAL_FINISH,
     output logic [5:0]  COUNT,
     output logic [3:0]  SAMPLE_COUNT,
-    output logic        INTERNAL_FINISH,
-    output logic        COMPLETE
+    output logic [31:0] OUT
 );
 
     localparam int DATA_WIDTH = 32;

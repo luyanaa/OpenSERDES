@@ -13,8 +13,14 @@ module tb_cdr_bypass;
     logic par_valid;
     logic busy;
     logic lock;
+    logic lock_stale;
     logic sample_strobe;
     logic clk_out;
+    logic frame_locked;
+    logic frame_valid;
+    logic serial_data;
+    logic serial_valid;
+    logic signed [8:0] freq_trim;
 
     logic [31:0] words [0:7];
     logic expected [0:255];
@@ -40,12 +46,18 @@ module tb_cdr_bypass;
         .rx_par_valid(par_valid),
         .rx_busy(busy),
         .rx_lock(lock),
+        .rx_lock_stale(lock_stale),
         .rx_sample_strobe(sample_strobe),
-        .rx_clk_out(clk_out)
+        .rx_clk_out(clk_out),
+        .rx_frame_locked(frame_locked),
+        .rx_frame_valid(frame_valid),
+        .rx_serial_data(serial_data),
+        .rx_serial_valid(serial_valid),
+        .rx_freq_trim(freq_trim)
     );
 
     always @(posedge clk) begin
-        if (par_valid)
+        if (frame_valid)
             valid_seen <= 1'b1;
     end
 
@@ -89,6 +101,10 @@ module tb_cdr_bypass;
         end
         if (!lock || clk_out !== clk) begin
             $display("FAIL: bypass lock/clk_out wrong: lock=%b clk_out=%b", lock, clk_out);
+            errors = errors + 1;
+        end
+        if (!frame_locked) begin
+            $display("FAIL: bypass frame_locked low");
             errors = errors + 1;
         end
         if (par_data !== {words[7], words[6], words[5], words[4],

@@ -112,7 +112,9 @@ module serializer #(
                             word_sel_q <= '0;
                             cap_sel_q  <= '0;
                         end else begin
-                            cap_sel_q <= {cap_sel_q[WORDS-2:0], 1'b0};
+                            // Logical shift avoids the WORDS=1 part-select
+                            // cap_sel_q[-1:0] that breaks elaboration.
+                            cap_sel_q <= cap_sel_q << 1;
                         end
                     end else if (!active_q) begin
                         if (load && ready) begin

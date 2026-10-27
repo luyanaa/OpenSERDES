@@ -4,12 +4,13 @@
 `define TB_LSB_FIRST 1
 `endif
 
-module tb_serdes_loopback;
+module tb_serdes_loopback #(
+    parameter int DATA_WIDTH = 8,
+    parameter int WORDS      = 4,
+    parameter bit LSB_FIRST  = (`TB_LSB_FIRST != 0)
+);
 
-    localparam int DATA_WIDTH = 8;
-    localparam int WORDS      = 4;
-    localparam int RATIO      = DATA_WIDTH * WORDS;
-    localparam bit LSB_FIRST  = (`TB_LSB_FIRST != 0);
+    localparam int RATIO = DATA_WIDTH * WORDS;
 
     logic clk;
     logic rst_n;

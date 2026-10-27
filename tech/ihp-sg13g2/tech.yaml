@@ -18,6 +18,8 @@ limits:
   class: MS
   default_period_ns: 20.0
   serial_mbps: 50
+  max_endpoint_line_rate_mbps: 100
+  max_link_line_rate_mbps: 50
 cts:
   target_skew_ps: 50
   max_slew_ns: 0.5

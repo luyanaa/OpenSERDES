@@ -41,6 +41,9 @@ limits:
   class: HS
   default_period_ns: 20.0
   serial_mbps: 50
+  max_endpoint_line_rate_mbps: 200
+  max_link_line_rate_mbps: 200
+  note: "H7CL 5 ns TX + OS=2; RX can close at 2.5 ns. Endpoint/link gates are pre-PnR."
   note: "H7CH=HVT, H7CL=LVT, H7CR=RVT; all 7-track. PDK_ROOT is the Librelane overlay; PDK_LIB_ROOT is the icsprout55-pdk library root."
 cts:
   target_skew_ps: 40

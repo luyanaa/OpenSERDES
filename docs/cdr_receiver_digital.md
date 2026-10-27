@@ -174,30 +174,36 @@ receiver and the digital CDR/deserializer.
 |---|---|---|
 | Analog front-end | Resistive-feedback inverter + CMOS inverter | Not modeled; RX starts at digital serial input |
 | Sampler | Custom 2 GHz NAND DFF | Standard-cell/behavioral flop in CDR/deserializer |
-| CDR | Bypassed | Oversampling CDR in `serdes_rx_digital` |
-| Function | 1-bit retiming | CDR + serial-to-parallel |
+| CDR | Bypassed | fixed/adaptive/source-sync CDR in `serdes_rx_digital` |
+| Function | 1-bit retiming | CDR + serial-to-parallel + comma frame alignment |
 
-The new CDR is therefore a **different architecture**: it is a fixed-rate
-oversampling phase aligner, while the original is a digital period-tracking
-frequency-locked CDR.  It is suitable as a clean portable model, but it does
-not preserve the original CDR's frequency acquisition, scan trim, or recovered
+The new CDR is therefore a **different architecture**: fixed-rate oversampling
+or a first-order frequency-tracking loop, while the original is a digital
+period-tracking frequency-locked CDR.  It is suitable as a clean portable
+model, but it does not preserve the original CDR's scan trim or recovered
 clock semantics.
 
 ## 4. Migration implications
 
-1. **Implemented:** `serdes_rx_digital` has `CDR_BYPASS=1`; the external
-   `rx_clk` is the bit clock, `receiver_sampler` retimes the serial input, and
-   the oversampling loop is skipped.  `serdes_digital_top` exposes the same
-   parameter; the generator exposes `--cdr-bypass`.
+1. **Implemented:** `serdes_rx_digital` has `CDR_MODE` = fixed (0), adaptive
+   (1) or source-sync (2); `CDR_BYPASS=1` remains an alias for mode 2.  In
+   source-sync mode the external `rx_clk` is the bit clock, `receiver_sampler`
+   retimes the serial input, and the oversampling loop is skipped.  The
+   generator selects the mode from `rx.clocking` and `rx.ppm`.
 2. **Implemented:** `rtl/receiver_sampler.sv` models only the receiver's
    digital `q <= d` sampling boundary.  The 2 GHz NAND DFF and the analog
    front-end remain hard-macro / legacy content; do not synthesize them as a
    generic DFF and claim receiver equivalence.
-3. **Decide the CDR contract**:
-   - keep the new fixed-oversampling CDR and document that frequency
-     acquisition is external; or
-   - add a period-tracking front-end (run-length counters, min/period estimate,
-     divider, multibit hold, scan trim) to match the original CDR's meaning.
+3. **CDR contract:** implemented as two explicit modes:
+   - `fixed_oversampling`: frequency acquisition is external; use when TX/RX
+     clocks are locked.
+   - `adaptive_oversampling`: first-order frequency tracking; use for bounded
+     ppm (validated at +/-700 ppm for 1500-bit runs with OVERSAMPLE=8).  A
+     5000-bit/100 ppm run still exposes phase-wrap/lock loss; production-grade
+     long-run tracking needs a second-order loop or phase interpolator.
+   The original run-length/min-period/divider/scan-trim algorithm is still not
+   cloned; that would be a separate mode if gate-level equivalence is needed.
+   Frame alignment is implemented separately in `rtl/comma_align.sv`.
 4. **Extract behavioral checks from the netlist**:
    - sweep `SCAN_IN[21:0]` and measure `CLK_OUT` period/lock;
    - drive long runs of ones/zeros to exercise `MULTIBIT_*` and held-period
@@ -215,6 +221,6 @@ clock semantics.
   FIFO/multiphase block drawn in the PDF.
 - Receiver digital meaning: a **2 GHz one-bit sampling/retiming latch** after an
   analog slicer.  It is not a CDR and not a deserializer.
-- The new RTL currently migrates the **digital data path and a fixed-rate
-  oversampling CDR**, not the original CDR's frequency acquisition or the
-  receiver's analog sampler.  Those are the next explicit migration items.
+- The new RTL migrates the **digital data path, fixed/adaptive CDR and comma
+  frame alignment**, not the original CDR's scan-trim algorithm or the
+  receiver's analog sampler.  Those remain explicit migration items.

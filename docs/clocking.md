@@ -57,11 +57,26 @@ serializer; the abstract version needs a 3-level, fanout-8–10 tree.
 
 ### CDR
 
-- 47 core DFF (the original netlist also contains 28 `dfstp` instances on
-  generated set/reset/clock nets; those generated clocks should be removed).
-- 2–3 levels are sufficient.
+- 47 core DFF in the original netlist (the original also contains 28 `dfstp`
+  instances on generated set/reset/clock nets; those generated clocks should be
+  removed).
+- 2–3 levels are sufficient for the original block.
 - Estimated skew ≈ 20–40 ps with fanout 8–16.
 - Use `sample_strobe` as a data enable, not a clock.
+
+New RTL structure:
+
+- `cdr_sync` adds `SYNC_STAGES` flops (default 3).  Both edge detection and data
+  selection use the oldest stage, so the data path really passes through the
+  whole synchronizer.  Do not retime/merge these flops in the physical flow;
+  the RTL cannot guarantee MTBF.
+- `cdr_oversampling` is fixed-phase; `cdr_adaptive` adds a fractional period
+  loop (`FRAC_BITS`, `LOOP_GAIN`, `LOOP_SETTLE_BITS`).  Adaptive uses the same
+  clock but has extra counters/registers; budget a separate, slightly higher
+  area/power for mode 1.
+- OVERSAMPLE=2 is a restricted mode (two samples/UI, no jitter margin).  Use
+  it only when the generator spec explicitly sets `allow_os2: true`.
+- `rx_frame_locked` and `rx_lock_stale` are status outputs, not clocks.
 
 ## 2. Depth is not “longer is better”
 
@@ -120,8 +135,9 @@ value.
 
 ## 6. Rules for the abstract RTL / generator
 
-- No derived clocks. `sample_strobe`, `par_valid`, `frame_done` are enables/pulses.
-- One clock per domain; reset through `reset_sync`.
+- No derived clocks. `sample_strobe`, `par_valid`, `frame_done`, `rx_frame_locked` are enables/pulses/status, not clocks.
+- One clock per domain; reset through `reset_sync`.  `flush` is synchronous state reset, not a clock.
+- Treat the CDR synchronizer flops as a fixed-latency asynchronous boundary; do not let CTS/retiming merge them with the phase counter.
 - Balance leaf fanout to 8–10 for 130/180 nm, 10–16 for 55 nm, 4–6 for 0.5 µm.
 - For 556 DFF use 3 levels; for 0.5 µm use 4.  Do not simply add depth.
 - The original Serializer 2-level tree is fine for 13 DFF; it is not fine for the abstract 266-DFF serializer.

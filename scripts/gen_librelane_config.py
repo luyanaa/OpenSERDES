@@ -16,10 +16,18 @@ DESIGNS = {
         "rtl/reset_sync.sv",
         "rtl/serdes_tx_digital.sv",
     ],
+    "serdes_tx_stream_digital": [
+        "rtl/serializer_stream.sv",
+        "rtl/reset_sync.sv",
+        "rtl/serdes_tx_stream_digital.sv",
+    ],
     "serdes_rx_digital": [
         "rtl/deserializer_word.sv",
         "rtl/deserializer.sv",
+        "rtl/cdr_sync.sv",
         "rtl/cdr_oversampling.sv",
+        "rtl/cdr_adaptive.sv",
+        "rtl/comma_align.sv",
         "rtl/receiver_sampler.sv",
         "rtl/reset_sync.sv",
         "rtl/serdes_rx_digital.sv",
@@ -28,7 +36,10 @@ DESIGNS = {
         "rtl/serializer.sv",
         "rtl/deserializer_word.sv",
         "rtl/deserializer.sv",
+        "rtl/cdr_sync.sv",
         "rtl/cdr_oversampling.sv",
+        "rtl/cdr_adaptive.sv",
+        "rtl/comma_align.sv",
         "rtl/receiver_sampler.sv",
         "rtl/reset_sync.sv",
         "rtl/serdes_tx_digital.sv",
@@ -88,10 +99,18 @@ def main() -> None:
     src = Path(args.src_root).resolve() if args.src_root else here
     period = args.period or float(tech["limits"]["default_period_ns"])
     scl = args.scl or tech["scl"]
-    variant = tech.get("scl_variants", {}).get(scl, {})
+    variants = tech.get("scl_variants", {})
+    if scl != tech["scl"] and scl not in variants:
+        available = [tech["scl"]] + sorted(variants)
+        raise SystemExit(
+            f"tech {args.tech!r} does not define scl {scl!r}; "
+            f"available: {available}"
+        )
+    variant = variants.get(scl, {})
     corners = variant.get("corners") or tech["corners"]
 
-    if args.design in ("serdes_digital_top", "serdes_tx_digital"):
+    if args.design in ("serdes_digital_top", "serdes_tx_digital",
+                       "serdes_tx_stream_digital"):
         clock_port = "tx_clk"
     elif args.design == "serdes_rx_digital":
         clock_port = "rx_clk"
@@ -136,6 +155,10 @@ def main() -> None:
     elif args.design == "serdes_rx_digital":
         base_sdc = (here / "constraints" / "block_rx.sdc").read_text()
         marker = "set CLOCK_PERIOD_NS 5.0"
+        replacement = f"set CLOCK_PERIOD_NS {period:.1f}"
+    elif args.design == "serdes_tx_stream_digital":
+        base_sdc = (here / "constraints" / "block_tx_stream.sdc").read_text()
+        marker = "set CLOCK_PERIOD_NS 20.0"
         replacement = f"set CLOCK_PERIOD_NS {period:.1f}"
     elif args.design == "serializer":
         base_sdc = (here / "constraints" / "block_serializer.sdc").read_text()

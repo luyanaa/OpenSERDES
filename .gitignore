@@ -1,5 +1,6 @@
 # Local build and simulation outputs
 build/
+out/
 runs/
 *.log
 *.vcd

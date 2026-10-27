@@ -19,8 +19,8 @@
 module serializer_unit_cell_1 (
     input  logic        CLK,
     input  logic        RESET,
-    input  logic        READY,
     output logic        SERIAL_OUT,
+    input  logic        READY,
     output logic        INTERNAL_FINISH,
     output logic        COMPLETE,
     input  logic [31:0] PAR_IN1,

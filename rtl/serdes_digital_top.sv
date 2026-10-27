@@ -7,22 +7,32 @@
 // change, not the protocol.
 //
 //   tx_clk : bit clock for the serializer.
-//   rx_clk : oversampling clock for the CDR; frequency = OVERSAMPLE * data rate.
+//   rx_clk : oversampling clock for the CDR; frequency = OVERSAMPLE * data rate
+//            in fixed/adaptive mode, or the recovered/forwarded bit clock in
+//            source-synchronous mode.
 //
-// The CDR produces data_out/sample_strobe in the rx_clk domain.  The
-// deserializer consumes sample_strobe; rx_lock gates capture until the CDR has
-// acquired enough edges.
+// RX status:
+//   rx_lock         : CDR has seen enough edges / source-sync mode.
+//   rx_lock_stale   : no edge for LOCK_STALE_BITS bit periods (warning only).
+//   rx_frame_locked : comma/training alignment acquired (ALIGN_MODE=1).
+//   rx_serial_data  : recovered serial stream used by the deserializer.
 // -----------------------------------------------------------------------------
 module serdes_digital_top #(
-    parameter int DATA_WIDTH   = 32,
-    parameter int WORDS        = 8,
-    parameter bit LSB_FIRST    = 1'b1,
-    parameter bit CAPTURE_MODE = 1'b0,
-    parameter int OVERSAMPLE   = 4,
-    parameter int SYNC_STAGES  = 2,
-    parameter int LOCK_THRESH  = 8,
-    parameter int LOCK_RELEASE = 4,
-    parameter bit CDR_BYPASS   = 1'b0
+    parameter int DATA_WIDTH      = 32,
+    parameter int WORDS           = 8,
+    parameter bit LSB_FIRST       = 1'b1,
+    parameter bit CAPTURE_MODE    = 1'b0,
+    parameter int OVERSAMPLE      = 4,
+    parameter int SYNC_STAGES     = 3,
+    parameter int LOCK_THRESH     = 8,
+    parameter int LOCK_STALE_BITS = 16,
+    parameter int CDR_MODE        = 0,
+    parameter bit CDR_BYPASS      = 1'b0,
+    parameter int ALIGN_MODE      = 0,
+    parameter int SYNC_LEN        = 8,
+    parameter logic [SYNC_LEN-1:0] SYNC_PATTERN = 'hBC,
+    parameter int ADAPT_FRAC_BITS = 8,
+    parameter int ADAPT_LOOP_GAIN = 8
 ) (
     // TX domain
     input  logic                              tx_clk,
@@ -47,8 +57,14 @@ module serdes_digital_top #(
     output logic                              rx_par_valid,
     output logic                              rx_busy,
     output logic                              rx_lock,
+    output logic                              rx_lock_stale,
     output logic                              rx_sample_strobe,
-    output logic                              rx_clk_out
+    output logic                              rx_clk_out,
+    output logic                              rx_frame_locked,
+    output logic                              rx_frame_valid,
+    output logic                              rx_serial_data,
+    output logic                              rx_serial_valid,
+    output logic signed [ADAPT_FRAC_BITS:0]   rx_freq_trim
 );
 
     serdes_tx_digital #(
@@ -76,8 +92,14 @@ module serdes_digital_top #(
         .OVERSAMPLE(OVERSAMPLE),
         .SYNC_STAGES(SYNC_STAGES),
         .LOCK_THRESH(LOCK_THRESH),
-        .LOCK_RELEASE(LOCK_RELEASE),
-        .CDR_BYPASS(CDR_BYPASS)
+        .LOCK_STALE_BITS(LOCK_STALE_BITS),
+        .CDR_MODE(CDR_MODE),
+        .CDR_BYPASS(CDR_BYPASS),
+        .ALIGN_MODE(ALIGN_MODE),
+        .SYNC_LEN(SYNC_LEN),
+        .SYNC_PATTERN(SYNC_PATTERN),
+        .ADAPT_FRAC_BITS(ADAPT_FRAC_BITS),
+        .ADAPT_LOOP_GAIN(ADAPT_LOOP_GAIN)
     ) u_rx (
         .rx_clk(rx_clk),
         .rx_rst_n(rx_rst_n),
@@ -89,8 +111,14 @@ module serdes_digital_top #(
         .rx_par_valid(rx_par_valid),
         .rx_busy(rx_busy),
         .rx_lock(rx_lock),
+        .rx_lock_stale(rx_lock_stale),
         .rx_sample_strobe(rx_sample_strobe),
-        .rx_clk_out(rx_clk_out)
+        .rx_clk_out(rx_clk_out),
+        .rx_frame_locked(rx_frame_locked),
+        .rx_frame_valid(rx_frame_valid),
+        .rx_serial_data(rx_serial_data),
+        .rx_serial_valid(rx_serial_valid),
+        .rx_freq_trim(rx_freq_trim)
     );
 
 endmodule

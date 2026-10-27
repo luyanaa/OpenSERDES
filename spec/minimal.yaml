@@ -1,0 +1,39 @@
+name: minimal_8x4_25m
+target: link
+
+link:
+  payload_width: 8
+  words: 4
+  line_rate_mbps: 25
+  coding: raw
+  bit_order: lsb_first
+
+tx:
+  architecture: parallel_mux
+  capture: parallel
+
+rx:
+  architecture: source_sync
+  oversample: 1
+  align: external
+  clocking: source_sync
+  ppm: 0
+
+tech:
+  tx: sky130
+  rx: sky130
+
+interface:
+  preset: minimal
+  data: valid_ready
+  control: native
+  cdc: none
+  enable_mode: static
+  user_clock_mhz: 25
+
+constraints:
+  uncertainty_setup_ns: 0.100
+  uncertainty_hold_ns: 0.050
+
+optimization:
+  objectives: [area]

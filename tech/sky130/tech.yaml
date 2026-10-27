@@ -15,6 +15,11 @@ limits:
   class: MS
   default_period_ns: 40.0
   serial_mbps: 25
+  # Conservative capability gates from the measured pre-PnR results in
+  # docs/prepnr_sta.md.  Endpoint blocks are faster than the full OS=2 link.
+  max_endpoint_line_rate_mbps: 100
+  max_link_line_rate_mbps: 50
+  note: "Endpoint 100 Mb/s, OS=2 full link 50 Mb/s; not post-route signoff."
 cts:
   target_skew_ps: 50
   max_slew_ns: 0.5

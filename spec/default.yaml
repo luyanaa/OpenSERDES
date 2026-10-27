@@ -1,0 +1,45 @@
+name: serdes_32x8_100m
+target: link
+
+link:
+  payload_width: 32
+  words: 8
+  line_rate_mbps: 100
+  coding: raw
+  bit_order: lsb_first
+
+tx:
+  architecture: auto
+  capture: auto
+
+rx:
+  architecture: auto
+  oversample: auto
+  align: comma_per_frame
+  clocking: independent
+  ppm: 0
+  sync_pattern: 0xBC
+  sync_len: 8
+
+tech:
+  tx:
+    name: icsprout55
+    scl: ics55_LLSC_H7CL
+  rx:
+    name: icsprout55
+    scl: ics55_LLSC_H7CL
+
+interface:
+  preset: default
+  data: valid_ready
+  control: native
+  cdc: auto
+  enable_mode: static
+  user_clock_mhz: 100
+
+constraints:
+  uncertainty_setup_ns: 0.050
+  uncertainty_hold_ns: 0.020
+
+optimization:
+  objectives: [area, power, latency]

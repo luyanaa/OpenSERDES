@@ -4,12 +4,13 @@
 `define TB_LSB_FIRST 1
 `endif
 
-module tb_deserializer;
+module tb_deserializer #(
+    parameter int DATA_WIDTH = 8,
+    parameter int WORDS      = 4,
+    parameter bit LSB_FIRST  = (`TB_LSB_FIRST != 0)
+);
 
-    localparam int DATA_WIDTH = 8;
-    localparam int WORDS      = 4;
-    localparam int RATIO      = DATA_WIDTH * WORDS;
-    localparam bit LSB_FIRST  = (`TB_LSB_FIRST != 0);
+    localparam int RATIO = DATA_WIDTH * WORDS;
 
     logic clk;
     logic rst_n;

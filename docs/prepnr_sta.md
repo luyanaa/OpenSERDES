@@ -1,5 +1,10 @@
 # Pre-PnR STA optimization
 
+> Scope: this document is **PRE_PNR_TIMING** evidence only.  It is not
+> POST_ROUTE_TIMING, PHYSICAL_SIGNOFF or LINK_VALIDATED.  Use
+> `scripts/qualify.py` and [`qualification.md`](qualification.md) to prevent a
+> pre-PnR WNS from being presented as a PHY line-rate guarantee.
+
 ## 1. The first optimization is STA methodology, not RTL
 
 The first pre-PnR runs were dominated by the asynchronous reset input, not by

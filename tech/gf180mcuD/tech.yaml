@@ -17,6 +17,9 @@ limits:
   class: MS
   default_period_ns: 40.0
   serial_mbps: 25
+  max_endpoint_line_rate_mbps: 50
+  max_link_line_rate_mbps: 25
+  note: "5 V mcu7t5v0; endpoint 50 Mb/s, full link 25 Mb/s with OS=2."
 cts:
   target_skew_ps: 50
   max_slew_ns: 0.5

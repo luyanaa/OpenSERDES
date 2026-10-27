@@ -1,0 +1,42 @@
+name: phy_ip_32x8_100m
+target: link
+
+link:
+  payload_width: 32
+  words: 8
+  line_rate_mbps: 100
+  coding: raw
+  bit_order: lsb_first
+
+tx:
+  architecture: word_group_capture
+  capture: word_group
+
+rx:
+  architecture: adaptive_oversampling
+  oversample: 8
+  align: comma_per_frame
+  clocking: independent
+  ppm: 100
+  sync_pattern: 0xBC
+  sync_len: 8
+
+tech:
+  tx:
+    name: icsprout55
+    scl: ics55_LLSC_H7CL
+  rx:
+    name: icsprout55
+    scl: ics55_LLSC_H7CL
+
+interface:
+  preset: phy_ip
+  enable_mode: dynamic
+  user_clock_mhz: 100
+
+constraints:
+  uncertainty_setup_ns: 0.050
+  uncertainty_hold_ns: 0.020
+
+optimization:
+  objectives: [area, power, latency]

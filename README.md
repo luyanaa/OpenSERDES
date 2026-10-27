@@ -9,10 +9,12 @@ rtl/            canonical digital RTL
 rtl/compat/     legacy module-name adapters
 tb/             self-checking simulations
 constraints/    SDC templates
-scripts/        technology/config/flow generators
-tech/           per-PDK profiles and PDK_ROOT/PDK_LIB_ROOT setup
+spec/           generator input specifications
+scripts/        generator, regression and qualification gates
+tech/           per-PDK profiles, arch_db.yaml and PDK_ROOT/PDK_LIB_ROOT setup
                (see tech/README.md)
-docs/           migration, clocking, pre-PnR STA, CDR/RX study
+docs/           migration, clocking, pre-PnR STA, CDR/RX study,
+               generator, qualification, standard-cell library selection
 legacy/rtl/     original serializer/deserializer sources, read-only
 ```
 
@@ -28,7 +30,10 @@ adapter 和剩余 gap 见 [`docs/migration.md`](docs/migration.md)。
 - **输入/输出寄存器化**：并行数据只在 `load && ready` 时采样；输出在完成时打拍。
 - **参数化数组**：`DATA_WIDTH`、`WORDS`、`LSB_FIRST`；`par_data` 是 `[WORDS-1:0][DATA_WIDTH-1:0]`，位选/字选用 generate 循环生成。
 - **复位一致性**：所有叶子块使用异步低有效 `rst_n`；顶层每个时钟域经过 `reset_sync`（异步置位、同步释放）。
-- **显式握手**：`ready/load`、`serial_valid`、`par_valid`、`busy`。
+- **显式握手**：`ready/load`、`serial_valid`、`par_valid`、`busy`；另有 word-streaming valid/ready 架构。
+- **CDR 可插拔**：`fixed_oversampling`、`adaptive_oversampling`、`source_sync` 三种模式，默认由 generator 按 ppm/clocking/rate 选择。
+- **帧同步显式化**：`comma_align` 支持单次和 per-frame 重对齐，输出 `rx_frame_locked`、`rx_lock_stale` 和恢复串行流。
+- **验证分级**：`RTL_FUNCTIONAL`、`PRE_PNR_TIMING`、`POST_ROUTE_TIMING`、`PHYSICAL_SIGNOFF`、`LINK_VALIDATED`，不同等级的证据不能混用。
 - **CDR 是抽象替代实现**：原仓库只有门级 `CLK_RECOVERY`，本目录提供可综合的过采样 CDR；它不是原门级网表的逐周期克隆。
 
 ## 2. 模块
@@ -99,33 +104,62 @@ Receiver 数字边界的 1-bit 采样模型：只建模原 `Receiver.sp` 中 2 G
 
 TX/RX 独立端点 wrapper。两者可以分别用不同 PDK 综合，再在同一链路中组合；协议/RTL 不变，只换目标库和 analog wrapper。
 
-`serdes_rx_digital` 的 `CDR_BYPASS=1` 进入 receiver-only 模式：外部 `rx_clk` 作为 bit clock，经 `receiver_sampler` 后直接进入 deserializer；此时 `rx_clk_out=rx_clk`、`rx_lock=1`，`OVERSAMPLE` 不参与。生成器对应 `--cdr-bypass`。
+`serdes_rx_digital` 的 `CDR_MODE` 选择 CDR：`0=fixed_oversampling`、`1=adaptive_oversampling`、`2=source_sync`；旧的 `CDR_BYPASS=1` 等价于 `CDR_MODE=2`。source-sync 模式下外部 `rx_clk` 作为 bit clock，经 `receiver_sampler` 后直接进入 deserializer；此时 `rx_clk_out=rx_clk`、`rx_lock=1`，`OVERSAMPLE` 不参与。
+
+`ALIGN_MODE`：`0=外部 rx_align`、`1=comma 单次对齐`、`2=comma 每帧重对齐`。新增输出 `rx_frame_locked`、`rx_frame_valid`（= `rx_par_valid & rx_frame_locked`）、`rx_serial_data`、`rx_serial_valid`、`rx_freq_trim`，用于链路 scoreboard、状态恢复和 calibration 观测。
 
 ### `rtl/serdes_digital_top.sv`
 
-由 `serdes_tx_digital` + `serdes_rx_digital` 组成的数字顶层。TX/RX 时钟独立；`rx_clk_out` 仅监视，`rx_sample_strobe` 才是数据有效选通。`rx_align` 用于未来 comma/training 对齐。
+由 `serdes_tx_digital` + `serdes_rx_digital` 组成的数字顶层。TX/RX 时钟独立；`rx_clk_out` 仅监视，`rx_sample_strobe` 才是数据有效选通。`rx_frame_locked` 表示 comma/training 帧对齐已建立；`rx_lock_stale` 只表示长时间没有边沿，不应单独用来停止接收。
 
-### `rtl/cdr_oversampling.sv`
+### `rtl/cdr_sync.sv` / `rtl/cdr_oversampling.sv` / `rtl/cdr_adaptive.sv`
+
+CDR 被拆成明确的三段：
+
+```text
+raw data -> cdr_sync (STAGES flops) -> edge detect + data select
+         -> phase counter -> sample_strobe -> deserializer
+```
+
+`cdr_sync` 的 `samples[0]` 是最新样本，`samples[STAGES-1]` 是最老、已稳定的样本。边沿检测和**数据选择都使用老样本**，因此增加 `SYNC_STAGES` 会真正增加数据路径的亚稳态建立时间，而不只是边沿检测路径。默认 `SYNC_STAGES=3`，MTBF 仍需在目标 PDK 上确认同步寄存器未被优化/合并。
 
 ```
 cdr_oversampling #(
-  OVERSAMPLE   = 4,
-  SYNC_STAGES  = 2,
-  LOCK_THRESH  = 8,
-  LOCK_RELEASE = 4,
-  LOCK_DECAY   = 1
+  OVERSAMPLE = 4, SYNC_STAGES = 3,
+  LOCK_THRESH = 8, LOCK_STALE_BITS = 16
 ) (
-  clk, rst_n, enable, data_in,
-  data_out, sample_strobe, clk_out, lock
+  clk, rst_n, enable, flush, data_in,
+  data_out, sample_strobe, clk_out, lock, lock_stale
 );
 ```
 
-- `clk` 是过采样时钟，频率 = `OVERSAMPLE × 数据率`。
-- 捕获阶段：`data_edge` 检测后把相位计数器装到 `EDGE_PHASE`；锁定后相位自由运行，每 `OVERSAMPLE` 拍采样一次。
+- `fixed_oversampling`：捕获阶段每个边沿把相位计数器装 0；锁定后自由运行。它不跟踪频偏。
 - `sample_strobe` 每比特脉冲一次，是**数据有效选通**；应使用它，而不是 `clk_out`，来接收 `data_out`。
-- `clk_out` 是分频监视时钟，占空比 50%（`OVERSAMPLE` 为偶数）。
-- `lock` 在连续检测到 `LOCK_THRESH` 个边沿后置位，在 `LOCK_RELEASE` 以下释放（滞回），避免帧间空隙导致误失锁。
-- 约束：`OVERSAMPLE` 为偶数且 ≥ 4；`SYNC_STAGES ≥ 2`。这是频率锁定的过采样接收机，不含 plesiochronous 相位跟踪环。
+- `lock` 在连续检测到 `LOCK_THRESH` 个边沿后置位；长时间没有边沿只置 `lock_stale`，**不会**用数据模式相关的衰减把 lock 拉低。
+- `flush` 清除 lock/相位状态，用于协议恢复。
+- 约束：`OVERSAMPLE ≥ 4`；`OVERSAMPLE=2` 是受限制模式，generator 必须显式 `allow_os2: true`。
+
+```
+cdr_adaptive #(
+  OVERSAMPLE = 8, SYNC_STAGES = 3,
+  FRAC_BITS = 8, LOOP_GAIN = 4,
+  LOCK_THRESH = 8, LOCK_RELEASE = 8,
+  LOCK_STALE_BITS = 32, PHASE_DEADBAND = 1,
+  LOOP_SETTLE_BITS = 32
+) (
+  clk, rst_n, enable, flush, data_in,
+  data_out, sample_strobe, clk_out, lock, lock_stale, freq_trim
+);
+```
+
+- `adaptive_oversampling`：用 fractional period control 偶尔插入/删除一个采样周期，跟踪 TX/RX ppm 频偏；`freq_trim` 是带符号环路状态。
+- 锁定后有一个 `LOOP_SETTLE_BITS` 窗口，避免捕获瞬态把采样相位推偏；deadband 过滤 1/OVERSAMPLE UI 的量化抖动。
+- 这是**一阶频率跟踪环**，不是二阶 jitter-filtering PLL。建议 `OVERSAMPLE ≥ 8`；高抖动链路应使用 phase interpolator/PLL CDR。
+- 已验证 `PPM = 0, +700, -700`，1500 bits 连续恢复无 bit slip（`tb_cdr_adaptive`）。**限制**：5000-bit/100 ppm 长跑仍会出现相位回绕/失锁；生产级长跑跟踪需要二阶环或 phase interpolator，当前版本不宣称。
+
+### `rtl/comma_align.sv`
+
+在恢复串行流中搜索 `SYNC_PATTERN`（默认 8'hBC）。匹配发生在 pattern 最后一个 bit；该 bit 被 deserializer 的 `align` 优先级丢弃，下一个有效 bit 成为 word0 bit0。`ALIGN_MODE=2` 时每个 `rx_par_valid` 后重新 arm，支持连续/带空隙的 per-frame 重对齐。`flush` 或 CDR lock 丢失会清除 `rx_frame_locked`。
 
 ## 3. 与 OpenSERDES 原实现的关键差异
 
@@ -136,27 +170,35 @@ cdr_oversampling #(
 | Deserializer `4'd3` 分支缺少 `OUT[0] <= SERIAL_IN` | 按位索引写入，无 state-3 位滑移 |
 | 300 个并行输出直接暴露 | `WORDS×DATA_WIDTH` 参数化数组，可由 generator 选择并行/串行配置 |
 | DeSer `INT_PAR_IN` 没有正确传递 | 每个 word 单寄存器组，`par_data` 直连，无影子锁存 |
-| CDR 只有门级网表、22 位 SCAN_IN 语义未文档化 | 可综合抽象 CDR，带明确 `sample_strobe/lock` 契约 |
+| CDR 只有门级网表、22 位 SCAN_IN 语义未文档化 | fixed/adaptive/source-sync 三种可综合模式；明确 `sample_strobe/lock/lock_stale/freq_trim` 契约；`comma_align` 帧同步 |
 | 原 Serializer 只有 13 个 DFF（输入寄存器被删），DeSer 更多 | 抽象后 Serializer 266 FF、DeSer 266 FF、Top 550 FF；单时钟 + `enable`，必须走 CTS；见 `docs/clocking.md` |
-| 无 testbench | 11 个配置（serializer LSB/MSB/capture、deserializer LSB/MSB、loopback LSB/MSB、32×8、channel-model、CDR） |
+| 无 testbench | 17 个自检 TB（serializer LSB/MSB/capture/stream、deserializer LSB/MSB、loopback LSB/MSB、32×8、link scoreboard、channel、fixed/adaptive CDR、frame sync、CDR bypass、compat legacy/port-order） |
 
 ## 4. 验证
 
 ```bash
-make sim    # iverilog：serializer/deserializer/loopback/32×8/channel/CDR
-make lint   # Verilator -Wall
-make synth  # Yosys 通用门级检查
+make sim      # iverilog：17 个自检 TB
+make regress  # 参数矩阵 + link/scoreboard + generator 包检查
+make lint     # Verilator -Wall（0 warning）
+make synth    # Yosys 通用门级检查
+make gen SPEC=spec/default.yaml OUT=out/default
+make qualify REPORT=signoff.json LEVEL=PRE_PNR_TIMING
 ```
 
 已验证：
 
-- `tb_serializer` LSB/MSB：PASS
+- `tb_serializer` LSB/MSB/capture：PASS
+- `tb_serializer_stream`：PASS（per-word valid/ready，背靠背帧）
 - `tb_deserializer` LSB/MSB：PASS
 - `tb_serdes_loopback` LSB/MSB：PASS
 - `tb_serdes_default` 32×8：PASS
-- `tb_serdes_channel` TX→channel→CDR 串行恢复 + `par_valid`：PASS
+- `tb_serdes_channel`：真实 `rx_serial_data` 串行 scoreboard + `rx_par_data` 并行帧 scoreboard；覆盖 comma per-frame 对齐、帧间空隙、`rx_flush` 后重锁：PASS
 - `tb_channel` delay/invert/error 注入：PASS
-- `tb_cdr` 100 个恢复样本：PASS
+- `tb_cdr`：固定 CDR，PRBS7，OS=4 和 OS=2 各 200 个恢复 bit 与发送序列逐 bit 比较：PASS
+- `tb_cdr_adaptive`：0 / +700 / -700 ppm，1500 bit 连续恢复：PASS（5000-bit/100 ppm 长跑仍为 open item）
+- `tb_frame_sync`：comma、gap、mid-frame flush/re-acquire：PASS
+- `tb_cdr_bypass`：source-sync receiver-only：PASS
+- `tb_compat_legacy` / `tb_compat_port_order`：named 和 positional legacy 兼容：PASS
 - Verilator lint：0 warning
 - Yosys synth：仅通用门/DFF，无 latch、无 memory
 
@@ -165,6 +207,8 @@ make synth  # Yosys 通用门级检查
 - `rtl/serdes_digital_top.sv`：数字顶层
 - `tb/channel_model.sv`：延迟/反相/确定性误码注入的数字信道模型（不含模拟损耗/ISI）
 - `constraints/serdes_digital.sdc`：TX/RX 双时钟、异步 clock group、uncertainty、I/O delay 模板（模板值未用目标 PDK 工具签核，生成器需替换周期/uncertainty）
+- `scripts/gen_ip.py`：spec → 自包含 package（RTL/filelist/params/3 级 SDC/PnR config/manifest）
+- `scripts/qualify.py`：按 `RTL_FUNCTIONAL → ... → LINK_VALIDATED` 检查证据，拒绝跨级声明
 - `docs/clocking.md`：原网表时钟树审计与 skew 预算（已按 3 级 CTS/均衡扇出修正）
 - `docs/prepnr_sta.md`：pre-PnR STA 方法学、reset/control 分离、三种工艺分级与线延迟预算
 - `tech/<pdk>/tech.yaml`：PDK/SCL/LIB/corner/CTS 目标；路径用 `${PDK_ROOT}` / `${PDK_LIB_ROOT}` 展开，见 `tech/README.md`
@@ -172,29 +216,49 @@ make synth  # Yosys 通用门级检查
 
 ## 5. 参数与目标工艺
 
-`DATA_WIDTH`/`WORDS` 不绑定工艺；`RATIO=DATA_WIDTH*WORDS` 在模块内部派生，避免参数不一致。目标工艺由 generator 的 `tech.yaml` 选择：
+`DATA_WIDTH`/`WORDS` 不绑定工艺；`RATIO=DATA_WIDTH*WORDS` 在模块内部派生，避免参数不一致。目标工艺由 `tech/<pdk>/tech.yaml` 的 `limits` 选择，实际字段为：
 
 ```yaml
 limits:
-  digital_fmax_mhz: 500
-  serial_mbps: 500
-  cdr_sample_mhz: 500
-  max_pads: 64
+  class: MS
+  default_period_ns: 40.0
+  serial_mbps: 25
+  max_endpoint_line_rate_mbps: 100
+  max_link_line_rate_mbps: 50
 ```
 
-生成器规则：
+这些 gate 来自 pre-PnR 测量，是保守值，不是 signoff。generator 会按 `target=link/tx/rx` 选择 link 或 endpoint gate，并拒绝超限配置；`--relax-limits` 只用于显式实验。
 
-- 1 µm/0.5 µm：`LS`，`WORDS=4/8`，`DATA_WIDTH=8/16`，source-synchronous。
-- 130/180 nm：`MS`，`WORDS=8`，`DATA_WIDTH=32`，4× oversampling 或 source-sync。
-- 55 nm/SiGe：`HS` 数字/模拟分离；55 nm 可 32-bit 并行，SiGe 模拟前端另做。
+生成器不再按“工艺名 → 固定架构”查表，而是：
 
-## 6. 下一层抽象（尚未实现，不在本目录承诺）
+1. 从 `tech/arch_db.yaml` 读取候选架构和相对 area/power/latency；
+2. 按 target、RATIO、line rate、oversample、clocking、ppm 过滤；
+3. 计算 Pareto frontier，并按 `optimization.objectives` 选一个；
+4. 生成 package，并在 `manifest.json` 记录候选、confidence、参数和 git commit。
 
-- Frame alignment/comma、8b10b/64b66b。
-- Elastic FIFO、CDC（CDR 恢复时钟与本地时钟）。
-- Scan/DFT、clock gating。
-- 模拟 TX/RX 的 Verilog-A/RNM wrapper。
-- 目标 PDK 的 cellmap/SDC/floorplan/signoff adapter。
+默认规则：
+
+- `RATIO <= 128` 可用 single-cycle `parallel_mux`；更大 RATIO 用 `word_group_capture`。
+- 窄输入 / MPW 小面积目标可用 endpoint-only `word_streaming`。
+- 同源时钟用 `fixed_oversampling`；有 ppm 频偏用 `adaptive_oversampling`（OS ≥ 8）；有 forwarded clock 用 `source_sync`。
+- `soc`/`phy_ip` preset 需要 APB/AXI-Stream/CDC/BIST，目前只生成 scaffold，必须显式 `--allow-incomplete`。
+
+## 6. 下一层抽象
+
+已落地：
+
+- Frame alignment/comma（`comma_align`，单次和 per-frame 重对齐）。
+- fixed/adaptive/source-sync 三种 CDR。
+- word-streaming serializer 架构。
+- spec-driven package generator、三级 SDC、qualification gate。
+
+仍未实现 / 不在本目录承诺：
+
+- 8b10b/64b66b、scrambler、CRC、FEC。
+- Elastic FIFO、完整 CDC（RX 恢复时钟 → 本地 SoC 时钟）；APB/AXI-Stream wrapper 仅 scaffold。
+- Scan/DFT、clock gating、BIST/calibration、DFT signoff。
+- 模拟 TX/RX 的 Verilog-A/RNM wrapper、PEX、SI/PI、jitter/BER、silicon correlation。
+- 目标 PDK 的 cellmap/floorplan/post-route signoff adapter；当前 `native_dff` 仍是文档字段，尚无自动 `dfflibmap` runner。
 
 ## 7. 原生 DFF 映射策略
 
@@ -233,6 +297,27 @@ icsprout55 的三种库都是 **7-track**（cell height 1.4 µm，M1 pitch 0.2 �
 
 Serializer 单独在 50 MHz：H7CH −25.97 ns、H7CL −1.01 ns、H7CR −5.63 ns，三者都不闭合；需要 25 MHz 或对 256:1 mux 加流水。Top 通过的原因包含顶层优化/连接差异，不能据此宣称 Serializer 单独也通过。
 
-## 8. 许可
+## 8. Generator、presets 与 qualification
+
+生成器入口是 `scripts/gen_ip.py`，spec 示例在 `spec/`：
+
+```bash
+python3 scripts/gen_ip.py --spec spec/default.yaml --out out/default --force
+python3 scripts/gen_ip.py --spec spec/default.yaml --check
+python3 scripts/gen_ip.py --list-arch
+```
+
+输出 package 包含 `rtl/`、`rtl/filelist.f`、`params.svh/json`、`constraints/{pre_pnr,post_cts,signoff}.sdc`、`pnr/librelane.yaml`、`manifest.json` 和 `README.md`。注意 `word_group_capture` 仍是 frame-level hold（`ready` 低 `WORDS` 拍，外部总线需保持稳定），不是 per-word handshake；需要真正的逐 word 握手时选 `word_streaming`。`pre_pnr.sdc` 排除 async reset recovery/removal；`post_cts.sdc`/`signoff.sdc` 用 `set_propagated_clock` 并重新启用 reset 检查。
+
+| preset | 数据 | 控制 | CDC | 状态 |
+|---|---|---|---|---|
+| `minimal` | valid/ready parallel | native | none | 可用 |
+| `default` | valid/ready parallel | native | auto | 可用 |
+| `soc` | AXI4-Stream | APB | async FIFO | scaffold，需要 `--allow-incomplete` |
+| `phy_ip` | valid/ready + BIST/calibration/DFT | APB | async FIFO | scaffold，需要 `--allow-incomplete` |
+
+验证等级由 `scripts/qualify.py` 强制执行：`RTL_FUNCTIONAL`（lint/sim/synth）、`PRE_PNR_TIMING`、`POST_ROUTE_TIMING`、`PHYSICAL_SIGNOFF`、`LINK_VALIDATED`。详细规则见 [`docs/generator.md`](docs/generator.md) 和 [`docs/qualification.md`](docs/qualification.md)。
+
+## 9. 许可
 
 原 OpenSERDES 为 GPL-3.0。本目录是行为/接口级的 clean rewrite，未复制原门级网表；对外分发前请确认 GPL 义务与目标 PDK 许可。

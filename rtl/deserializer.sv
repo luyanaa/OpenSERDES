@@ -57,7 +57,10 @@ module deserializer #(
     assign par_data  = word_data;
     assign par_valid = par_valid_q;
     assign busy      = busy_q;
-    assign capture   = serial_valid & enable;
+    // align/flush take priority over capture.  Gate the word-bank capture as
+    // well, otherwise the align bit itself would still be written into the
+    // old word/bit while the parent resets the counters.
+    assign capture   = serial_valid & enable & ~(align | flush);
 
     // One capture bank per word.  Only the selected word is written, and the
     // bit select is a one-hot enable rather than a binary comparator.

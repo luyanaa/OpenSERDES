@@ -1,148 +1,172 @@
 `timescale 1ns/1ps
 
 // -----------------------------------------------------------------------------
-// Abstract digital oversampling CDR.
+// Fixed-rate oversampling CDR (physically explicit sampler -> edge -> select).
 //
-// This is a technology-independent replacement for the original gate-level
-// CLK_RECOVERY block.  It is not a cycle-accurate clone of that netlist.
+// This is the "fixed_phase_oversampling" mode.  It acquires the sampling phase
+// once from the first edges, then free-runs at OVERSAMPLE cycles per bit.  It
+// is intended for source-synchronous or otherwise frequency-locked links.  It
+// does NOT track a frequency offset; use cdr_adaptive for that.
 //
-// Contract:
-//   - clk is the oversampling clock, OVERSAMPLE times the data rate.
-//   - data_in is sampled on every enabled clk.
-//   - During acquisition (lock=0), a detected data edge loads the phase counter
-//     with EDGE_PHASE so that the eye-centre sample lands near the middle of
-//     the bit.  After lock, the phase counter free-runs at OVERSAMPLE cycles
-//     per bit.  This is a frequency-locked oversampling receiver; it does not
-//     implement a phase-tracking loop for plesiochronous links.
-//   - data_out is sampled at the eye centre.
-//   - sample_strobe pulses for one clk per bit when data_out is valid.
-//   - clk_out is a divided monitor clock at the data rate.  Use sample_strobe,
-//     not clk_out, to capture data_out.
-//   - lock asserts after LOCK_THRESH detected edges and releases at
-//     LOCK_RELEASE when no edge is seen for a bit period (hysteresis).
+// Architecture:
 //
-// OVERSAMPLE must be even and >= 4.  SYNC_STAGES >= 2.
+//   data_in -> cdr_sync (STAGES flops) -> samples[N-1:0]
+//                                        |-> edge detect (N-1, N-2)
+//                                        |-> data select (N-1)
+//   phase counter -> SAMPLE_PHASE -> register data_out/sample_strobe
+//
+// Both edge detection and data selection use the OLDEST synchronizer stage.
+// This makes the data path actually pass through all STAGES flops.  The phase
+// counter is loaded at edge detection and sampled at SAMPLE_PHASE, which
+// compensates for the synchronizer latency, so the selected sample stays at
+// the eye centre for any STAGES >= 2.
+//
+// OVERSAMPLE >= 4 is the supported mode.  OVERSAMPLE == 2 is a restricted
+// mode: it has only two samples per UI and no jitter margin.  The generator
+// must mark it explicitly as "os2_restricted"; the RTL still implements it so
+// that the existing 200 Mb/s H7CL experiments remain reproducible.
+//
+// Lock semantics:
+//   - lock asserts after LOCK_THRESH detected edges.
+//   - lock does NOT decay on long runs of identical bits.  A long run is not
+//     evidence of loss of lock.
+//   - lock_stale asserts after LOCK_STALE_BITS bit periods without an edge.
+//     Consumers may use it as a "no phase evidence" warning, but should not
+//     stop capturing data solely because of it.
+//   - flush clears acquisition/lock state and restarts the search.
+//
+// MTBF: increase SYNC_STAGES (>=3 recommended) and verify the synchronizer
+// flops are not retimed/merged by the physical flow.  The RTL cannot guarantee
+// MTBF by itself.
 // -----------------------------------------------------------------------------
 module cdr_oversampling #(
-    parameter int OVERSAMPLE  = 4,
-    parameter int SYNC_STAGES = 2,
-    parameter int LOCK_THRESH  = 8,
-    parameter int LOCK_RELEASE = 4,
-    parameter int LOCK_DECAY   = 1
+    parameter int OVERSAMPLE      = 4,
+    parameter int SYNC_STAGES     = 3,
+    parameter int LOCK_THRESH     = 8,
+    parameter int LOCK_STALE_BITS = 16
 ) (
     input  logic clk,
     input  logic rst_n,
     input  logic enable,
+    input  logic flush,
     input  logic data_in,
     output logic data_out,
     output logic sample_strobe,
     output logic clk_out,
-    output logic lock
+    output logic lock,
+    output logic lock_stale
 );
 
-    localparam int PHASE_W = (OVERSAMPLE <= 1) ? 1 : $clog2(OVERSAMPLE);
-    localparam int HALF    = OVERSAMPLE / 2;
-    localparam int SYNC_W  = (SYNC_STAGES < 2) ? 2 : SYNC_STAGES;
-    localparam int LOCK_W  = (LOCK_THRESH <= 1) ? 1 : $clog2(LOCK_THRESH+1);
+    localparam int N          = (SYNC_STAGES < 2) ? 2 : SYNC_STAGES;
+    localparam int PHASE_W    = (OVERSAMPLE <= 1) ? 1 : $clog2(OVERSAMPLE);
+    localparam int HALF       = OVERSAMPLE / 2;
+    // Edge detection is N-1 cycles behind the pin.  Selecting samples[N-1]
+    // and asserting SAMPLE_PHASE = (HALF+1) mod OVERSAMPLE puts the selected
+    // sample at edge + HALF cycles for every N.
+    localparam int SAMPLE_PHASE = (HALF + 1) % OVERSAMPLE;
+    localparam int LAST_PHASE   = OVERSAMPLE - 1;
+    localparam int LOCK_W       = (LOCK_THRESH <= 1) ? 1 : $clog2(LOCK_THRESH + 1);
+    localparam int STALE_LIMIT  = (LOCK_STALE_BITS < 1) ? 1 : LOCK_STALE_BITS;
+    localparam int STALE_W      = (STALE_LIMIT <= 1) ? 1 : $clog2(STALE_LIMIT + 1);
 
-    // Edge detection occurs SYNC_W cycles after the real transition.  Load
-    // the phase counter one cycle before the eye-centre phase so that the
-    // first post-acquisition sample is as close to the centre as possible.
-    localparam int EDGE_PHASE   = (SYNC_W < OVERSAMPLE) ? (SYNC_W - 1) : 0;
-    localparam int SAMPLE_PHASE = HALF;
+    localparam logic [PHASE_W-1:0] SAMPLE_PHASE_C = PHASE_W'(SAMPLE_PHASE);
+    localparam logic [PHASE_W-1:0] LAST_PHASE_C   = PHASE_W'(LAST_PHASE);
+    localparam logic [PHASE_W-1:0] HALF_MINUS_1_C = PHASE_W'((HALF == 0) ? 0 : (HALF - 1));
+    localparam logic [LOCK_W-1:0]  LOCK_MAX       = LOCK_W'(LOCK_THRESH);
+    localparam logic [STALE_W-1:0] STALE_MAX      = STALE_W'(STALE_LIMIT);
 
-    localparam logic [PHASE_W-1:0] LAST_PHASE      = PHASE_W'(OVERSAMPLE-1);
-    localparam logic [PHASE_W-1:0] HALF_LAST       = PHASE_W'(HALF-1);
-    localparam logic [PHASE_W-1:0] SAMPLE_PHASE_C  = PHASE_W'(SAMPLE_PHASE);
-    localparam logic [PHASE_W-1:0] EDGE_PHASE_C    = PHASE_W'(EDGE_PHASE);
-    localparam logic [LOCK_W-1:0]  LOCK_MAX        = LOCK_W'(LOCK_THRESH);
-    localparam logic [LOCK_W-1:0]  LOCK_REL        = LOCK_W'(LOCK_RELEASE);
-    localparam logic [LOCK_W-1:0]  LOCK_DEC        = LOCK_W'(LOCK_DECAY);
+    logic [N-1:0]        samples;
+    logic [PHASE_W-1:0]  phase_q;
+    logic [LOCK_W-1:0]   edge_cnt_q;
+    logic [STALE_W-1:0]  stale_cnt_q;
+    logic                data_out_q;
+    logic                sample_strobe_q;
+    logic                clk_out_q;
+    logic                lock_q;
+    logic                lock_stale_q;
+    logic                data_edge;
+    logic                sample_now;
+    logic                sample_valid;
+    logic                bit_period_end;
 
-    logic [SYNC_W-1:0]  sync_q;
-    logic [PHASE_W-1:0] phase_q;
-    logic [LOCK_W-1:0]  lock_cnt_q;
-    logic               data_out_q;
-    logic               sample_strobe_q;
-    logic               clk_out_q;
-    logic               lock_q;
-    logic               data_edge;
-    logic               edge_seen_q;
-    logic               sample_now;
-    logic               sample_d_q;
+    cdr_sync #(.STAGES(N)) u_sync (
+        .clk(clk),
+        .rst_n(rst_n),
+        .async_in(data_in),
+        .samples(samples)
+    );
 
-    assign data_edge = sync_q[SYNC_W-1] ^ sync_q[SYNC_W-2];
-
-    // One sample per bit: the phase counter visits SAMPLE_PHASE once per wrap.
-    assign sample_now = (phase_q == SAMPLE_PHASE_C);
+    assign data_edge      = samples[N-1] ^ samples[N-2];
+    assign sample_now     = (phase_q == SAMPLE_PHASE_C);
+    // Do not take a sample on the cycle that reloads the phase from an edge:
+    // the selected sample would be from before the acquisition alignment.
+    assign sample_valid   = sample_now && !(data_edge && !lock_q);
+    assign bit_period_end = (phase_q == LAST_PHASE_C);
 
     assign data_out      = data_out_q;
     assign sample_strobe = sample_strobe_q;
     assign clk_out       = clk_out_q;
     assign lock          = lock_q;
+    assign lock_stale    = lock_stale_q;
 
     always_ff @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
-            sync_q          <= '0;
-            phase_q         <= '0;
-            lock_cnt_q      <= '0;
-            data_out_q      <= 1'b0;
-            sample_strobe_q <= 1'b0;
-            clk_out_q       <= 1'b0;
-            lock_q          <= 1'b0;
-            edge_seen_q     <= 1'b0;
-            sample_d_q      <= 1'b0;
-        end else begin
-            sync_q <= {sync_q[SYNC_W-2:0], data_in};
+            phase_q        <= '0;
+            edge_cnt_q     <= '0;
+            stale_cnt_q    <= '0;
+            data_out_q     <= 1'b0;
+            sample_strobe_q<= 1'b0;
+            clk_out_q      <= 1'b0;
+            lock_q         <= 1'b0;
+            lock_stale_q   <= 1'b0;
+        end else if (flush) begin
+            phase_q        <= '0;
+            edge_cnt_q     <= '0;
+            stale_cnt_q    <= '0;
+            data_out_q     <= 1'b0;
+            sample_strobe_q<= 1'b0;
+            clk_out_q      <= 1'b0;
+            lock_q         <= 1'b0;
+            lock_stale_q   <= 1'b0;
+        end else if (enable) begin
+            // Phase counter.  During acquisition an edge reloads phase 0;
+            // after lock the counter free-runs at OVERSAMPLE cycles per bit.
+            if (data_edge && !lock_q)
+                phase_q <= '0;
+            else if (bit_period_end)
+                phase_q <= '0;
+            else
+                phase_q <= phase_q + 1'b1;
 
-            if (enable) begin
-                // Acquisition: align the free-running phase to the edge.
-                // Tracking: keep free-running once locked.
-                if (data_edge && !lock_q) begin
-                    phase_q <= EDGE_PHASE_C;
-                end else if (phase_q == LAST_PHASE) begin
-                    phase_q <= '0;
-                end else begin
-                    phase_q <= phase_q + 1'b1;
-                end
+            // Data selection uses the oldest, fully settled synchronizer
+            // stage.  The phase offset above makes this the eye centre.
+            sample_strobe_q <= sample_valid;
+            if (sample_valid)
+                data_out_q <= samples[N-1];
 
-                // One edge per bit is enough to maintain lock.
-                if (data_edge)
-                    edge_seen_q <= 1'b1;
-                else if (phase_q == LAST_PHASE)
-                    edge_seen_q <= 1'b0;
-
-                if (data_edge) begin
-                    if (lock_cnt_q != LOCK_MAX)
-                        lock_cnt_q <= lock_cnt_q + 1'b1;
-                end else if (phase_q == LAST_PHASE && !edge_seen_q) begin
-                    if (lock_cnt_q > LOCK_DEC)
-                        lock_cnt_q <= lock_cnt_q - LOCK_DEC;
-                    else
-                        lock_cnt_q <= '0;
-                end
-
-                // One-cycle pipeline: capture the settled synchronizer
-                // output, then present data_out and sample_strobe together.
-                sample_d_q <= sample_now;
-                if (sample_d_q)
-                    data_out_q <= sync_q[0];
-                sample_strobe_q <= sample_d_q;
-
-                // Divided monitor clock, 50% duty for an even OVERSAMPLE.
-                if (phase_q == HALF_LAST)
-                    clk_out_q <= 1'b1;
-                else if (phase_q == LAST_PHASE)
-                    clk_out_q <= 1'b0;
-            end else begin
-                sample_strobe_q <= 1'b0;
+            // Lock acquisition and stale-edge detection.
+            if (data_edge) begin
+                if (edge_cnt_q != LOCK_MAX)
+                    edge_cnt_q <= edge_cnt_q + 1'b1;
+                stale_cnt_q  <= '0;
+                lock_stale_q <= 1'b0;
+            end else if (bit_period_end) begin
+                if (stale_cnt_q != STALE_MAX)
+                    stale_cnt_q <= stale_cnt_q + 1'b1;
+                if ((stale_cnt_q + 1'b1) >= STALE_MAX)
+                    lock_stale_q <= 1'b1;
             end
 
-            // Hysteresis: assert at LOCK_THRESH, release at LOCK_RELEASE.
-            if (lock_q)
-                lock_q <= (lock_cnt_q >= LOCK_REL);
-            else
-                lock_q <= (lock_cnt_q >= LOCK_MAX);
+            lock_q <= (edge_cnt_q >= LOCK_MAX);
+
+            // Divided monitor clock.  Not a functional clock; use
+            // sample_strobe to capture data_out.
+            if (phase_q == HALF_MINUS_1_C)
+                clk_out_q <= 1'b1;
+            else if (bit_period_end)
+                clk_out_q <= 1'b0;
+        end else begin
+            sample_strobe_q <= 1'b0;
         end
     end
 

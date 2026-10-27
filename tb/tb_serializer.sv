@@ -7,13 +7,14 @@
 `define TB_CAPTURE_MODE 0
 `endif
 
-module tb_serializer;
+module tb_serializer #(
+    parameter int DATA_WIDTH = 8,
+    parameter int WORDS      = 4,
+    parameter bit LSB_FIRST  = (`TB_LSB_FIRST != 0),
+    parameter bit CAPTURE_MODE = (`TB_CAPTURE_MODE != 0)
+);
 
-    localparam int DATA_WIDTH = 8;
-    localparam int WORDS      = 4;
-    localparam int RATIO      = DATA_WIDTH * WORDS;
-    localparam bit LSB_FIRST  = (`TB_LSB_FIRST != 0);
-    localparam bit CAPTURE_MODE = (`TB_CAPTURE_MODE != 0);
+    localparam int RATIO = DATA_WIDTH * WORDS;
 
     logic clk;
     logic rst_n;
