@@ -71,7 +71,10 @@ The digital migration now has a product packaging step:
   candidate plus its confidence in `manifest.json`.
 - `scripts/qualify.py` enforces the cumulative levels `RTL_FUNCTIONAL` ->
   `PRE_PNR_TIMING` -> `POST_ROUTE_TIMING` -> `PHYSICAL_SIGNOFF` ->
-  `LINK_VALIDATED`.
+  `LINK_VALIDATED`; `scripts/collect_signoff.py` collects STA/DRC/LVS/CDC/BER
+  reports into `signoff.json`.
+- `scripts/import_ppa.py` fills `tech/ppa_measured.yaml`; `gen_ip.py --ppa-db`
+  applies measured gates/metrics before architecture selection.
 - `soc`/`phy_ip` presets are scaffolds until APB/AXI-Stream/CDC/BIST RTL exists.
 
 See [`generator.md`](generator.md) and [`qualification.md`](qualification.md).

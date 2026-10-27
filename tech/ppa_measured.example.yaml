@@ -1,0 +1,8 @@
+# Measured PPA database consumed by scripts/gen_ip.py.
+#
+# rel_* metrics are normalized within one tech/period/signoff setup.  Absolute
+# area_um2/power_mw are optional traceability fields; they are not mixed with
+# the relative scores.  The generator records confidence and source in
+# manifest.json.
+schema: 1
+entries: []

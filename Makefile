@@ -7,11 +7,17 @@ SPEC     ?= spec/default.yaml
 OUT      ?= out/default
 REPORT   ?= spec/qualification_report.example.json
 LEVEL    ?= RTL_FUNCTIONAL
+PACKAGE  ?= out/default
+REPORTS  ?= $(PACKAGE)/reports
+SIGNOFF_LEVEL ?= POST_ROUTE_TIMING
+PPA_DB   ?= tech/ppa_measured.yaml
+PPA_CSV  ?=
+PPA_OUT  ?= tech/ppa_measured.yaml
 
 BUILD := build
 RTL   := $(wildcard rtl/*.sv)
 
-.PHONY: all sim lint synth regress gen qualify clean
+.PHONY: all sim lint synth regress gen qualify signoff ppa-import clean
 
 all: sim
 
@@ -120,10 +126,16 @@ regress:
 	$(PYTHON) scripts/regress.py
 
 gen:
-	$(PYTHON) scripts/gen_ip.py --spec $(SPEC) --out $(OUT) --force
+	$(PYTHON) scripts/gen_ip.py --spec $(SPEC) --out $(OUT) --force --ppa-db $(PPA_DB)
 
 qualify:
 	$(PYTHON) scripts/qualify.py --report $(REPORT) --level $(LEVEL)
+
+signoff:
+	$(PYTHON) scripts/collect_signoff.py --package $(PACKAGE) --reports $(REPORTS) --requested-level $(SIGNOFF_LEVEL)
+
+ppa-import:
+	$(PYTHON) scripts/import_ppa.py --csv $(PPA_CSV) --out $(PPA_OUT)
 
 clean:
 	rm -rf $(BUILD) out

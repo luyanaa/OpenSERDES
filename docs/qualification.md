@@ -46,7 +46,36 @@ python3 scripts/qualify.py --report signoff.json --level PHYSICAL_SIGNOFF \
 The script computes the highest cumulative level whose checks all pass.  It
 exits non-zero if the requested level is not reached.
 
-## 2. Rules
+## 2. Collecting tool reports
+
+The package generator does not run PnR.  `scripts/collect_signoff.py` turns
+tool reports into the qualification report:
+
+```bash
+make signoff PACKAGE=out/default REPORTS=out/default/reports \
+  SIGNOFF_LEVEL=POST_ROUTE_TIMING
+```
+
+Expected report names:
+
+| File | Content |
+|---|---|
+| `rtl_functional.json` | `{"checks":{"lint":true,"sim":true,"synth":true}}` |
+| `pre_pnr_setup.rpt` / `pre_pnr_hold.rpt` | text with `setup WNS: 0.12` / `hold WNS: 0.01` |
+| `post_route_setup.rpt` / `post_route_hold.rpt` | post-route text WNS |
+| `drc.rpt` | `0 violations` or `clean` |
+| `lvs.rpt` | `match uniquely` / `Circuits match` |
+| `antenna.rpt` | `0 violations` or `clean` |
+| `cdc.rpt` | `0 violations` or `clean` |
+| `ber.json` | `ber`, `jtol_pass`, `eye_margin_ui`, optional `ber_target` |
+| `metrics.json` | explicit `{"checks":{...}}` override |
+
+The collector leaves a check absent when it cannot parse it; it never converts a
+missing or ambiguous report into a pass.  Combined `pre_pnr_sta.rpt` and
+`post_route_sta.rpt` files with `setup WNS` / `hold WNS` lines are also
+accepted.
+
+## 3. Rules
 
 - Pre-PnR WNS is not post-route WNS.  Do not put pre-PnR numbers in a
   POST_ROUTE_TIMING report.

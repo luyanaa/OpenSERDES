@@ -21,6 +21,7 @@ LEVELS = [
     ("LINK_VALIDATED", ["ber", "jtol_pass", "eye_margin_ui"]),
 ]
 
+RANK = [name for name, _ in LEVELS]
 BOOLEAN_CHECKS = {"lint", "sim", "synth", "drc_clean", "lvs_clean",
                   "antenna_clean", "cdc_clean", "jtol_pass"}
 WNS_CHECKS = {"pre_pnr_setup_wns", "pre_pnr_hold_wns",
@@ -52,18 +53,8 @@ def check(name: str, value, ber_target: float) -> tuple[bool, str]:
     return bool(value), "pass" if value else "fail"
 
 
-def main() -> int:
-    ap = argparse.ArgumentParser(description="Evaluate a SerDes qualification report")
-    ap.add_argument("--report", required=True)
-    ap.add_argument("--level", default="RTL_FUNCTIONAL",
-                    choices=[name for name, _ in LEVELS])
-    ap.add_argument("--out", default=None, help="write qualification.json")
-    args = ap.parse_args()
-
-    report = json.loads(Path(args.report).read_text())
-    checks = report.get("checks", {})
-    ber_target = float(report.get("ber_target", 1e-12))
-
+def evaluate(checks: dict, ber_target: float, requested: str) -> dict:
+    """Return the cumulative achieved level and per-check details."""
     achieved = "UNVERIFIED"
     details: dict[str, dict[str, str]] = {}
     for level, required in LEVELS:
@@ -80,34 +71,56 @@ def main() -> int:
         else:
             break
 
-    rank = [name for name, _ in LEVELS]
-    requested_ok = achieved in rank and rank.index(achieved) >= rank.index(args.level)
-    missing_for_requested = []
+    requested_ok = achieved in RANK and RANK.index(achieved) >= RANK.index(requested)
+    missing_for_requested: list[str] = []
     if not requested_ok:
         for level, required in LEVELS:
-            if rank.index(level) > rank.index(args.level):
+            if RANK.index(level) > RANK.index(requested):
                 break
-            missing_for_requested += [n for n in required if not check(n, checks.get(n), ber_target)[0]]
+            missing_for_requested += [n for n in required
+                                      if not check(n, checks.get(n), ber_target)[0]]
+    return {
+        "achieved": achieved,
+        "requested": requested,
+        "requested_pass": requested_ok,
+        "details": details,
+        "missing_for_requested": sorted(set(missing_for_requested)),
+    }
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(description="Evaluate a SerDes qualification report")
+    ap.add_argument("--report", required=True)
+    ap.add_argument("--level", default="RTL_FUNCTIONAL", choices=RANK)
+    ap.add_argument("--out", default=None, help="write qualification.json")
+    args = ap.parse_args()
+
+    report = json.loads(Path(args.report).read_text())
+    checks = report.get("checks", {})
+    ber_target = float(report.get("ber_target", 1e-12))
+    result = evaluate(checks, ber_target, args.level)
 
     print(f"report: {args.report}")
-    print(f"achieved: {achieved}")
-    print(f"requested: {args.level} -> {'PASS' if requested_ok else 'FAIL'}")
-    for level, level_details in details.items():
-        state = "checked" if achieved != "UNVERIFIED" and rank.index(level) <= rank.index(achieved) else "not reached"
+    print(f"achieved: {result['achieved']}")
+    print(f"requested: {args.level} -> {'PASS' if result['requested_pass'] else 'FAIL'}")
+    for level, level_details in result["details"].items():
+        state = ("checked" if result["achieved"] != "UNVERIFIED" and
+                 RANK.index(level) <= RANK.index(result["achieved"]) else "not reached")
         print(f"  {level}: {state}")
         for name, detail in level_details.items():
             print(f"    {name}: {detail}")
-    if missing_for_requested:
-        print("missing for requested level: " + ", ".join(sorted(set(missing_for_requested))))
+    if result["missing_for_requested"]:
+        print("missing for requested level: " +
+              ", ".join(result["missing_for_requested"]))
 
     if args.out:
         payload = {
-            "level": achieved,
+            "level": result["achieved"],
             "requested_level": args.level,
-            "requested_pass": requested_ok,
+            "requested_pass": result["requested_pass"],
             "checks": checks,
-            "details": details,
-            "missing_for_requested": sorted(set(missing_for_requested)),
+            "details": result["details"],
+            "missing_for_requested": result["missing_for_requested"],
             "ber_target": ber_target,
             "evaluated_utc": datetime.now(timezone.utc).isoformat(),
             "git_commit": git_commit(Path(__file__).resolve().parent.parent),
@@ -115,7 +128,7 @@ def main() -> int:
         Path(args.out).write_text(json.dumps(payload, indent=2) + "\n")
         print(f"wrote {args.out}")
 
-    return 0 if requested_ok else 1
+    return 0 if result["requested_pass"] else 1
 
 
 if __name__ == "__main__":

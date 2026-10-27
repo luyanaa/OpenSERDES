@@ -159,6 +159,21 @@ def load_arch_db() -> dict[str, dict[str, Any]]:
     return yaml.safe_load(ARCH_DB_PATH.read_text())
 
 
+def load_ppa(path: str | None) -> dict[tuple[str, str, str, str], dict[str, Any]]:
+    """Load measured PPA entries keyed by (tech, scl, kind, arch)."""
+    if not path:
+        return {}
+    ppa_path = Path(path)
+    if not ppa_path.exists():
+        return {}
+    data = yaml.safe_load(ppa_path.read_text()) or {}
+    entries: dict[tuple[str, str, str, str], dict[str, Any]] = {}
+    for entry in data.get("entries", []):
+        key = (entry["tech"], entry.get("scl", ""), entry["kind"], entry["arch"])
+        entries[key] = entry
+    return entries
+
+
 def pareto(candidates: list[tuple[str, dict[str, Any]]]) -> list[str]:
     frontier = []
     for name, cand in candidates:
@@ -179,7 +194,8 @@ def pareto(candidates: list[tuple[str, dict[str, Any]]]) -> list[str]:
 
 def select_arch(kind: str, requested: str | None, target: str, ratio: int,
                 line_rate: float, oversample: int, objectives: list[str],
-                clocking: str, ppm: float, tech_name: str) -> dict[str, Any]:
+                clocking: str, ppm: float, tech_name: str, tech_scl: str,
+                ppa: dict[tuple[str, str, str, str], dict[str, Any]]) -> dict[str, Any]:
     db = load_arch_db().get(kind, {})
     candidates: list[tuple[str, dict[str, Any]]] = []
     reasons: list[str] = []
@@ -192,6 +208,17 @@ def select_arch(kind: str, requested: str | None, target: str, ratio: int,
                     eff["metrics"] = {**cand.get("metrics", {}), **value}
                 else:
                     eff[key] = value
+        ppa_entry = ppa.get((tech_name, tech_scl, kind, name)) or \
+                    ppa.get((tech_name, "", kind, name))
+        if ppa_entry:
+            if "max_line_rate_mbps" in ppa_entry:
+                eff["max_line_rate_mbps"] = ppa_entry["max_line_rate_mbps"]
+            if "metrics" in ppa_entry:
+                eff["metrics"] = dict(ppa_entry["metrics"])
+            eff["confidence"] = ppa_entry.get("confidence", "measured_post_route")
+            eff["ppa_source"] = ppa_entry.get("source", "")
+            if "absolute" in ppa_entry:
+                eff["absolute"] = ppa_entry["absolute"]
         if requested and name != requested:
             continue
         if target == "link" and not eff.get("supports_link", True):
@@ -503,16 +530,19 @@ def validate(spec: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
 def build_plan(cfg: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
     unused = {"name": "not_used", "module": "none", "confidence": "n/a",
               "frontier": []}
+    ppa = load_ppa(args.ppa_db)
     if cfg["target"] in ("link", "tx"):
         tx_arch = select_arch("tx", cfg["tx_arch_name"], cfg["target"], cfg["ratio"],
                               cfg["line_rate"], cfg["oversample"], cfg["objectives"],
-                              cfg["clocking"], cfg["ppm"], cfg["tech"].name)
+                              cfg["clocking"], cfg["ppm"], cfg["tech"].name,
+                              cfg["tech"].scl, ppa)
     else:
         tx_arch = dict(unused)
     if cfg["target"] in ("link", "rx"):
         rx_arch = select_arch("rx", cfg["rx_arch_name"], cfg["target"], cfg["ratio"],
                               cfg["line_rate"], cfg["oversample"], cfg["objectives"],
-                              cfg["clocking"], cfg["ppm"], cfg["tech"].name)
+                              cfg["clocking"], cfg["ppm"], cfg["tech"].name,
+                              cfg["tech"].scl, ppa)
     else:
         rx_arch = dict(unused)
 
@@ -577,6 +607,8 @@ def build_plan(cfg: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
         "clock_period_ns": clock_period,
         "clock_ports": clock_ports,
         "capture_semantics": capture_semantics,
+        "ppa_db": args.ppa_db,
+        "ppa_entries": len(ppa),
         "files": DESIGN_FILES[design],
     }
 
@@ -773,6 +805,8 @@ def main() -> int:
     ap.add_argument("--out", default=None)
     ap.add_argument("--pdk-root", default=None)
     ap.add_argument("--pdk-lib-root", default=None)
+    ap.add_argument("--ppa-db", default=str(ROOT / "tech" / "ppa_measured.yaml"),
+                    help="measured PPA database (missing file means no overrides)")
     ap.add_argument("--check", action="store_true", help="validate and print, do not write")
     ap.add_argument("--force", action="store_true", help="replace an existing output directory")
     ap.add_argument("--relax-limits", action="store_true", help="warn instead of failing capability gates")
@@ -821,6 +855,10 @@ def main() -> int:
             "design": plan["design"],
             "tx_arch": plan["tx_arch"]["name"],
             "rx_arch": plan["rx_arch"]["name"],
+            "tx_confidence": plan["tx_arch"]["confidence"],
+            "rx_confidence": plan["rx_arch"]["confidence"],
+            "ppa_db": plan["ppa_db"],
+            "ppa_entries": plan["ppa_entries"],
             "params": plan["params"],
             "tx_period_ns": cfg["tx_period_ns"],
             "rx_period_ns": cfg["rx_period_ns"],
@@ -907,9 +945,17 @@ def main() -> int:
                  "pdk_paths_resolved": pdk_paths_resolved},
         "params": plan["params"],
         "architecture": {
-            "tx": {k: plan["tx_arch"][k] for k in ("name", "module", "confidence", "frontier")},
-            "rx": {k: plan["rx_arch"][k] for k in ("name", "module", "confidence", "frontier")},
+            "tx": {k: plan["tx_arch"][k] for k in ("name", "module", "confidence", "frontier")
+                   if k in plan["tx_arch"]} |
+                  ({k: plan["tx_arch"][k] for k in ("ppa_source", "absolute")
+                    if k in plan["tx_arch"]}),
+            "rx": {k: plan["rx_arch"][k] for k in ("name", "module", "confidence", "frontier")
+                   if k in plan["rx_arch"]} |
+                  ({k: plan["rx_arch"][k] for k in ("ppa_source", "absolute")
+                    if k in plan["rx_arch"]}),
         },
+        "ppa_db": plan["ppa_db"],
+        "ppa_entries": plan["ppa_entries"],
         "interface": {k: cfg[k] for k in ("preset", "data_mode", "control", "cdc",
                                           "features", "enable_mode")},
         "tx_capture_semantics": plan["capture_semantics"],

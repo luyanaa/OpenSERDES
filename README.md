@@ -183,6 +183,8 @@ make lint     # Verilator -Wall（0 warning）
 make synth    # Yosys 通用门级检查
 make gen SPEC=spec/default.yaml OUT=out/default
 make qualify REPORT=signoff.json LEVEL=PRE_PNR_TIMING
+make signoff PACKAGE=out/default REPORTS=out/default/reports SIGNOFF_LEVEL=POST_ROUTE_TIMING
+make ppa-import PPA_CSV=measured.csv PPA_OUT=tech/ppa_measured.yaml
 ```
 
 已验证：
@@ -201,6 +203,7 @@ make qualify REPORT=signoff.json LEVEL=PRE_PNR_TIMING
 - `tb_compat_legacy` / `tb_compat_port_order`：named 和 positional legacy 兼容：PASS
 - Verilator lint：0 warning
 - Yosys synth：仅通用门/DFF，无 latch、无 memory
+- `scripts/regress.py`：41/41，含参数矩阵、link scoreboard、generator package、signoff collector 和 measured-PPA gate
 
 顶层/信道/SDC：
 
@@ -316,7 +319,9 @@ python3 scripts/gen_ip.py --list-arch
 | `soc` | AXI4-Stream | APB | async FIFO | scaffold，需要 `--allow-incomplete` |
 | `phy_ip` | valid/ready + BIST/calibration/DFT | APB | async FIFO | scaffold，需要 `--allow-incomplete` |
 
-验证等级由 `scripts/qualify.py` 强制执行：`RTL_FUNCTIONAL`（lint/sim/synth）、`PRE_PNR_TIMING`、`POST_ROUTE_TIMING`、`PHYSICAL_SIGNOFF`、`LINK_VALIDATED`。详细规则见 [`docs/generator.md`](docs/generator.md) 和 [`docs/qualification.md`](docs/qualification.md)。
+验证等级由 `scripts/qualify.py` 强制执行：`RTL_FUNCTIONAL`（lint/sim/synth）、`PRE_PNR_TIMING`、`POST_ROUTE_TIMING`、`PHYSICAL_SIGNOFF`、`LINK_VALIDATED`。`scripts/collect_signoff.py` 把 PnR/STA/DRC/LVS/CDC/BER 报告收集成 `signoff.json`；缺失的检查不会被猜测为通过。
+
+实测 PPA 通过 `scripts/import_ppa.py` 写入 `tech/ppa_measured.yaml`，generator 的 `--ppa-db` 会在能力过滤前应用；manifest 记录 `ppa_source`、confidence 和绝对值。详细规则见 [`docs/generator.md`](docs/generator.md) 和 [`docs/qualification.md`](docs/qualification.md)。
 
 ## 9. 许可
 

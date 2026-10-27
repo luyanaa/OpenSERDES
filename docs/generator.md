@@ -83,6 +83,27 @@ signoff PPA.  Replace them with measured post-route data as the qualification
 database fills in.  The selected candidate, its tech override and confidence are
 recorded in manifest.json.
 
+### Measured PPA database
+
+`tech/ppa_measured.yaml` is the measured override database.  Import a CSV with:
+
+```bash
+make ppa-import PPA_CSV=measured.csv PPA_OUT=tech/ppa_measured.yaml
+```
+
+CSV columns:
+
+```text
+tech,scl,kind,arch,max_line_rate_mbps,rel_area,rel_power,rel_latency,confidence,source,area_um2,power_mw
+```
+
+`rel_*` are normalized within one tech/period/signoff setup.  `area_um2` and
+`power_mw` are optional traceability fields and are not mixed into the relative
+score.  `scripts/gen_ip.py --ppa-db <path>` applies the entries before
+capability filtering; `manifest.json` records `ppa_source`, `confidence` and
+absolute values.  A measured entry with a lower line-rate gate will reject a
+spec that the relative database would have allowed.
+
 Current candidates:
 
 | Subsystem | Candidate | Notes |

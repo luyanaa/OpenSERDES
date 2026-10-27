@@ -152,6 +152,106 @@ def run_generator_checks() -> tuple[int, int]:
     return total, failed
 
 
+def run_signoff_checks() -> tuple[int, int]:
+    """Synthetic report collection and measured-PPA import checks."""
+    py = sys.executable
+    total = 0
+    failed = 0
+    package = ROOT / "build" / "gen" / "default"
+    if not (package / "manifest.json").exists():
+        return 0, 0
+
+    reports = ROOT / "build" / "signoff" / "reports"
+    reports.mkdir(parents=True, exist_ok=True)
+    (reports / "rtl_functional.json").write_text(
+        json.dumps({"checks": {"lint": True, "sim": True, "synth": True}}))
+    for name, key, value in (("pre_pnr_setup.rpt", "setup", "0.12"),
+                             ("pre_pnr_hold.rpt", "hold", "0.01"),
+                             ("post_route_setup.rpt", "setup", "0.04"),
+                             ("post_route_hold.rpt", "hold", "0.008")):
+        (reports / name).write_text(f"{key} WNS: {value}\n")
+    (reports / "drc.rpt").write_text("DRC clean: 0 violations\n")
+    (reports / "lvs.rpt").write_text("Circuits match uniquely\n")
+    (reports / "antenna.rpt").write_text("Antenna clean: 0 violations\n")
+    (reports / "cdc.rpt").write_text("CDC clean: 0 violations\n")
+    (reports / "ber.json").write_text(json.dumps({
+        "ber_target": 1e-12, "ber": 1e-13,
+        "jtol_pass": True, "eye_margin_ui": 0.2,
+    }))
+
+    total += 1
+    proc = subprocess.run(
+        [py, "scripts/collect_signoff.py", "--package", str(package),
+         "--reports", str(reports), "--requested-level", "LINK_VALIDATED"],
+        cwd=ROOT, text=True, capture_output=True, timeout=60)
+    ok = proc.returncode == 0 and "LINK_VALIDATED" in proc.stdout
+    print(f"{'PASS' if ok else 'FAIL'} signoff_full_report: "
+          f"{(proc.stdout + proc.stderr).strip().splitlines()[-1] if proc.stdout else proc.returncode}")
+    if not ok:
+        failed += 1
+
+    partial = ROOT / "build" / "signoff" / "partial"
+    partial.mkdir(parents=True, exist_ok=True)
+    for path in reports.glob("*"):
+        if path.name != "post_route_hold.rpt":
+            (partial / path.name).write_text(path.read_text())
+    total += 1
+    proc = subprocess.run(
+        [py, "scripts/collect_signoff.py", "--package", str(package),
+         "--reports", str(partial), "--requested-level", "POST_ROUTE_TIMING"],
+        cwd=ROOT, text=True, capture_output=True, timeout=60)
+    ok = proc.returncode == 1 and "post_route_hold_wns" in proc.stdout
+    print(f"{'PASS' if ok else 'FAIL'} signoff_missing_hold_rejected: "
+          f"exit={proc.returncode}")
+    if not ok:
+        failed += 1
+
+    ppa_dir = ROOT / "build" / "ppa"
+    ppa_dir.mkdir(parents=True, exist_ok=True)
+    csv_path = ppa_dir / "measured.csv"
+    csv_path.write_text(
+        "tech,scl,kind,arch,max_line_rate_mbps,rel_area,rel_power,rel_latency,confidence,source\n"
+        "icsprout55,ics55_LLSC_H7CL,rx,fixed_oversampling,200,1.0,1.0,1.0,measured_post_route,run-001\n")
+    ppa_path = ppa_dir / "measured.yaml"
+    subprocess.run([py, "scripts/import_ppa.py", "--csv", str(csv_path),
+                    "--out", str(ppa_path), "--replace"], cwd=ROOT,
+                   text=True, capture_output=True, timeout=60, check=True)
+    total += 1
+    proc = subprocess.run(
+        [py, "scripts/gen_ip.py", "--spec", "spec/default.yaml", "--check",
+         "--ppa-db", str(ppa_path)], cwd=ROOT, text=True, capture_output=True, timeout=60)
+    ok = False
+    detail = proc.returncode
+    if proc.returncode == 0:
+        try:
+            payload = json.loads(proc.stdout)
+            ok = payload.get("rx_confidence") == "measured_post_route"
+            detail = payload.get("rx_confidence")
+        except json.JSONDecodeError:
+            pass
+    print(f"{'PASS' if ok else 'FAIL'} ppa_measured_used: {detail}")
+    if not ok:
+        failed += 1
+
+    low_csv = ppa_dir / "low.csv"
+    low_csv.write_text(
+        "tech,scl,kind,arch,max_line_rate_mbps,rel_area,rel_power,rel_latency,confidence,source\n"
+        "icsprout55,ics55_LLSC_H7CL,rx,fixed_oversampling,80,1.0,1.0,1.0,measured_post_route,run-low\n")
+    low_yaml = ppa_dir / "low.yaml"
+    subprocess.run([py, "scripts/import_ppa.py", "--csv", str(low_csv),
+                    "--out", str(low_yaml), "--replace"], cwd=ROOT,
+                   text=True, capture_output=True, timeout=60, check=True)
+    total += 1
+    proc = subprocess.run(
+        [py, "scripts/gen_ip.py", "--spec", "spec/default.yaml", "--check",
+         "--ppa-db", str(low_yaml)], cwd=ROOT, text=True, capture_output=True, timeout=60)
+    ok = proc.returncode == 2 and "gate 80" in (proc.stdout + proc.stderr)
+    print(f"{'PASS' if ok else 'FAIL'} ppa_capability_gate_rejected: exit={proc.returncode}")
+    if not ok:
+        failed += 1
+    return total, failed
+
+
 def main() -> int:
     if not IVERILOG or not VVP:
         print("iverilog/vvp not found", file=sys.stderr)
@@ -166,8 +266,9 @@ def main() -> int:
         if not ok:
             failures += 1
     gen_total, gen_failed = run_generator_checks()
-    total = len(CASES) + gen_total
-    failures += gen_failed
+    signoff_total, signoff_failed = run_signoff_checks()
+    total = len(CASES) + gen_total + signoff_total
+    failures += gen_failed + signoff_failed
     print(f"\n{total - failures}/{total} regression cases passed")
     return 1 if failures else 0
 

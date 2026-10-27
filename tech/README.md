@@ -61,8 +61,11 @@ records, per TX/RX architecture:
 - relative area/power/latency metrics and a confidence label.
 
 The metrics are not signoff data.  Replace them with measured post-route PPA as
-the qualification database grows.  The generator records the selected
-candidate, the Pareto frontier and the confidence in `manifest.json`.
+the qualification database grows.  Measured overrides live in
+`tech/ppa_measured.yaml` (example: `tech/ppa_measured.example.yaml`) and are
+imported with `scripts/import_ppa.py`; the generator records the selected
+candidate, the Pareto frontier, the PPA source and the confidence in
+`manifest.json`.
 
 ## Spec-driven generator
 
