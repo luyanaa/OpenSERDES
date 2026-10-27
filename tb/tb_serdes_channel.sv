@@ -51,7 +51,7 @@ module tb_serdes_channel;
     logic rx_frame_valid;
     logic rx_serial_data;
     logic rx_serial_valid;
-    logic signed [8:0] rx_freq_trim;
+    logic signed [12:0] rx_freq_trim;
 
     logic channel_out;
     logic channel_valid;

@@ -198,9 +198,10 @@ clock semantics.
    - `fixed_oversampling`: frequency acquisition is external; use when TX/RX
      clocks are locked.
    - `adaptive_oversampling`: first-order frequency tracking; use for bounded
-     ppm (validated at +/-700 ppm for 1500-bit runs with OVERSAMPLE=8).  A
-     5000-bit/100 ppm run still exposes phase-wrap/lock loss; production-grade
-     long-run tracking needs a second-order loop or phase interpolator.
+     ppm (validated at +/-700 ppm and 100 ppm for 5000-bit runs with
+     OVERSAMPLE=8, FRAC_BITS=12).  Jitter tolerance, gate-level equivalence and
+     the analog sampler remain open; a production high-jitter link still needs
+     a second-order loop or phase interpolator.
    The original run-length/min-period/divider/scan-trim algorithm is still not
    cloned; that would be a separate mode if gate-level equivalence is needed.
    Frame alignment is implemented separately in `rtl/comma_align.sv`.

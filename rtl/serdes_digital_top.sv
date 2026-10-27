@@ -31,7 +31,7 @@ module serdes_digital_top #(
     parameter int ALIGN_MODE      = 0,
     parameter int SYNC_LEN        = 8,
     parameter logic [SYNC_LEN-1:0] SYNC_PATTERN = 'hBC,
-    parameter int ADAPT_FRAC_BITS = 8,
+    parameter int ADAPT_FRAC_BITS = 12,
     parameter int ADAPT_LOOP_GAIN = 8
 ) (
     // TX domain

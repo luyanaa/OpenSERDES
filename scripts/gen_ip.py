@@ -574,7 +574,7 @@ def build_plan(cfg: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
             "ALIGN_MODE": cfg["align_mode"],
             "SYNC_LEN": cfg["sync_len"],
             "SYNC_PATTERN": cfg["sync_pattern"],
-            "ADAPT_FRAC_BITS": 8,
+            "ADAPT_FRAC_BITS": 12,
             "ADAPT_LOOP_GAIN": 4,
         })
 

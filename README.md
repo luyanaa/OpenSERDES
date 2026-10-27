@@ -155,7 +155,7 @@ cdr_adaptive #(
 - `adaptive_oversampling`：用 fractional period control 偶尔插入/删除一个采样周期，跟踪 TX/RX ppm 频偏；`freq_trim` 是带符号环路状态。
 - 锁定后有一个 `LOOP_SETTLE_BITS` 窗口，避免捕获瞬态把采样相位推偏；deadband 过滤 1/OVERSAMPLE UI 的量化抖动。
 - 这是**一阶频率跟踪环**，不是二阶 jitter-filtering PLL。建议 `OVERSAMPLE ≥ 8`；高抖动链路应使用 phase interpolator/PLL CDR。
-- 已验证 `PPM = 0, +700, -700`，1500 bits 连续恢复无 bit slip（`tb_cdr_adaptive`）。**限制**：5000-bit/100 ppm 长跑仍会出现相位回绕/失锁；生产级长跑跟踪需要二阶环或 phase interpolator，当前版本不宣称。
+- 已验证 `PPM = 0, +700, -700` 和 `100 ppm`，5000 bits 连续恢复无 bit slip（`tb_cdr_adaptive`，`FRAC_BITS=12`）。**限制**：jitter tolerance、gate-level equivalence 和模拟前端仍未验证；生产级高抖动链路仍应使用二阶环或 phase interpolator。
 
 ### `rtl/comma_align.sv`
 
@@ -197,7 +197,7 @@ make ppa-import PPA_CSV=measured.csv PPA_OUT=tech/ppa_measured.yaml
 - `tb_serdes_channel`：真实 `rx_serial_data` 串行 scoreboard + `rx_par_data` 并行帧 scoreboard；覆盖 comma per-frame 对齐、帧间空隙、`rx_flush` 后重锁：PASS
 - `tb_channel` delay/invert/error 注入：PASS
 - `tb_cdr`：固定 CDR，PRBS7，OS=4 和 OS=2 各 200 个恢复 bit 与发送序列逐 bit 比较：PASS
-- `tb_cdr_adaptive`：0 / +700 / -700 ppm，1500 bit 连续恢复：PASS（5000-bit/100 ppm 长跑仍为 open item）
+- `tb_cdr_adaptive`：0 / +700 / -700 / 100 ppm，5000 bit 连续恢复：PASS
 - `tb_frame_sync`：comma、gap、mid-frame flush/re-acquire：PASS
 - `tb_cdr_bypass`：source-sync receiver-only：PASS
 - `tb_compat_legacy` / `tb_compat_port_order`：named 和 positional legacy 兼容：PASS

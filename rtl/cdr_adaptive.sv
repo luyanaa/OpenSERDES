@@ -14,15 +14,16 @@
 //
 //   - freq_trim is a signed loop state; it is not a calibrated ppm value.
 //   - OVERSAMPLE >= 8 is recommended for ppm margin.
-//   - The loop is validated for 1500-bit runs at 0 / +700 / -700 ppm.
-//     Long-run phase-wrap behavior and jitter tolerance remain open items.
+//   - The loop is validated for 5000-bit runs at 0 / +/-700 ppm and
+//     100 ppm with FRAC_BITS=12.  Jitter tolerance and gate-level equivalence
+//     remain open items.
 //
 // OVERSAMPLE must be >= 4.  OVERSAMPLE == 2 is not supported in adaptive mode.
 // -----------------------------------------------------------------------------
 module cdr_adaptive #(
     parameter int OVERSAMPLE       = 8,
     parameter int SYNC_STAGES      = 3,
-    parameter int FRAC_BITS        = 8,
+    parameter int FRAC_BITS        = 12,
     parameter int LOOP_GAIN        = 4,
     parameter int LOCK_THRESH      = 8,
     parameter int LOCK_RELEASE     = 8,

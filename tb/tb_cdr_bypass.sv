@@ -20,7 +20,7 @@ module tb_cdr_bypass;
     logic frame_valid;
     logic serial_data;
     logic serial_valid;
-    logic signed [8:0] freq_trim;
+    logic signed [12:0] freq_trim;
 
     logic [31:0] words [0:7];
     logic expected [0:255];

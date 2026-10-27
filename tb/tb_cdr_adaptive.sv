@@ -9,7 +9,7 @@
 // CDR would slip.
 module tb_cdr_adaptive #(
     parameter real PPM      = 700.0,
-    parameter int  N_CHECK  = 1500
+    parameter int  N_CHECK  = 5000
 );
 
     localparam int  OS         = 8;
@@ -27,7 +27,7 @@ module tb_cdr_adaptive #(
     logic clk_out;
     logic lock;
     logic lock_stale;
-    logic signed [8:0] freq_trim;
+    logic signed [12:0] freq_trim;
 
     logic [N_BITS-1:0]  tx_bits;
     logic [N_CHECK-1:0] rx_bits;
@@ -42,7 +42,7 @@ module tb_cdr_adaptive #(
     cdr_adaptive #(
         .OVERSAMPLE(OS),
         .SYNC_STAGES(SYNC),
-        .FRAC_BITS(8),
+        .FRAC_BITS(12),
         .LOOP_GAIN(4),
         .LOCK_THRESH(LOCK_TH),
         .LOCK_RELEASE(8),
