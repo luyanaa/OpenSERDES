@@ -75,13 +75,20 @@ $(BUILD)/tb_compat_legacy: tb/tb_compat_legacy.sv rtl/serializer.sv rtl/deserial
 $(BUILD)/tb_compat_port_order: tb/tb_compat_port_order.sv rtl/serializer.sv rtl/deserializer_word.sv rtl/deserializer.sv rtl/compat/serializer_unit_cell_1.v rtl/compat/deserialiser_unit_cell_1.v | $(BUILD)
 	$(IVERILOG) -g2012 -Wall -o $@ $^
 
+$(BUILD)/tb_apb_csr: tb/tb_apb_csr.sv rtl/apb_csr.sv | $(BUILD)
+	$(IVERILOG) -g2012 -Wall -o $@ $^
+
+$(BUILD)/tb_async_fifo: tb/tb_async_fifo.sv rtl/async_fifo.sv | $(BUILD)
+	$(IVERILOG) -g2012 -Wall -o $@ $^
+
 SIM_BINS := $(BUILD)/tb_serializer_lsb $(BUILD)/tb_serializer_msb \
             $(BUILD)/tb_serializer_capture $(BUILD)/tb_serializer_stream \
             $(BUILD)/tb_deserializer_lsb $(BUILD)/tb_deserializer_msb \
             $(BUILD)/tb_serdes_loopback_lsb $(BUILD)/tb_serdes_loopback_msb \
             $(BUILD)/tb_serdes_default $(BUILD)/tb_serdes_channel $(BUILD)/tb_channel \
             $(BUILD)/tb_cdr $(BUILD)/tb_cdr_adaptive $(BUILD)/tb_frame_sync \
-            $(BUILD)/tb_cdr_bypass $(BUILD)/tb_compat_legacy $(BUILD)/tb_compat_port_order
+            $(BUILD)/tb_cdr_bypass $(BUILD)/tb_compat_legacy $(BUILD)/tb_compat_port_order \
+            $(BUILD)/tb_apb_csr $(BUILD)/tb_async_fifo
 
 sim: $(SIM_BINS)
 	$(VVP) $(BUILD)/tb_serializer_lsb
@@ -101,6 +108,8 @@ sim: $(SIM_BINS)
 	$(VVP) $(BUILD)/tb_cdr_bypass
 	$(VVP) $(BUILD)/tb_compat_legacy
 	$(VVP) $(BUILD)/tb_compat_port_order
+	$(VVP) $(BUILD)/tb_apb_csr
+	$(VVP) $(BUILD)/tb_async_fifo
 
 lint:
 	$(VERILATOR) --lint-only -Wall --top-module serdes_digital_top $(RTL)
@@ -111,6 +120,8 @@ lint:
 	$(VERILATOR) --lint-only -Wall --top-module cdr_adaptive $(RTL)
 	$(VERILATOR) --lint-only -Wall --top-module serializer_stream $(RTL)
 	$(VERILATOR) --lint-only -Wall --top-module comma_align $(RTL)
+	$(VERILATOR) --lint-only -Wall --top-module apb_csr $(RTL)
+	$(VERILATOR) --lint-only -Wall --top-module async_fifo $(RTL)
 	$(VERILATOR) --lint-only -Wall --top-module serializer_unit_cell_1 rtl/serializer.sv rtl/compat/serializer_unit_cell_1.v
 	$(VERILATOR) --lint-only -Wall --top-module deserialiser_unit_cell_1 rtl/deserializer_word.sv rtl/deserializer.sv rtl/compat/deserialiser_unit_cell_1.v
 
@@ -120,6 +131,8 @@ synth:
 	$(YOSYS) -q -p "read_verilog -sv rtl/deserializer_word.sv rtl/deserializer.sv; synth -top deserializer; stat"
 	$(YOSYS) -q -p "read_verilog -sv rtl/cdr_sync.sv rtl/cdr_oversampling.sv; synth -top cdr_oversampling; stat"
 	$(YOSYS) -q -p "read_verilog -sv rtl/cdr_sync.sv rtl/cdr_adaptive.sv; synth -top cdr_adaptive; stat"
+	$(YOSYS) -q -p "read_verilog -sv rtl/apb_csr.sv; synth -top apb_csr; stat"
+	$(YOSYS) -q -p "read_verilog -sv rtl/async_fifo.sv; synth -top async_fifo; stat"
 	$(YOSYS) -q -p "read_verilog -sv $(RTL); synth -top serdes_digital_top; stat"
 
 regress:

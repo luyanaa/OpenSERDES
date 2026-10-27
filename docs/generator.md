@@ -121,12 +121,15 @@ Current candidates:
 |---|---|---|---|---|
 | minimal | valid/ready parallel | native | none | complete |
 | default | valid/ready parallel | native | auto | complete |
-| soc | AXI4-Stream | APB | async FIFO | scaffold only |
-| phy_ip | valid/ready + optional blocks | APB | async FIFO + BIST/calibration/DFT | scaffold only |
+| soc | AXI4-Stream | APB | async FIFO | APB/FIFO primitives exist; AXI/CDC/top integration is scaffold |
+| phy_ip | valid/ready + optional blocks | APB | async FIFO + BIST/calibration/DFT | APB/FIFO primitives exist; BIST/DFT/top integration is scaffold |
 
-soc and phy_ip require optional APB/AXI-Stream/CDC/BIST RTL that is not in this
-release.  They fail fast unless --allow-incomplete is passed, and the generated
-package explicitly records the missing blocks.
+soc and phy_ip still require the AXI4-Stream/CDC/top integration wrappers and
+BIST/DFT blocks that are not in this release.  APB CSR (`rtl/apb_csr.sv`) and
+the async FIFO (`rtl/async_fifo.sv`) primitives are implemented and tested, but
+they are not yet wired into a generated top.  The presets fail fast unless
+--allow-incomplete is passed, and the generated package explicitly records the
+missing blocks.
 
 ## 5. Package layout
 

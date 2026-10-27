@@ -48,6 +48,11 @@ DESIGN_FILES = {
     ],
 }
 
+OPTIONAL_FILES = {
+    "soc": ["apb_csr.sv", "async_fifo.sv"],
+    "phy_ip": ["apb_csr.sv", "async_fifo.sv"],
+}
+
 PRESETS = {
     "minimal": {"data": "valid_ready", "control": "native", "cdc": "none", "features": []},
     "default": {"data": "valid_ready", "control": "native", "cdc": "auto", "features": []},
@@ -598,6 +603,12 @@ def build_plan(cfg: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
         "not_used": "n/a",
     }.get(tx_arch["name"], "unknown")
 
+    files = list(DESIGN_FILES[design])
+    optional = OPTIONAL_FILES.get(cfg["preset"], [])
+    for filename in optional:
+        if filename not in files:
+            files.append(filename)
+
     return {
         "design": design,
         "params": params,
@@ -607,9 +618,10 @@ def build_plan(cfg: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
         "clock_period_ns": clock_period,
         "clock_ports": clock_ports,
         "capture_semantics": capture_semantics,
+        "optional_blocks": optional,
         "ppa_db": args.ppa_db,
         "ppa_entries": len(ppa),
-        "files": DESIGN_FILES[design],
+        "files": files,
     }
 
 
@@ -756,6 +768,8 @@ def make_readme(cfg: dict[str, Any], plan: dict[str, Any], manifest: dict[str, A
         "~~~",
         "",
         "The generated RTL is in rtl/; rtl/filelist.f lists compile order.",
+        ("Optional primitives: " + ", ".join(plan["optional_blocks"])
+         if plan["optional_blocks"] else "No optional preset blocks included."),
         "",
         "## Constraints and PnR",
         "",
@@ -959,6 +973,7 @@ def main() -> int:
         "interface": {k: cfg[k] for k in ("preset", "data_mode", "control", "cdc",
                                           "features", "enable_mode")},
         "tx_capture_semantics": plan["capture_semantics"],
+        "optional_blocks": plan["optional_blocks"],
         "clocking": {
             "ports": plan["clock_ports"],
             "tx_period_ns": cfg["tx_period_ns"],

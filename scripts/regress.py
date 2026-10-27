@@ -78,6 +78,8 @@ CASES = [
     ("compat_port_order", "tb_compat_port_order",
      ["rtl/serializer.sv", "rtl/deserializer_word.sv", "rtl/deserializer.sv",
       "rtl/compat/serializer_unit_cell_1.v", "rtl/compat/deserialiser_unit_cell_1.v"], {}),
+    ("apb_csr", "tb_apb_csr", ["rtl/apb_csr.sv"], {}),
+    ("async_fifo", "tb_async_fifo", ["rtl/async_fifo.sv"], {}),
 ]
 
 
