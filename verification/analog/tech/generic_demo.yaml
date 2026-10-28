@@ -6,6 +6,7 @@ status: demo
 pdk: generic
 vdd_v: 1.8
 default_corner: demo
+corners: [demo]
 
 devices:
   style: mos

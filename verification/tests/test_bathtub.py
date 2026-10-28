@@ -151,11 +151,9 @@ class TestChannel(unittest.TestCase):
         self.assertTrue(np.all(np.isfinite(response)))
         self.assertLess(abs(float(response[-1])), 1e-12)
 
-    def test_touchstone_placeholder_raises_clearly(self) -> None:
-        with self.assertRaises((ImportError, RuntimeError)) as ctx:
+    def test_touchstone_missing_file_raises_clearly(self) -> None:
+        with self.assertRaises(FileNotFoundError):
             load_touchstone_sdd21("not_a_channel.s2p")
-        message = str(ctx.exception).lower()
-        self.assertTrue("scikit" in message or "sdd21" in message or "touchstone" in message)
 
     def test_eye_fold_shape_and_metrics(self) -> None:
         bits = prbs_bits(7, 4000)

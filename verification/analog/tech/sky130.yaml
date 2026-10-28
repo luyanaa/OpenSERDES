@@ -4,6 +4,7 @@ status: supported
 pdk: sky130
 vdd_v: 1.8
 default_corner: tt
+corners: [tt, ss, ff, sf, fs]
 
 devices:
   style: subckt
@@ -22,11 +23,11 @@ model:
     - ${SKY130_ROOT}
     - ~/.ciel/ciel/sky130/versions/*/skywater-pdk/libraries/sky130_fd_pr/latest
     - ${PDK_ROOT}/../skywater-pdk/libraries/sky130_fd_pr/latest
+  # {corner} is substituted by the extractor (tt/ss/ff/sf/fs).
   includes:
     - models/parameters/invariant.spice
-    - models/parameters/typical.spice
-    - cells/nfet_01v8/sky130_fd_pr__nfet_01v8__tt.pm3.spice
-    - cells/pfet_01v8/sky130_fd_pr__pfet_01v8__tt.pm3.spice
+    - cells/nfet_01v8/sky130_fd_pr__nfet_01v8__{corner}.pm3.spice
+    - cells/pfet_01v8/sky130_fd_pr__pfet_01v8__{corner}.pm3.spice
 
 # PEX is not run by extract_lut.py yet.  These paths let the next phase find
 # the PDK's extraction tech without hard-coding a version hash.

@@ -24,6 +24,10 @@ SKY130_MODEL ?=
 ANALOG_MODEL ?= $(SKY130_MODEL)
 ANALOG_TX_LOADS ?= 10 50 100 200
 ANALOG_RX_SLEWS ?= 20 50 100 200
+PVT_CORNERS ?= tt ss ff sf fs
+PVT_VOLTAGES ?= 1.62 1.80 1.98
+PVT_TEMPERATURES ?= -40 25 100
+PVT_OUT ?= $(BUILD)/verify/sky130_pvt_lut.json
 VERIFY_TX_LOAD_FF ?= 50
 SKY130_LUT ?= $(BUILD)/verify/sky130_lut.json
 SKY130_TX_LOADS ?= 10 50 100 200
@@ -34,7 +38,7 @@ RTL   := $(wildcard rtl/*.sv)
 SV2V_DIR := $(BUILD)/sv2v
 SV2V_RTL := $(SV2V_DIR)/rtl.v
 
-.PHONY: all sim lint synth regress gen qualify signoff ppa-import clean si-eye si-bathtub si-jtol si-rtl-jtol verify-link analog-lut sky130-lut analog-lut-demo analog-tech-check
+.PHONY: all sim lint synth regress gen qualify signoff ppa-import clean si-eye si-bathtub si-jtol si-rtl-jtol verify-link analog-lut sky130-lut analog-lut-demo analog-tech-check sky130-pvt
 
 all: sim
 
@@ -252,6 +256,11 @@ sky130-lut:
 
 analog-lut-demo:
 	$(PYTHON) verification/analog/extract_lut.py --tech generic_demo --out $(BUILD)/verify/analog_lut_demo.json
+
+sky130-pvt:
+	$(PYTHON) verification/analog/pvt_runner.py --tech sky130 \
+		--corners $(PVT_CORNERS) --voltages $(PVT_VOLTAGES) \
+		--temperatures $(PVT_TEMPERATURES) --out $(PVT_OUT)
 
 analog-tech-check:
 	$(PYTHON) verification/analog/extract_lut.py --tech $(ANALOG_TECH) --check-tools --out $(BUILD)/verify/$(ANALOG_TECH)_tech_check.json

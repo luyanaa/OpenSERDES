@@ -101,12 +101,13 @@ def _device_block(cfg: dict[str, Any], wn: float, wp: float, l_um: float) -> str
 
 
 def _tx_netlist(*, includes: str, devices: str, load_ff: float, edge_ps: float,
-                vdd: float) -> str:
+                vdd: float, temp_c: float | None = None) -> str:
     tstep_ps = max(0.2, min(2.0, edge_ps / 20.0))
     stop_ns = 3.0 + edge_ps / 1000.0 * 4.0
     return f"""* OpenSERDES TX driver LUT
 .param VDD={vdd}
 {includes}
+{f".temp {temp_c}" if temp_c is not None else ""}
 Vdd vdd 0 {{VDD}}
 Vin in 0 PULSE(0 {{VDD}} 0.2n {edge_ps}p {edge_ps}p 2n 4n)
 {devices}
@@ -120,12 +121,14 @@ Cload out 0 {load_ff}f
 """
 
 
-def _rx_netlist(*, includes: str, devices: str, slew_ps: float, vdd: float) -> str:
+def _rx_netlist(*, includes: str, devices: str, slew_ps: float, vdd: float,
+                temp_c: float | None = None) -> str:
     tstep_ps = max(0.2, min(2.0, slew_ps / 20.0))
     stop_ns = 4.0
     return f"""* OpenSERDES RX inverter slicer LUT
 .param VDD={vdd}
 {includes}
+{f".temp {temp_c}" if temp_c is not None else ""}
 Vdd vdd 0 {{VDD}}
 Vin in 0 PULSE(0 {{VDD}} 0.2n {slew_ps}p {slew_ps}p 2n 4n)
 {devices}
@@ -214,8 +217,10 @@ def _model_plan(args: argparse.Namespace, cfg: dict[str, Any],
             f"no model tree found for tech {cfg['name']}; set the env/path in "
             f"{cfg['_path']} or pass --tech-root (or use --tech generic_demo)"
         )
+    corner = str(getattr(args, "corner", cfg.get("default_corner", "tt")))
     includes = []
     for rel in cfg.get("model", {}).get("includes", []) or []:
+        rel = rel.replace("{corner}", corner)
         path = root / rel
         if not path.is_file():
             raise RuntimeError(f"missing model include: {path}")
@@ -227,8 +232,11 @@ def _model_plan(args: argparse.Namespace, cfg: dict[str, Any],
         "style": cfg["devices"]["style"],
         "nmos": args.nmos_model or cfg["devices"]["nmos"],
         "pmos": args.pmos_model or cfg["devices"]["pmos"],
-        "model_files": [str(root / rel) for rel in cfg["model"]["includes"]],
-        "model_kind": f"{cfg['name']}-schematic-{cfg.get('default_corner', 'tt')}",
+        "model_files": [
+            str(root / rel.replace("{corner}", corner))
+            for rel in cfg["model"]["includes"]
+        ],
+        "model_kind": f"{cfg['name']}-schematic-{corner}",
         "notes": notes,
         "root": str(root),
     }
@@ -321,14 +329,17 @@ def extract(args: argparse.Namespace) -> dict[str, Any]:
     wn = args.wn_um if args.wn_um is not None else float(cfg["sizing_um"]["wn"])
     wp = args.wp_um if args.wp_um is not None else float(cfg["sizing_um"]["wp"])
     l_um = args.l_um if args.l_um is not None else float(cfg["sizing_um"]["l"])
-    vdd = float(cfg.get("vdd_v", 1.8))
+    vdd = float(args.vdd if getattr(args, "vdd", None) is not None
+                else cfg.get("vdd_v", 1.8))
+    temp_c = getattr(args, "temp_c", None)
     devices = _device_block(cfg, wn, wp, l_um)
 
     tx_rows = []
     for load_ff in args.tx_loads_ff:
         values = run_ngspice(
             _tx_netlist(includes=plan["includes"], devices=devices,
-                        load_ff=load_ff, edge_ps=args.tx_edge_ps, vdd=vdd),
+                        load_ff=load_ff, edge_ps=args.tx_edge_ps, vdd=vdd,
+                        temp_c=temp_c),
             workdir, f"tx_{int(load_ff)}ff",
         )
         rise = values.get("trise")
@@ -348,7 +359,7 @@ def extract(args: argparse.Namespace) -> dict[str, Any]:
     for slew_ps in args.rx_slews_ps:
         values = run_ngspice(
             _rx_netlist(includes=plan["includes"], devices=devices,
-                        slew_ps=slew_ps, vdd=vdd),
+                        slew_ps=slew_ps, vdd=vdd, temp_c=temp_c),
             workdir, f"rx_{int(slew_ps)}ps",
         )
         tphl = values.get("tphl")
@@ -369,7 +380,8 @@ def extract(args: argparse.Namespace) -> dict[str, Any]:
         "device_models": {"nmos": plan["nmos"], "pmos": plan["pmos"]},
         "sizing_um": {"wn": wn, "wp": wp, "l": l_um},
         "vdd_v": vdd,
-        "corner": cfg.get("default_corner"),
+        "corner": str(getattr(args, "corner", cfg.get("default_corner", "tt"))),
+        "temperature_c": temp_c,
         "pex": pex,
         "tx": {"loads_ff": [float(x) for x in args.tx_loads_ff], "rows": tx_rows},
         "rx": {"slews_ps": [float(x) for x in args.rx_slews_ps], "rows": rx_rows},
@@ -408,12 +420,24 @@ def main() -> int:
     ap.add_argument("--l-um", type=float, default=None)
     ap.add_argument("--nmos-model", default=None)
     ap.add_argument("--pmos-model", default=None)
+    ap.add_argument("--corner", default=None,
+                    help="process corner (default: tech default_corner)")
+    ap.add_argument("--vdd", type=float, default=None,
+                    help="supply voltage override (default: tech vdd_v)")
+    ap.add_argument("--temp-c", type=float, default=None,
+                    help="ngspice .temp value in Celsius; omitted by default")
     ap.add_argument("--tx-edge-ps", type=float, default=50.0)
     ap.add_argument("--tx-loads-ff", type=float, nargs="*",
                     default=[10.0, 50.0, 100.0, 200.0])
     ap.add_argument("--rx-slews-ps", type=float, nargs="*",
                     default=[20.0, 50.0, 100.0, 200.0])
     args = ap.parse_args()
+    cfg_pre = load_tech(args.tech)
+    if args.corner is None:
+        args.corner = cfg_pre.get("default_corner", "tt")
+    allowed_corners = cfg_pre.get("corners") or [args.corner]
+    if args.corner not in allowed_corners:
+        ap.error(f"--corner {args.corner!r} not in tech {args.tech}: {allowed_corners}")
 
     if args.list_tech:
         for name in list_techs():

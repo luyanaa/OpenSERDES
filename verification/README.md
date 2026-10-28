@@ -85,6 +85,18 @@ labelled non-sky130.  `lut.py` maps TX rise time to an RC tau and RX delay to a
 sampling-delay term; `verify_link.py --analog-lut ...` consumes the TX tau.
 No PEX, corners or Monte Carlo are included.
 
+## Touchstone and PVT
+
+`channel/touchstone.py` imports `.s2p`/`.s4p` (RI/MA/DB, Hz..GHz), validates
+frequency/passivity/reciprocity, supports explicit s4p port maps and mixed-mode
+Sdd21/Sdd11, and builds a delay-aligned time-domain channel.  It is a native
+parser; scikit-rf is not required.  Port order is never guessed.
+
+`analog/pvt_runner.py` sweeps the tech config's corners x voltages x
+temperatures at one load/slew and writes continuous TX/RX measurements.  The
+default sky130 matrix is 45 points; it is schematic-level (no PEX/MC) and each
+point runs in an isolated work directory.
+
 ## Capability gate
 
 `scripts/verify_link.py` combines the behavioral eye with the RTL JTOL sweep and
@@ -247,6 +259,8 @@ verification/
   patterns/prbs.py              PRBS7/15/31 matching rtl/prbs_gen.sv
   channel/jitter.py             TIE: RJ, SJ/PJ, DCD, DDJ, wander/SSC
   channel/channel_impulse.py    RC + reflection channel and NRZ builder
+  channel/touchstone.py         S2P/S4P parser, mixed-mode Sdd21, impulse channel
+  analog/pvt_runner.py          schematic corner x voltage x temperature LUT
   channel/rx_slicer.py          ideal fixed-phase sampler + Q function
   analysis/eye.py               2-UI folding, eye height/width, plot
   analysis/bathtub.py           empirical phase and threshold scans

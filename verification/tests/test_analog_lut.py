@@ -44,6 +44,32 @@ class TestAnalogLut(unittest.TestCase):
             delays = [rx_delay_ns(data, s) for s in (20, 50, 100)]
             self.assertTrue(all(d is not None and d > 0 for d in delays))
 
+    def test_pvt_dry_run(self) -> None:
+        proc = subprocess.run(
+            [sys.executable, str(ROOT / "verification" / "analog" / "pvt_runner.py"),
+             "--dry-run", "--corners", "tt", "ss", "--voltages", "1.8",
+             "--temperatures", "25"],
+            cwd=ROOT, text=True, capture_output=True,
+        )
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertIn("2 points", proc.stdout)
+
+    @unittest.skipUnless(os.environ.get("RUN_SKY130_PVT"),
+                         "set RUN_SKY130_PVT=1 for a real PVT point (slow)")
+    def test_real_pvt_point(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "pvt.json"
+            proc = subprocess.run(
+                [sys.executable, str(ROOT / "verification" / "analog" / "pvt_runner.py"),
+                 "--corners", "tt", "--voltages", "1.8", "--temperatures", "25",
+                 "--out", str(out), "--workdir", str(Path(tmp) / "work")],
+                cwd=ROOT, text=True, capture_output=True, timeout=180,
+            )
+            self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+            data = json.loads(out.read_text())
+            self.assertEqual(len(data["rows"]), 1)
+            self.assertGreater(data["rows"][0]["tx_rise_ns"], 0.0)
+
     @unittest.skipUnless(os.environ.get("RUN_SKY130_LUT"),
                          "set RUN_SKY130_LUT=1 to run the real sky130 sweep")
     def test_real_sky130_lut(self) -> None:

@@ -105,29 +105,17 @@ class RCReflectionChannel:
         )
 
 
-def load_touchstone_sdd21(path: Any) -> Any:
-    """Placeholder for a future differential Sdd21 Touchstone import.
+def load_touchstone_sdd21(path: Any, **kwargs: Any) -> Any:
+    """Load and validate a 2-port/4-port Touchstone response.
 
-    Phase 1 intentionally bundles no Touchstone path.  ``scikit-rf`` is not a
-    dependency, and differential mixed-mode Sdd21 handling (port order, mixed-
-    mode renormalization, interpolation to the simulation grid, causality/
-    passivity checks) is not implemented yet.  Calling this function therefore
-    raises a clear error rather than returning a misleading channel.
+    This is a compatibility wrapper around
+    :func:`verification.channel.touchstone.load_touchstone_sdd21`; it returns a
+    ``TouchstoneResponse`` with Sdd21/Sdd11 and diagnostics.  A time-domain
+    channel is obtained with ``touchstone.load_touchstone_channel()``.
     """
-    try:
-        import skrf  # noqa: F401
-    except ImportError as exc:
-        raise ImportError(
-            "Touchstone Sdd21 import requires scikit-rf, which is not bundled "
-            "with this phase-1 framework.  Do not add it as a hard dependency; "
-            "real differential Sdd21 support is a phase-2 item.  Path: "
-            f"{path!r}"
-        ) from exc
-    raise RuntimeError(
-        "scikit-rf is importable, but differential Sdd21 processing is not "
-        "implemented: mixed-mode port mapping, renormalization, interpolation "
-        f"and passivity checks are phase-2 work.  Refusing to fake channel for {path!r}."
-    )
+    from .touchstone import load_touchstone_sdd21 as _load
+
+    return _load(path, **kwargs)
 
 
 def nrz_waveform(

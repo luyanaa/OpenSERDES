@@ -91,6 +91,31 @@ make analog-lut-demo PYTHON=/usr/bin/python3
 The JSON is marked `"pdk": "generic", "model_kind": "generic-demo"` and must
 not be reported as PDK data.
 
+## PVT characterization
+
+`pvt_runner.py` sweeps the configured schematic corners x voltages x
+temperatures at one fixed load/slew and records continuous measurements:
+
+```bash
+make analog-tech-check ANALOG_TECH=sky130 PYTHON=/usr/bin/python3
+make sky130-pvt PYTHON=/usr/bin/python3
+# smaller matrix:
+python3 verification/analog/pvt_runner.py --corners tt ss --voltages 1.62 1.98 \
+  --temperatures -40 100 --out build/verify/pvt_small.json
+```
+
+Default sky130 matrix: `tt/ss/ff/sf/fs` x `1.62/1.80/1.98 V` x
+`-40/25/100 C` (45 points, one TX and one RX ngspice run each).  The official
+corner entry points must be checked against the target PDK release; this runner
+uses the PM3 corner device files plus `invariant.spice` so it does not mix
+`sky130.lib.spice` corner settings with PM3 device parameters.  A full 45-point
+run is slow (model loading dominates); each point has its own work directory and
+failure record.  No PEX or Monte Carlo is included in this row set.
+
+The output is `build/verify/sky130_pvt_lut.json` with rows such as
+`tx_rise_ns`, `tx_fall_ns`, `tx_swing_v`, `rx_tphl_ns`, `rx_tplh_ns`, plus the
+corner/voltage/temperature labels, ngspice version and git commit.
+
 ## Consuming the LUT
 
 ```python
