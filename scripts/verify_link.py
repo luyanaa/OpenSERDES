@@ -276,7 +276,7 @@ def load_package_binding(package: str | None, profile: dict[str, Any]) -> dict[s
         ):
             errors.append(
                 f"{clock} period {period:g} ns != profile UI "
-                f"{1e9 / float(profile['rate_mbps']):g} ns"
+                f"{1e3 / float(profile['rate_mbps']):g} ns"
             )
     return {
         "bound": not errors,
@@ -422,6 +422,10 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
     checked_utc = datetime.now(timezone.utc).isoformat()
     capability = {
         "evidence_level": "RTL_LINK_SMOKE" if smoke_pass else "NONE",
+        "evidence_scope": "generated-RTL RX-chain smoke",
+        "scope_note": ("This instantiates the package RX chain (serdes_rx_digital) "
+                       "directly; it is not a serdes_soc_cdc_wrapper AXI4-Stream "
+                       "SoC end-to-end test."),
         "rtl_link_smoke_pass": smoke_pass,
         "validated_rate_mbps": float(profile["rate_mbps"]),
         "profile": str(profile_path),
@@ -547,7 +551,8 @@ def main() -> int:
     print(f"profile: {report['profile']}")
     print(f"checks: {json.dumps(report['checks'], sort_keys=True)}")
     print(f"validated rate: {capability['validated_rate_mbps']:.3f} Mb/s")
-    print(f"RTL_LINK_SMOKE: {'PASS' if capability['rtl_link_smoke_pass'] else 'FAIL'}")
+    print(f"RTL_LINK_SMOKE [{capability['evidence_scope']}]: "
+          f"{'PASS' if capability['rtl_link_smoke_pass'] else 'FAIL'}")
     for reason in capability["reasons"]:
         print(f"  - {reason}")
     print(f"wrote {out}")

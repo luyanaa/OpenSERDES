@@ -96,6 +96,46 @@ class TestTouchstone(unittest.TestCase):
             ch = load_touchstone_channel(p, sps=80, ui_s=1e-9)
             self.assertAlmostEqual(ch.delay_s, delay_ns * 1e-9, delta=1e-11)
 
+    def test_passivity_uses_full_singular_value(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            p = Path(tmp) / "nonpassive.s2p"
+            rows = [(k * 0.1e9, 0.8 + 0j, 0.8 + 0j, 0.8 + 0j, 0.8 + 0j)
+                    for k in range(11)]
+            _write_s2p(p, rows)
+            r = load_touchstone(p)
+            checks = r.physical_checks()
+            self.assertLessEqual(checks["max_single_ended"], 0.8 + 1e-12)
+            self.assertGreater(checks["passivity_smax"], 1.0)
+            self.assertFalse(checks["passive"])
+            with self.assertRaises(TouchstoneError):
+                load_touchstone(p, strict_physical=True)
+
+    def test_negative_group_delay_uses_seconds_and_strict_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            p = Path(tmp) / "noncausal.s2p"
+            delay_ns = 0.5
+            rows = []
+            for k in range(401):
+                f = k * 0.1e9
+                s21 = 0.8 * np.exp(+2j * np.pi * f * delay_ns * 1e-9)
+                rows.append((f, 0.0 + 0j, s21, s21, 0.0 + 0j))
+            _write_s2p(p, rows)
+            r = load_touchstone(p)
+            checks = r.physical_checks()
+            self.assertTrue(checks["group_delay_negative"])
+            self.assertLess(checks["group_delay_min_s"], -1e-12)
+            # A local negative group delay is a causality-suspect flag; the
+            # strict gate only rejects it when the time-domain pre-response is
+            # also inconsistent.
+            self.assertIn("time_domain_causal", checks)
+
+    def test_strict_bandwidth_fails_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            p = Path(tmp) / "narrow.s2p"
+            _write_s2p(p, [(1e9, 0j, 0.8 + 0j, 0.8 + 0j, 0j)])
+            with self.assertRaises(TouchstoneError):
+                load_touchstone(p, strict_physical=True, min_bandwidth_hz=2e9)
+
     def test_s4p_differential_group_delay(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             p = Path(tmp) / "diff_delay.s4p"

@@ -25,7 +25,9 @@ available without translating the commented statistics block.
 
 `verification/analog/pdk_mc.py` drives two identical NMOS devices and reports
 both common-mode current (global variation) and the device-to-device
-difference (local mismatch):
+difference (local mismatch).  Its exit status is fail-closed: `mismatch` only
+returns success if a finite-differential sample is observed, and incomplete or
+non-finite samples return non-zero.
 
 ```bash
 make pdk-mc          # mismatch mode, 8 seeds

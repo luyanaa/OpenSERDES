@@ -19,6 +19,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import shutil
 import subprocess
 import sys
@@ -79,6 +80,28 @@ def _args_for(tech: str, workdir: Path, corner: str, vdd: float,
     )
 
 
+PVT_MEASUREMENTS = ("rise_ns", "fall_ns", "swing_v", "tphl_ns", "tplh_ns")
+
+
+def _validate_measurements(tx: dict[str, Any], rx: dict[str, Any]) -> None:
+    """Reject a PVT row unless every required measurement is finite."""
+    for block, values in (("tx", tx), ("rx", rx)):
+        for key in PVT_MEASUREMENTS:
+            if key in values:
+                value = values.get(key)
+                if value is None or not math.isfinite(float(value)):
+                    raise RuntimeError(f"{block}.{key} is missing or non-finite: {value!r}")
+    # Required fields must actually be present, not merely finite when present.
+    for key in ("rise_ns", "fall_ns", "swing_v"):
+        value = tx.get(key)
+        if value is None or not math.isfinite(float(value)) or float(value) <= 0.0:
+            raise RuntimeError(f"tx.{key} is missing/non-positive/non-finite: {value!r}")
+    for key in ("tphl_ns", "tplh_ns"):
+        value = rx.get(key)
+        if value is None or not math.isfinite(float(value)) or float(value) < 0.0:
+            raise RuntimeError(f"rx.{key} is missing/negative/non-finite: {value!r}")
+
+
 def build_matrix(args: argparse.Namespace) -> list[tuple[str, float, float]]:
     return [
         (corner, vdd, temp)
@@ -131,6 +154,7 @@ def main() -> int:
             ))
             tx = report["tx"]["rows"][0]
             rx = report["rx"]["rows"][0]
+            _validate_measurements(tx, rx)
             rows.append({
                 "corner": corner,
                 "vdd_v": vdd,

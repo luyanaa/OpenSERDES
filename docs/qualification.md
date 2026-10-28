@@ -63,17 +63,20 @@ Expected report names:
 | `rtl_functional.json` | `{"checks":{"lint":true,"sim":true,"synth":true}}` |
 | `pre_pnr_setup.rpt` / `pre_pnr_hold.rpt` | text with `setup WNS: 0.12` / `hold WNS: 0.01` |
 | `post_route_setup.rpt` / `post_route_hold.rpt` | post-route text WNS |
-| `drc.rpt` | `0 violations` or `clean` |
-| `lvs.rpt` | `match uniquely` / `Circuits match` |
-| `antenna.rpt` | `0 violations` or `clean` |
-| `cdc.rpt` | `0 violations` or `clean` |
+| `drc.rpt` | exact integer violation count; must be zero |
+| `lvs.rpt` | explicit `match uniquely` / `Circuits match` (not generic `clean`) |
+| `antenna.rpt` | exact integer violation count; must be zero |
+| `cdc.rpt` | exact integer violation count; must be zero |
 | `ber.json` | `ber`, `jtol_pass`, `eye_margin_ui`, optional `ber_target` |
-| `metrics.json` | explicit `{"checks":{...}}` override |
+| `metrics.json` | supplementary metrics only; formal signoff checks are never overridden |
 
 The collector leaves a check absent when it cannot parse it; it never converts a
-missing or ambiguous report into a pass.  Combined `pre_pnr_sta.rpt` and
-`post_route_sta.rpt` files with `setup WNS` / `hold WNS` lines are also
-accepted.
+missing or ambiguous report into a pass.  It records per-check evidence
+(source hash, tool version/corner if present, status, log path, package
+artifact hashes) and rejects stale GDS/netlist hashes.  Combined
+`pre_pnr_sta.rpt` and `post_route_sta.rpt` files with `setup WNS` / `hold WNS`
+lines are also accepted.  Negative fixtures cover `10 violations`, `not clean`,
+truncated reports, tool nonzero exit, and stale input hashes.
 
 ## 3. Link verification gate
 
@@ -103,7 +106,7 @@ The gate's checks are deliberately explicit:
 | `jtol_pass` | Every swept SJ frequency reaches at least `--jtol-min-amp-ui` peak SJ with `ber_upper95 <= --ber-target`, `bit_slips == 0`, `lock_losses == 0`, and a locked run. |
 | `eye_margin_ui` | 0.5/99.5 threshold-crossing eye width from the 2-UI behavioral fold; not a BER contour. |
 | `capability.rtl_link_smoke_pass` | Short-run RTL smoke evidence: the upper-bound checks above plus the eye and binding checks pass.  The gate requires the package manifest's `verification_config` (CDR mode, oversample, align/frame mode, clock periods, RTL source) and compiles the package's own `filelist_sv2v.f`/`filelist.f`, not a private RTL copy. |
-| `capability.evidence_level` | `RTL_LINK_SMOKE` when the smoke gate passes; `NONE` otherwise. It is not a low-BER guarantee. |
+| `capability.evidence_level` | Legacy label `RTL_LINK_SMOKE` when the smoke gate passes; `NONE` otherwise. `capability.evidence_scope` records the narrower `generated-RTL RX-chain smoke` scope. It is not a low-BER or SoC E2E guarantee. |
 | `capability.statistical_link_model` | `available: false` unless a separate Gaussian-tail run is produced; never merged into the smoke result. |
 | `capability.measured_link` | Always unavailable: no silicon/measured-link evidence is bundled. |
 | `capability.pvt_validated` | Always `false`: PVT/PEX/MC evidence is kept in separate reports and is not promoted into the RTL link capability. |

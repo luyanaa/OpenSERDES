@@ -150,6 +150,8 @@ def parse_prn(path: Path) -> list[dict[str, float]]:
         nums = re.findall(r"[-+]?(?:\d+\.\d*|\.\d+|\d+)(?:[eE][-+]?\d+)?", line)
         vals = [float(x) for x in nums]
         if len(vals) >= 3:
+            if not (np.isfinite(vals[1]) and np.isfinite(vals[2])):
+                raise RuntimeError(f"non-finite sample in {path}: {line!r}")
             rows.append({"i1_a": vals[1], "i2_a": vals[2]})
     if not rows:
         raise RuntimeError(f"no numeric rows in {path}")
@@ -157,6 +159,10 @@ def parse_prn(path: Path) -> list[dict[str, float]]:
         r["common_a"] = (r["i1_a"] + r["i2_a"]) / 2.0
         r["differential_a"] = r["i1_a"] - r["i2_a"]
     return rows
+
+
+def expected_samples(mode: str, samples: int) -> int:
+    return int(samples) if mode in ("global", "both") else 1
 
 
 def summarize(rows: list[dict[str, float]]) -> dict[str, Any]:
@@ -224,27 +230,40 @@ def main() -> int:
                           cwd=work)
     prn = work / "xyce_global.cir.prn"
     res = work / "xyce_global.cir.res"
+    expected = expected_samples(args.mode, args.samples)
+    if proc.returncode != 0:
+        print(f"error: Xyce/mpirun exited {proc.returncode}\n"
+              f"STDOUT:\n{proc.stdout[-5000:]}\nSTDERR:\n{proc.stderr[-3000:]}",
+              file=sys.stderr)
+        return 1
     try:
         rows = parse_prn(prn)
     except Exception as exc:  # noqa: BLE001
         print(f"error: {exc}\nSTDOUT:\n{proc.stdout[-5000:]}\nSTDERR:\n{proc.stderr[-3000:]}",
               file=sys.stderr)
         return 1
+    complete = len(rows) == expected
     summary = summarize(rows)
     common_std = summary.get("common_a", {}).get("std", 0.0)
     diff_std = summary.get("differential_a", {}).get("std", 0.0)
     if args.mode == "global":
-        supported = common_std > 0.0 and diff_std <= max(1e-15, abs(common_std) * 1e-6)
-        verdict = "global-process-supported" if supported else "global-process-not-observed"
+        supported = (complete and common_std > 0.0
+                     and diff_std <= max(1e-15, abs(common_std) * 1e-6))
+        verdict = ("global-process-supported" if supported
+                   else "incomplete-samples" if not complete
+                   else "global-process-not-observed")
     elif args.mode == "local":
-        supported = diff_std > 0.0
-        verdict = "local-mismatch-supported" if supported else "local-mismatch-not-observed"
+        supported = complete and diff_std > 0.0
+        verdict = ("local-mismatch-supported" if supported
+                   else "incomplete-samples" if not complete
+                   else "local-mismatch-not-observed")
     elif args.mode == "both":
-        supported = common_std > 0.0 and diff_std > 0.0
-        verdict = "global-and-local-supported" if supported else "partial"
+        supported = complete and common_std > 0.0 and diff_std > 0.0
+        verdict = ("global-and-local-supported" if supported
+                   else "incomplete-samples" if not complete else "partial")
     else:
-        supported = True
-        verdict = "nominal"
+        supported = complete
+        verdict = "nominal" if complete else "incomplete-samples"
     out = {
         "kind": "sky130-xyce-global-process-mc",
         "pdk": str(pdk),
@@ -254,6 +273,10 @@ def main() -> int:
         "mpi_np": args.np,
         "mode": args.mode,
         "samples": args.samples,
+        "expected_samples": expected,
+        "observed_samples": len(rows),
+        "complete": bool(complete),
+        "process_returncode": proc.returncode,
         "seed": args.seed,
         "process_variables": stats,
         "rows": rows,

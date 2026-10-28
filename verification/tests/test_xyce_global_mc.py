@@ -2,7 +2,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from verification.analog.xyce_global_mc import _netlist, parse_prn, process_vars
+from verification.analog.xyce_global_mc import (
+    _netlist, expected_samples, parse_prn, process_vars,
+)
 
 
 class TestXyceGlobalMc(unittest.TestCase):
@@ -40,6 +42,12 @@ class TestXyceGlobalMc(unittest.TestCase):
             self.assertIn(".SAMPLING", text)
             self.assertIn("param=cnwvc,diff_cd", text)
             self.assertIn("std_deviations=1.0,1.5", text)
+
+    def test_expected_sample_count(self) -> None:
+        self.assertEqual(expected_samples("global", 8), 8)
+        self.assertEqual(expected_samples("both", 8), 8)
+        self.assertEqual(expected_samples("nominal", 8), 1)
+        self.assertEqual(expected_samples("local", 8), 1)
 
     def test_prn_parser(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

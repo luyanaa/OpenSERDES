@@ -13,6 +13,7 @@ import unittest
 from pathlib import Path
 
 from verification.analog.lut import load_lut, rx_delay_ns, tx_rise_ns, tx_tau_ns
+from verification.analog.pvt_runner import _validate_measurements
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / "verification" / "analog" / "extract_lut.py"
@@ -43,6 +44,16 @@ class TestAnalogLut(unittest.TestCase):
             self.assertAlmostEqual(tau, rises[1] / math.log(4.0), places=12)
             delays = [rx_delay_ns(data, s) for s in (20, 50, 100)]
             self.assertTrue(all(d is not None and d > 0 for d in delays))
+
+    def test_pvt_measurements_must_all_be_finite(self) -> None:
+        tx = {"rise_ns": 0.1, "fall_ns": 0.1, "swing_v": 1.8}
+        rx = {"tphl_ns": 0.05, "tplh_ns": 0.05}
+        _validate_measurements(tx, rx)
+        for bad in (None, float("nan"), float("inf"), -1.0):
+            with self.assertRaises(RuntimeError):
+                _validate_measurements({**tx, "rise_ns": bad}, rx)
+        with self.assertRaises(RuntimeError):
+            _validate_measurements(tx, {"tphl_ns": None, "tplh_ns": 0.05})
 
     def test_pvt_dry_run(self) -> None:
         proc = subprocess.run(

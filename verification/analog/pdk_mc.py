@@ -130,6 +130,11 @@ def run_point(pdk: Path, pr: int, mm: int, seed: int, workdir: Path,
     proc = subprocess.run(["ngspice", "-b", str(p)], text=True,
                           capture_output=True, timeout=240)
     i1, i2 = _currents(proc.stdout + proc.stderr)
+    valid = (
+        proc.returncode == 0
+        and i1 is not None and i2 is not None
+        and np.isfinite(i1) and np.isfinite(i2)
+    )
     return {
         "seed": seed,
         "i1_a": i1,
@@ -137,17 +142,22 @@ def run_point(pdk: Path, pr: int, mm: int, seed: int, workdir: Path,
         "common_a": ((i1 + i2) / 2.0) if i1 is not None and i2 is not None else None,
         "differential_a": (i1 - i2) if i1 is not None and i2 is not None else None,
         "returncode": proc.returncode,
+        "valid": bool(valid),
     }
 
 
 def summarize(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    valid_rows = [r for r in rows if r.get("valid")]
+
     def vals(key: str) -> np.ndarray:
-        return np.array([r[key] for r in rows if r.get(key) is not None], dtype=float)
+        return np.array([r[key] for r in valid_rows
+                         if r.get(key) is not None], dtype=float)
     common = vals("common_a")
     diff = vals("differential_a")
     out = {
         "n": len(rows),
-        "seed_effective": len({round(float(r["i1_a"]), 15) for r in rows
+        "n_valid": len(valid_rows),
+        "seed_effective": len({round(float(r["i1_a"]), 15) for r in valid_rows
                                if r.get("i1_a") is not None}) > 1,
     }
     if common.size:
@@ -159,6 +169,20 @@ def summarize(rows: list[dict[str, Any]]) -> dict[str, Any]:
                                "std": float(diff.std(ddof=1)) if diff.size > 1 else 0.0,
                                "min": float(diff.min()), "max": float(diff.max())}
     return out
+
+
+def success_for(mode: str, all_valid: bool, global_supported: bool,
+                local_supported: bool) -> bool:
+    """A non-zero exit is required whenever the claimed effect is absent."""
+    if not all_valid:
+        return False
+    if mode == "nominal":
+        return True
+    if mode == "global":
+        return global_supported
+    if mode == "mismatch":
+        return local_supported
+    return local_supported and global_supported
 
 
 def main() -> int:
@@ -207,17 +231,25 @@ def main() -> int:
     local_supported = args.mode in ("mismatch", "both") and (
         summary.get("differential", {}).get("std", 0.0) > 0.0
     )
+    all_valid = len(rows) == args.samples and summary["n_valid"] == len(rows)
     if args.mode == "nominal":
-        verdict = "nominal-seed-invariant" if not summary["seed_effective"] else "unexpected-variation"
+        verdict = ("incomplete-samples" if not all_valid else
+                   "nominal-seed-invariant" if not summary["seed_effective"]
+                   else "unexpected-variation")
     elif args.mode == "global":
-        verdict = "global-supported" if global_supported else "global-unavailable"
+        verdict = ("incomplete-samples" if not all_valid else
+                   "global-supported" if global_supported else "global-unavailable")
     elif args.mode == "mismatch":
-        verdict = "local-mismatch-supported" if local_supported else "local-mismatch-unavailable"
+        verdict = ("incomplete-samples" if not all_valid else
+                   "local-mismatch-supported" if local_supported
+                   else "local-mismatch-unavailable")
     else:
-        verdict = ("local-mismatch-supported-global-unavailable"
-                   if local_supported and not global_supported
-                   else ("both-supported" if local_supported and global_supported
-                         else "partial"))
+        verdict = ("incomplete-samples" if not all_valid else
+                   "partial" if not (local_supported and global_supported)
+                   else "both-supported")
+    success = success_for(args.mode, all_valid, global_supported, local_supported)
+    if args.mode == "nominal" and summary["seed_effective"]:
+        success = False
     report = {
         "kind": "sky130-pdk-ngspice-mc",
         "pdk": str(pdk),
@@ -237,17 +269,18 @@ def main() -> int:
                  "variables per device; global-process variation is not wired "
                  "by this PDK/library and is reported as unavailable."),
     }
+    report["all_samples_valid"] = bool(all_valid)
+    report["success"] = bool(success)
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(report, indent=2) + "\n")
-    print(f"mode={args.mode} verdict={verdict} rows={len(rows)}")
+    print(f"mode={args.mode} verdict={verdict} rows={len(rows)} "
+          f"valid={summary['n_valid']}")
     print(f"  common_std={summary.get('common', {}).get('std')}")
     print(f"  differential_std={summary.get('differential', {}).get('std')}")
     print(f"  seed_effective={summary['seed_effective']}")
     print(f"wrote {out}")
-    return 0 if args.mode in ("nominal", "mismatch") else (
-        0 if (args.mode == "global" and global_supported) else 2
-    )
+    return 0 if success else 1
 
 
 if __name__ == "__main__":

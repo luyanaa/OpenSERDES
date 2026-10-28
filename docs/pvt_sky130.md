@@ -30,11 +30,15 @@ post-route timing.  This is a characterization matrix, not a signoff claim.
 
 ## Behavioral margin projection
 
-`make pvt-margin` converts each row's TX rise time to an equivalent RC tau and
-runs the behavioral eye/Gaussian-tail analysis at that tau (clean profile,
-8000 bits).  On this 45-point matrix the eye width/height are dominated by the
-sampling grid and clean channel; `tau_ui` spans about 1.3e-8 .. 3.5e-8, and the
-predicted margin does not separate the corners at 100 Mb/s.  This is a useful
-negative result: the simple inverter at 50 fF is not the limiting corner in
-this behavioral model, so RTL/JTOL and PEX (not just this LUT) are required for
-a meaningful corner sensitivity claim.
+`make pvt-margin` converts each row's TX rise time to an equivalent RC tau
+(`rise/ln4`), applies it as a **TX impulse response**, and then cascades the
+fixed external channel impulse response (rather than replacing the channel
+with the TX pole).  At 100 Mb/s the corrected UI is 10 ns, so the 0.183–0.566
+ns TX rise range maps to `tau_ui ≈ 0.0132–0.0408` (the previous 1e-8 range was
+a UI unit bug: UI[ns] = 1000 / rate[Mb/s], not 1e9 / rate).
+
+With the corrected projection (clean profile, 8000 bits), the 45 rows give
+`eye_width_ui` p05/p50/p95 = 0.9578/0.9594/0.9600 and statistical BER
+3.3e-5–4.7e-5.  The corner spread is now visible but still dominated by the
+sampling grid and clean channel; this remains a behavioral sensitivity study,
+not RTL/JTOL, PEX, or silicon evidence.

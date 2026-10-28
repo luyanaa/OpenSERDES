@@ -2,9 +2,10 @@
 """Map PVT LUT rows to behavioral eye/BER margin distributions.
 
 This is a *behavioral sensitivity* pass, not an RTL or silicon BER claim:
-each PVT row's TX rise time is converted to an equivalent RC tau (rise/ln4)
-and fed into the existing stressed-eye/Gaussian-tail framework.  It answers
-"which corners move the eye/ISI margin?" before spending RTL JTOL time.
+each PVT row's TX rise time is converted to an equivalent RC tau (rise/ln4),
+applied as a TX impulse response, and then cascaded with the fixed external
+channel impulse response.  It answers "which corners move the eye/ISI margin?"
+before spending RTL JTOL time; it never replaces the channel with the TX pole.
 """
 
 from __future__ import annotations
@@ -31,6 +32,14 @@ from verification.cli import load_profile  # noqa: E402
 from verification.patterns.prbs import prbs_bits  # noqa: E402
 
 
+def ui_ns_from_rate(rate_mbps: float) -> float:
+    """UI in nanoseconds for a line rate in Mb/s (100 Mb/s -> 10 ns)."""
+    rate = float(rate_mbps)
+    if not math.isfinite(rate) or rate <= 0.0:
+        raise ValueError(f"rate_mbps must be finite and > 0; got {rate_mbps!r}")
+    return 1e3 / rate
+
+
 def _summary(values: list[float]) -> dict[str, float]:
     arr = np.array(values, dtype=float)
     arr = arr[np.isfinite(arr)]
@@ -50,12 +59,14 @@ def _summary(values: list[float]) -> dict[str, float]:
 
 def margin_for_row(row: dict[str, Any], profile: dict[str, Any], bits_n: int) -> dict[str, Any]:
     rise = row.get("tx_rise_ns")
-    if rise is None or rise <= 0:
+    if rise is None or not math.isfinite(float(rise)) or float(rise) <= 0.0:
         return {"corner": row.get("corner"), "vdd_v": row.get("vdd_v"),
                 "temperature_c": row.get("temperature_c"), "valid": False}
-    ui_ns = 1e9 / float(profile["rate_mbps"])
+    ui_ns = ui_ns_from_rate(profile["rate_mbps"])
     tau_ns = float(rise) / math.log(4.0)
-    tau_ui = tau_ns / ui_ns
+    tx_tau_ui = tau_ns / ui_ns
+    channel = profile["channel"]
+    channel_tau_ui = float(channel["tau_ui"])
     bits = prbs_bits(profile["prbs_width"], bits_n)
     rng = np.random.default_rng(profile["seed"])
     tie, _ = build_tie(
@@ -63,10 +74,14 @@ def margin_for_row(row: dict[str, Any], profile: dict[str, Any], bits_n: int) ->
         profile["sj_freq_hz"], profile["dcd_peak_ui"], rng=rng,
     )
     wave = nrz_waveform(bits, profile["sps"], tie_ui=tie / profile["ui_s"])
-    channel = RCReflectionChannel(
-        tau_ui=tau_ui, reflections=profile["channel"]["reflections"]
+    # Do not replace the channel with the TX rise-time pole.  A finite TX
+    # driver and the external channel are two cascaded impulse responses.
+    tx = RCReflectionChannel(tau_ui=tx_tau_ui, reflections=())
+    channel_model = RCReflectionChannel(
+        tau_ui=channel_tau_ui, reflections=channel["reflections"]
     )
-    wave = channel.apply(wave, profile["sps"])
+    wave = tx.apply(wave, profile["sps"])
+    wave = channel_model.apply(wave, profile["sps"])
     if profile["noise_rms_v"] > 0.0:
         wave = wave + rng.normal(0.0, profile["noise_rms_v"], size=wave.size)
     metrics = eye_metrics(
@@ -83,7 +98,9 @@ def margin_for_row(row: dict[str, Any], profile: dict[str, Any], bits_n: int) ->
         "vdd_v": row.get("vdd_v"),
         "temperature_c": row.get("temperature_c"),
         "tx_rise_ns": float(rise),
-        "tau_ui": float(tau_ui),
+        "tau_ui": float(tx_tau_ui),
+        "tx_tau_ui": float(tx_tau_ui),
+        "channel_tau_ui": float(channel_tau_ui),
         "eye_width_ui": float(metrics["eye_width_ui"]),
         "eye_height_v": float(metrics["eye_height_v"]),
         "statistical_ber": float(stat["ber"][0]),
@@ -112,7 +129,8 @@ def main() -> int:
         "rows": rows,
         "summary": {
             key: _summary([r[key] for r in valid])
-            for key in ("eye_width_ui", "eye_height_v", "statistical_ber", "tau_ui")
+            for key in ("eye_width_ui", "eye_height_v", "statistical_ber",
+                        "tau_ui", "tx_tau_ui", "channel_tau_ui")
         },
     }
     path = Path(args.out)

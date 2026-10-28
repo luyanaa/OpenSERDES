@@ -65,6 +65,8 @@ class TouchstoneResponse:
     format: str = "RI"
     max_single_ended: float = 0.0
     reciprocity_error: float = 0.0
+    s: np.ndarray | None = None
+    passivity_smax: float = 0.0
 
     def insertion_loss_db(self) -> np.ndarray:
         return 20.0 * np.log10(np.maximum(np.abs(self.sdd21), 1e-30))
@@ -87,29 +89,116 @@ class TouchstoneResponse:
         phase = np.unwrap(np.angle(re + 1j * im))
         return -np.gradient(phase, fu) / (2.0 * np.pi)
 
-    def physical_checks(self, tolerance: float = 1e-6) -> dict[str, Any]:
-        """Frequency-domain physical consistency checks (not a full causal fit)."""
+    def physical_checks(
+        self,
+        tolerance: float = 1e-6,
+        negative_group_delay_tol_s: float = 1e-12,
+        min_bandwidth_hz: float | None = None,
+    ) -> dict[str, Any]:
+        """Frequency/time-domain physical checks.
+
+        Passivity uses the largest singular value of the complete single-ended
+        S matrix at every frequency, not the largest individual |Sij|.
+        Group delay has units of seconds; its negative tolerance is independent
+        of the dimensionless reciprocity/passivity tolerance.  A negative local
+        group delay is a warning/causality-suspect flag, then the impulse
+        response pre-peak energy is checked before strict certification.
+        """
         gd = self.group_delay_s()
+        if self.s is not None and self.s.size:
+            singular = np.linalg.svd(self.s, compute_uv=False)
+            smax = float(np.max(singular))
+        else:
+            smax = float(self.max_single_ended)
+        pre_ratio = self._pre_peak_energy_ratio()
         checks = {
             "frequency_monotonic": bool(np.all(np.diff(self.freq_hz) > 0)),
             "dc_present": not self.dc_extrapolated,
             "reference_ohm": float(self.reference_ohm),
             "max_single_ended": float(self.max_single_ended),
-            "passive": bool(self.max_single_ended <= 1.0 + tolerance),
+            "passivity_smax": smax,
+            "passive": bool(smax <= 1.0 + tolerance),
             "reciprocity_error": float(self.reciprocity_error),
             "reciprocal": bool(self.reciprocity_error <= tolerance),
             "group_delay_median_s": float(np.median(gd)) if gd.size else 0.0,
             "group_delay_min_s": float(np.min(gd)) if gd.size else 0.0,
-            "group_delay_negative": bool(gd.size and np.min(gd) < -tolerance),
+            "group_delay_negative_tol_s": float(negative_group_delay_tol_s),
+            "group_delay_negative": bool(
+                gd.size and np.min(gd) < -float(negative_group_delay_tol_s)
+            ),
+            "pre_peak_energy_ratio": pre_ratio,
+            "time_domain_causal": bool(pre_ratio <= 0.05),
+            "bandwidth_hz": float(self.freq_hz[-1]) if self.freq_hz.size else 0.0,
             "dc_real_only": bool(abs(self.sdd21[0].imag) <= tolerance),
         }
+        if min_bandwidth_hz is not None:
+            checks["min_bandwidth_hz"] = float(min_bandwidth_hz)
+            checks["bandwidth_sufficient"] = bool(
+                checks["bandwidth_hz"] >= float(min_bandwidth_hz)
+            )
+        else:
+            checks["bandwidth_sufficient"] = None
         if not checks["passive"]:
-            self.warnings.append("passivity check failed: |S| > 1")
+            self.warnings.append(
+                f"passivity check failed: sigma_max(S) = {smax:.4f} > 1"
+            )
         if not checks["reciprocal"]:
             self.warnings.append("reciprocity check failed")
         if checks["group_delay_negative"]:
             self.warnings.append(
-                "group delay is negative somewhere; check causality/phase reference"
+                "group delay is negative somewhere; causality-suspect, "
+                "check time-domain pre-response"
+            )
+        if checks["group_delay_negative"] and checks["time_domain_causal"]:
+            self.warnings.append(
+                "local negative group delay but impulse response is time-domain causal"
+            )
+        return checks
+
+    def _pre_peak_energy_ratio(self) -> float:
+        """Energy before the impulse peak / total energy (diagnostic)."""
+        f = np.asarray(self.freq_hz, dtype=float)
+        if f.size < 2 or not np.isfinite(f[-1]) or f[-1] <= 0:
+            return 0.0
+        n = max(8192, int(2 ** np.ceil(np.log2(f.size * 16))))
+        fu = np.linspace(0.0, float(f[-1]), n)
+        real = np.interp(fu, f, self.sdd21.real)
+        imag = np.interp(fu, f, self.sdd21.imag)
+        h = np.fft.irfft(real + 1j * imag, n=n)
+        power = h * h
+        total = float(np.sum(power))
+        if total <= 0.0:
+            return 0.0
+        peak = int(np.argmax(np.abs(h)))
+        return float(np.sum(power[:peak]) / total)
+
+    def require_physical(
+        self,
+        tolerance: float = 1e-6,
+        negative_group_delay_tol_s: float = 1e-12,
+        min_bandwidth_hz: float | None = None,
+    ) -> dict[str, Any]:
+        """Fail closed for physical-certification callers."""
+        checks = self.physical_checks(
+            tolerance=tolerance,
+            negative_group_delay_tol_s=negative_group_delay_tol_s,
+            min_bandwidth_hz=min_bandwidth_hz,
+        )
+        if not checks["frequency_monotonic"]:
+            raise TouchstoneError("frequency grid is not strictly increasing")
+        if not checks["passive"]:
+            raise TouchstoneError(
+                f"non-passive network: sigma_max(S)={checks['passivity_smax']:.4f}"
+            )
+        if checks["group_delay_negative"] and not checks["time_domain_causal"]:
+            raise TouchstoneError(
+                "causality-suspect network: negative group delay and "
+                f"pre-peak energy ratio {checks['pre_peak_energy_ratio']:.3e}"
+            )
+        if checks["bandwidth_sufficient"] is False:
+            raise TouchstoneError(
+                f"insufficient bandwidth: {checks['bandwidth_hz']:.3e} Hz "
+                f"< {checks['min_bandwidth_hz']:.3e} Hz"
             )
         return checks
 
@@ -237,6 +326,9 @@ def load_touchstone(
     *,
     port_map: dict[str, int] | None = None,
     require_dc: bool = False,
+    strict_physical: bool = False,
+    min_bandwidth_hz: float | None = None,
+    negative_group_delay_tol_s: float = 1e-12,
 ) -> TouchstoneResponse:
     """Load a 2-port or 4-port Touchstone file.
 
@@ -251,8 +343,12 @@ def load_touchstone(
 
     # Basic sanity diagnostics on the *single-ended* network before mixed-mode.
     max_mag = float(np.max(np.abs(s))) if s.size else 0.0
-    if max_mag > 1.0 + 1e-6:
-        warnings.append(f"passivity check: max |S| = {max_mag:.4f} > 1")
+    singular = np.linalg.svd(s, compute_uv=False) if s.size else np.zeros((1,))
+    passivity_smax = float(np.max(singular)) if singular.size else 0.0
+    if passivity_smax > 1.0 + 1e-6:
+        warnings.append(
+            f"passivity check: sigma_max(S) = {passivity_smax:.4f} > 1"
+        )
     reciprocity = float(np.max(np.abs(s - np.transpose(s, (0, 2, 1)))))
     if reciprocity > 1e-6:
         warnings.append(f"reciprocity check: max |S - S^T| = {reciprocity:.3e}")
@@ -276,10 +372,11 @@ def load_touchstone(
         freq = np.concatenate(([0.0], freq))
         sdd21 = np.concatenate(([sdd21[0].real + 0j], sdd21))
         sdd11 = np.concatenate(([sdd11[0].real + 0j], sdd11))
+        s = np.concatenate(([s[0].real + 0j], s), axis=0)
         dc_extrapolated = True
         warnings.append("no DC point: extrapolated from the lowest frequency")
 
-    return TouchstoneResponse(
+    response = TouchstoneResponse(
         path=str(p),
         nports=nports,
         freq_hz=freq,
@@ -292,7 +389,15 @@ def load_touchstone(
         format=fmt,
         max_single_ended=max_mag,
         reciprocity_error=reciprocity,
+        s=s,
+        passivity_smax=passivity_smax,
     )
+    if strict_physical:
+        response.require_physical(
+            min_bandwidth_hz=min_bandwidth_hz,
+            negative_group_delay_tol_s=negative_group_delay_tol_s,
+        )
+    return response
 
 
 def _uniform_response(
@@ -371,8 +476,13 @@ def load_touchstone_channel(
     *,
     port_map: dict[str, int] | None = None,
     n_fft: int | None = None,
+    strict_physical: bool = False,
+    min_bandwidth_hz: float | None = None,
 ) -> TouchstoneChannel:
-    response = load_touchstone(path, port_map=port_map)
+    response = load_touchstone(
+        path, port_map=port_map, strict_physical=strict_physical,
+        min_bandwidth_hz=min_bandwidth_hz,
+    )
     return TouchstoneChannel(response=response, sps=sps, ui_s=ui_s, n_fft=n_fft)
 
 

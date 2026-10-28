@@ -50,8 +50,12 @@ The default profile is `verification/profiles/stressed.yaml`.
 
 The Touchstone response exposes `group_delay_s()` (uniform-grid phase
 derivative, `-dphi/df/2pi`) and `physical_checks()` (frequency monotonicity,
-DC, passivity, reciprocity, negative group-delay warning).  The time-domain
-channel's impulse delay is checked against a pure-delay golden S2P/S4P.
+DC, full-matrix singular-value passivity, reciprocity, time-domain causality,
+and a seconds-based negative group-delay threshold).  `load_touchstone(...)
+strict_physical=True`/`require_physical()` fail closed for non-passive data,
+insufficient optional bandwidth, and causality-suspect impulse responses.  The
+time-domain channel's impulse delay is checked against a pure-delay golden
+S2P/S4P.
 
 `jtol --model rtl` runs iverilog with the real RTL.  ``--chain cdr`` drives
 ``rtl/cdr_adaptive.sv`` directly with a jittered edge schedule; ``--chain rx``
@@ -96,6 +100,10 @@ No PEX, corners or Monte Carlo are included.
 frequency/passivity/reciprocity, supports explicit s4p port maps and mixed-mode
 Sdd21/Sdd11, and builds a delay-aligned time-domain channel.  It is a native
 parser; scikit-rf is not required.  Port order is never guessed.
+
+`scripts/pvt_margin.py` uses `UI[ns] = 1000 / rate_mbps` (100 Mb/s = 10 ns)
+and cascades the TX rise-time impulse response with the fixed channel impulse
+response; it never substitutes the TX pole for the channel.
 
 `analog/pvt_runner.py` sweeps the tech config's corners x voltages x
 temperatures at one load/slew and writes continuous TX/RX measurements.  The
