@@ -16,6 +16,8 @@ PPA_CSV  ?=
 PPA_OUT  ?= tech/ppa_measured.yaml
 VERIFY_PROFILE ?= verification/profiles/stressed.yaml
 VERIFY_OUT     ?= $(BUILD)/verify/ber.json
+SOC_E2E_PACKAGE ?= out/ci-soc
+SOC_E2E_OUT ?= $(BUILD)/verify/soc_e2e.json
 VERIFY_PACKAGE ?=
 VERIFY_ANALOG_LUT ?=
 ANALOG_TECH ?= sky130
@@ -51,7 +53,7 @@ RTL   := $(wildcard rtl/*.sv)
 SV2V_DIR := $(BUILD)/sv2v
 SV2V_RTL := $(SV2V_DIR)/rtl.v
 
-.PHONY: all sim lint synth regress gen qualify signoff ppa-import clean si-eye si-bathtub si-jtol si-rtl-jtol verify-link analog-lut sky130-lut analog-lut-demo analog-tech-check sky130-pvt pvt-margin pdk-mc xyce-global-mc magic-pex magic-pex-compare sky130-mc pex-compare lib-catalog timing-compare
+.PHONY: all sim lint synth regress gen qualify signoff ppa-import clean si-eye si-bathtub si-jtol si-rtl-jtol verify-link soc-e2e analog-lut sky130-lut analog-lut-demo analog-tech-check sky130-pvt pvt-margin pdk-mc xyce-global-mc magic-pex magic-pex-compare sky130-mc pex-compare lib-catalog timing-compare
 
 all: sim
 
@@ -362,6 +364,10 @@ magic-pex-compare: magic-pex
 
 analog-tech-check:
 	$(PYTHON) verification/analog/extract_lut.py --tech $(ANALOG_TECH) --check-tools --out $(BUILD)/verify/$(ANALOG_TECH)_tech_check.json
+
+soc-e2e:
+	$(PYTHON) verification/rtl/soc_runner.py --package $(SOC_E2E_PACKAGE) \
+		--out $(SOC_E2E_OUT)
 
 verify-link:
 	@test -n "$(VERIFY_PACKAGE)" || { \

@@ -53,6 +53,9 @@ jobs:
           VERIFY_PROFILE=verification/profiles/clean.yaml \
           VERIFY_JTOL_MIN_AMP_UI=0.05
 
+      - name: Generated-top SoC E2E smoke
+        run: make soc-e2e PYTHON=python3 SOC_E2E_PACKAGE=out/ci-soc
+
       - name: Analog LUT smoke test (generic demo; no PDK claim)
         run: make analog-lut-demo PYTHON=python3
 
@@ -60,4 +63,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: link-verification
-          path: build/verify/ber.json
+          path: |
+            build/verify/ber.json
+            build/verify/soc_e2e.json
