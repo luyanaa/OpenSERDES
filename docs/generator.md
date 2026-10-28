@@ -67,10 +67,12 @@ Rules:
   max_endpoint_line_rate_mbps for target tx/rx.  --relax-limits is for
   explicit experiments, not signoff.
 - interface.data: axi4_stream is supported for target tx/rx, generating
-  serdes_tx_axis_digital / serdes_rx_axis_digital.  target link AXIS is still a
-  scaffold because there is no link-level APB/AXIS/CDC wrapper.
+  serdes_tx_axis_digital / serdes_rx_axis_digital.  For target link, preset soc
+  + data axi4_stream + control apb + cdc none generates the single-clock
+  serdes_soc_wrapper (comma + payload framing).  cdc async_fifo and multi-clock
+  APB/AXIS are still scaffold.
 
-Example endpoint specs: spec/tx_axis.yaml, spec/rx_axis.yaml.
+Example specs: spec/tx_axis.yaml, spec/rx_axis.yaml, spec/soc_single_clock.yaml.
 
 ## 3. Architecture selection
 
@@ -126,7 +128,7 @@ Current candidates:
 |---|---|---|---|---|
 | minimal | valid/ready parallel | native | none | complete |
 | default | valid/ready parallel | native | auto | complete |
-| soc | AXI4-Stream | APB | async FIFO | AXIS endpoint + APB/FIFO primitives exist; link-level CDC/top integration is scaffold |
+| soc | AXI4-Stream | APB | none (single-clock ref) | serdes_soc_wrapper available; async-FIFO multi-clock variant is scaffold |
 | phy_ip | valid/ready + optional blocks | APB | async FIFO + BIST/calibration/DFT | APB/FIFO primitives exist; BIST/DFT/top integration is scaffold |
 
 soc and phy_ip still require the link-level APB/AXIS/CDC/top integration

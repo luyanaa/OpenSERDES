@@ -93,6 +93,7 @@ CASES = [
     ("prbs7", "tb_prbs", ["rtl/prbs_gen.sv", "rtl/prbs_check.sv"], {"WIDTH": 7}),
     ("prbs15", "tb_prbs", ["rtl/prbs_gen.sv", "rtl/prbs_check.sv"], {"WIDTH": 15}),
     ("prbs31", "tb_prbs", ["rtl/prbs_gen.sv", "rtl/prbs_check.sv"], {"WIDTH": 31}),
+    ("serdes_soc_wrapper", "tb_serdes_soc_wrapper", [str(p) for p in sorted((ROOT / "rtl").glob("*.sv"))], {}),
 ]
 
 
@@ -128,6 +129,7 @@ def run_generator_checks() -> tuple[int, int]:
         ("tx_stream", [], 0),
         ("tx_axis", [], 0),
         ("rx_axis", [], 0),
+        ("soc_single_clock", [], 0),
         ("soc", [], 2),
         ("soc", ["--allow-incomplete"], 0),
         ("phy_ip", ["--allow-incomplete"], 0),
@@ -147,7 +149,8 @@ def run_generator_checks() -> tuple[int, int]:
                                        ("tx_stream", "serdes_tx_stream_digital"),
                                        ("minimal", "serdes_digital_top"),
                                        ("tx_axis", "serdes_tx_axis_digital"),
-                                       ("rx_axis", "serdes_rx_axis_digital")):
+                                       ("rx_axis", "serdes_rx_axis_digital"),
+                                       ("soc_single_clock", "serdes_soc_wrapper")):
         total += 1
         out = ROOT / "build" / "gen" / spec_name
         cmd = [py, "scripts/gen_ip.py", "--spec", f"spec/{spec_name}.yaml",

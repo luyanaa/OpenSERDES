@@ -56,6 +56,14 @@ DESIGN_FILES = {
         "receiver_sampler.sv", "reset_sync.sv", "serdes_rx_digital.sv",
         "axis_rx_adapter.sv", "serdes_rx_axis_digital.sv",
     ],
+    "serdes_soc_wrapper": [
+        "apb_csr.sv", "axis_tx_adapter.sv", "serializer_stream.sv",
+        "serdes_tx_axis_digital.sv", "axis_rx_adapter.sv",
+        "deserializer_word.sv", "deserializer.sv", "cdr_sync.sv",
+        "cdr_oversampling.sv", "cdr_adaptive.sv", "comma_align.sv",
+        "receiver_sampler.sv", "reset_sync.sv", "serdes_rx_digital.sv",
+        "serdes_rx_axis_digital.sv", "serdes_soc_wrapper.sv",
+    ],
 }
 
 OPTIONAL_FILES = {
@@ -464,10 +472,6 @@ def validate(spec: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
             fail("preset minimal requires valid_ready data, native control and no CDC")
         if features:
             fail("preset minimal cannot include optional features")
-    if preset in ("soc", "phy_ip") and not args.allow_incomplete:
-        fail(f"preset {preset} requires APB/AXI-Stream/CDC modules that are not "
-             "implemented yet; use --allow-incomplete to emit a scaffold package")
-
     user_clock = interface.get("user_clock_mhz")
     if user_clock is not None:
         user_clock = as_float(user_clock, "interface.user_clock_mhz")
@@ -481,13 +485,25 @@ def validate(spec: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
     elif cdc == "auto":
         cdc = "none"
 
-    if data_mode == "axi4_stream" and target == "link":
+    soc_wrapper = (target == "link" and preset == "soc" and
+                   data_mode == "axi4_stream" and control == "apb" and
+                   cdc == "none")
+    if preset == "soc" and not soc_wrapper and not args.allow_incomplete:
+        fail("preset soc with CDC/async-FIFO integration is not implemented; "
+             "use cdc: none for the single-clock serdes_soc_wrapper, or "
+             "--allow-incomplete for a scaffold package")
+    if preset == "phy_ip" and not args.allow_incomplete:
+        fail("preset phy_ip requires BIST/calibration/DFT integration that is "
+             "not implemented yet; use --allow-incomplete to emit a scaffold package")
+
+    if data_mode == "axi4_stream" and target == "link" and not soc_wrapper:
         if not args.allow_incomplete:
-            fail("target link has no AXIS wrapper yet; use target: tx or rx "
-                 "for an AXIS endpoint, or --allow-incomplete for a core scaffold")
+            fail("target link has no general AXIS wrapper; use target: tx or rx, "
+                 "or preset: soc + cdc: none for the single-clock wrapper, or "
+                 "--allow-incomplete for a core scaffold")
         spec.setdefault("_warnings", []).append(
             "target link AXIS/APB/CDC wrapper is not integrated; package is a core scaffold")
-    if control == "apb" or cdc != "none" or features:
+    if (control == "apb" or cdc != "none" or features) and not soc_wrapper:
         if not args.allow_incomplete:
             fail("APB/CDC/BIST/calibration/DFT integration is not implemented "
                  "for this target; use --allow-incomplete to emit a scaffold package")
@@ -551,8 +567,12 @@ def build_plan(cfg: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
     unused = {"name": "not_used", "module": "none", "confidence": "n/a",
               "frontier": []}
     ppa = load_ppa(args.ppa_db)
+    soc_single = (cfg["target"] == "link" and cfg["preset"] == "soc" and
+                  cfg["data_mode"] == "axi4_stream" and
+                  cfg["control"] == "apb" and cfg["cdc"] == "none")
+    tx_target = "tx" if soc_single else cfg["target"]
     if cfg["target"] in ("link", "tx"):
-        tx_arch = select_arch("tx", cfg["tx_arch_name"], cfg["target"], cfg["ratio"],
+        tx_arch = select_arch("tx", cfg["tx_arch_name"], tx_target, cfg["ratio"],
                               cfg["line_rate"], cfg["oversample"], cfg["objectives"],
                               cfg["clocking"], cfg["ppm"], cfg["tech"].name,
                               cfg["tech"].scl, ppa)
@@ -567,7 +587,10 @@ def build_plan(cfg: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
         rx_arch = dict(unused)
 
     if cfg["target"] == "link":
-        design = "serdes_digital_top"
+        if soc_single:
+            design = "serdes_soc_wrapper"
+        else:
+            design = "serdes_digital_top"
     elif cfg["target"] == "tx":
         design = ("serdes_tx_axis_digital"
                   if cfg["data_mode"] == "axi4_stream" else tx_arch["module"])
@@ -585,6 +608,12 @@ def build_plan(cfg: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
     }
     if design in ("serdes_tx_digital", "serdes_digital_top"):
         params["CAPTURE_MODE"] = int(tx_arch.get("capture_mode", 0))
+    if design == "serdes_soc_wrapper":
+        params.update({
+            "SYNC_LEN": cfg["sync_len"],
+            "SYNC_PATTERN": cfg["sync_pattern"],
+            "ADAPT_FRAC_BITS": 12,
+        })
     if design in ("serdes_rx_digital", "serdes_rx_axis_digital", "serdes_digital_top"):
         params.update({
             "OVERSAMPLE": cfg["oversample"],
@@ -600,7 +629,11 @@ def build_plan(cfg: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
             "ADAPT_LOOP_GAIN": 4,
         })
 
-    if cfg["target"] == "link":
+    if design == "serdes_soc_wrapper":
+        clock_port = "clk"
+        clock_period = cfg["tx_period_ns"]
+        clock_ports = ["clk"]
+    elif cfg["target"] == "link":
         clock_port = "tx_clk"
         clock_period = cfg["tx_period_ns"]
         clock_ports = ["tx_clk", "rx_clk"]
@@ -618,8 +651,11 @@ def build_plan(cfg: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
         "word_group_capture": "word_group_hold: ready is low for WORDS cycles; upstream must hold the full frame stable",
         "word_streaming": "word_streaming: per-word in_valid/in_ready; upstream holds one word per accepted cycle",
         "axi4_stream": "axi4_stream: per-word AXIS beats; tlast marks the last word; no full-frame hold",
+        "soc_wrapper": "soc_wrapper: TX AXIS frame = comma + payload words; RX AXIS frame = payload words",
         "not_used": "n/a",
-    }.get("axi4_stream" if design == "serdes_tx_axis_digital" else tx_arch["name"], "unknown")
+    }.get("soc_wrapper" if design == "serdes_soc_wrapper"
+          else "axi4_stream" if design == "serdes_tx_axis_digital"
+          else tx_arch["name"], "unknown")
 
     files = list(DESIGN_FILES[design])
     optional = OPTIONAL_FILES.get(cfg["preset"], [])
@@ -688,6 +724,39 @@ def sdc_text(cfg: dict[str, Any], plan: dict[str, Any], stage: str) -> str:
             f"set_clock_uncertainty -hold  {hold:.3f} [get_clocks rx_clk]",
         ]
     lines += [""]
+
+    if plan["design"] == "serdes_soc_wrapper":
+        lines = [
+            f"# Generated by OpenSERDES gen_ip.py ({stage}). Do not edit by hand.",
+            f"# Stage: {stage}",
+            "",
+            f"set CLK_PERIOD_NS {tx:.6f}",
+            "create_clock -name clk -period $CLK_PERIOD_NS [get_ports clk]",
+            f"set_clock_uncertainty -setup {setup:.3f} [get_clocks clk]",
+            f"set_clock_uncertainty -hold  {hold:.3f} [get_clocks clk]",
+            "",
+            "set_input_delay  -clock clk 0.200 [get_ports {paddr* psel penable pwrite pwdata* s_axis_tvalid s_axis_tdata* s_axis_tlast rx_serial_in}]",
+            "set_output_delay -clock clk 0.200 [get_ports {pready prdata* pslverr s_axis_tready m_axis_tvalid m_axis_tdata* m_axis_tlast tx_serial_out tx_serial_valid rx_sample_strobe rx_serial_data rx_serial_valid rx_freq_trim* rx_clk_out csr_regs*}]",
+            "set_false_path -to [get_ports rx_clk_out]",
+            "set_load 0.010 [get_ports tx_serial_out]",
+            "",
+        ]
+        if stage == "pre_pnr":
+            lines += [
+                "# Pre-CTS: asynchronous reset recovery/removal is not signed off yet.",
+                "set_false_path -from [get_ports rst_n]",
+                "foreach pin [get_pins -hierarchical *RESET_B] { set_false_path -through $pin }",
+                "foreach pin [get_pins -hierarchical *RN]      { set_false_path -through $pin }",
+                "foreach pin [get_pins -hierarchical *SN]      { set_false_path -through $pin }",
+                "foreach pin [get_pins -hierarchical *SETN]    { set_false_path -through $pin }",
+                "foreach pin [get_pins -hierarchical *SET_B]   { set_false_path -through $pin }",
+            ]
+        else:
+            lines += [
+                "# Post-CTS/signoff: reset recovery/removal is enabled.",
+                "set_propagated_clock [all_clocks]",
+            ]
+        return "\n".join(lines) + "\n"
 
     if target in ("link", "tx"):
         if target == "tx" and plan["design"] == "serdes_tx_axis_digital":
