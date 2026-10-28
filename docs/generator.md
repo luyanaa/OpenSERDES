@@ -135,10 +135,13 @@ soc now has two real wrappers: `serdes_soc_wrapper` for a single clock and
 `serdes_soc_cdc_wrapper` for separate pclk/AXIS/tx/rx clocks with async FIFOs
 and 2FF control/status synchronization.  Both use a source-synchronous link
 (OVERSAMPLE=1) and comma+payload framing; fixed/adaptive CDR in a SoC wrapper
-is still open.  `phy_ip` remains a scaffold until BIST/calibration/DFT
-integration exists.  `target: tx`/`rx` with `interface.data: axi4_stream`
-generates a real endpoint package.  The presets fail fast unless --allow-incomplete is
-passed, and the generated package explicitly records the missing blocks.
+is still open.  Both wrappers integrate the PRBS BIST behind APB: BIST_CTRL
+(enable/start/clear/inject/loopback/snapshot) at register 8, coherent counter
+snapshots at 10/11 and BIST_STATUS at 12.  `phy_ip` remains a scaffold until
+calibration/DFT integration exists.  `target: tx`/`rx` with
+`interface.data: axi4_stream` generates a real endpoint package.  The presets
+fail fast unless --allow-incomplete is passed, and the generated package
+explicitly records the missing blocks.
 
 ## 5. Package layout
 

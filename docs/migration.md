@@ -87,8 +87,10 @@ See [`generator.md`](generator.md) and [`qualification.md`](qualification.md).
   the original `CLK_RECOVERY` period tracker.  No analog/gate-level
   equivalence is claimed; jitter tolerance and BER are not measured here.
 - APB CSR, async FIFO, cdc_sync, AXIS adapters, AXIS endpoint wrappers,
-  PRBS7/15/31 and single/multi-clock SoC wrappers are implemented.  BIST
-  integration, calibration and non-source-sync SoC CDR remain scaffolded.
+  PRBS7/15/31, `serdes_bist` and single/multi-clock SoC wrappers are
+  implemented.  APB-controlled pad-level BIST injection/loopback and coherent
+  counter snapshots are integrated in both wrappers.  Word/datapath BIST,
+  calibration and non-source-sync SoC CDR remain open.
 - The receiver, inverter-based TX, resistive-feedback inverter, and custom
   DFF/NAND physical cells remain legacy until a new analog/back-end design is
   available.

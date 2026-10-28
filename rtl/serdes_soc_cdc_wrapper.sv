@@ -1,21 +1,52 @@
 `timescale 1ns/1ps
 
 // -----------------------------------------------------------------------------
-// Multi-clock SoC wrapper: APB CSR + AXIS async FIFOs + source-synchronous link.
+// Multi-clock SoC wrapper: APB CSR + AXIS async FIFOs + source-synchronous link
+// + APB-controlled PRBS BIST with loopback and coherent counter snapshots.
 //
 // Domains:
-//   pclk        : APB CSR and synchronized status
+//   pclk        : APB CSR, synchronized status, BIST snapshot read port
 //   s_axis_aclk : TX AXIS input, TX FIFO write side
-//   tx_clk      : TX FIFO read / serializer
+//   tx_clk      : TX FIFO read / serializer / PRBS BIST generator + checker
 //   rx_clk      : RX core / RX FIFO write side
 //   m_axis_aclk : RX AXIS output, RX FIFO read side
 //
 // TX AXIS frame = WORDS+1 beats: comma (0xBC) + WORDS payload words.
 // RX AXIS frame = WORDS payload words.
 //
-// Control/status are static levels or pulses synchronized with cdc_sync.  The
-// multi-bit status bus is synchronized bit-by-bit for observability; software
-// must treat it as a set of independent status bits, not a coherent snapshot.
+// CSR map (word addresses):
+//   0       CONTROL          RW: [0] tx_enable, [1] rx_enable, [2] rx_flush,
+//                                [3] tx_clear, [4] rx_clear
+//   1..6                     RW scratch / reserved
+//   7       STATUS           RO: link status (status_i, layout unchanged)
+//   8       BIST_CTRL        RW: [0] enable, [1] start, [2] clear, [3] inject,
+//                                [4] loopback, [5] snapshot
+//   9                        RW reserved
+//   10      BIST_ERROR_COUNT RO: snapshot of the tx_clk error counter
+//   11      BIST_BIT_COUNT   RO: snapshot of the tx_clk bit counter
+//   12      BIST_STATUS      RO: [0] error (snapshot), [1] running (snapshot,
+//                                start & enable), [2] snap_valid (live pclk),
+//                                [3] loopback (live), [4] inject (live),
+//                                [7:5] PRBS width code
+//   13..15                   RW reserved
+//
+// BIST placement: the PRBS generator and checker run in tx_clk; the serial
+// stream is continuous at one bit per clock and must not cross clock domains.
+// The BIST control bits cross pclk -> tx_clk with one cdc_sync per level, and
+// the tx_clk counters return through bist_snapshot (stable-bus handshake) so
+// software always reads a coherent word.  BIST_STATUS combines the live pclk
+// bits (snap_valid/loopback/inject) with snapshot bits in one APB read.
+//
+// Loopback (BIST_CTRL[4]) is the deterministic self-check mode: the checker
+// consumes the tx_clk serial output directly.  Checking the external
+// rx_serial_in requires tx_clk and rx_clk to be frequency/phase related,
+// because the checker samples the cdc_sync'd rx_serial_in in the tx_clk
+// domain.
+//
+// General control/status are static levels or pulses synchronized with
+// cdc_sync.  The multi-bit link status bus is synchronized bit-by-bit for
+// observability; software must treat it as independent status bits, not a
+// coherent snapshot (use the BIST snapshot registers for coherent counters).
 // -----------------------------------------------------------------------------
 module serdes_soc_cdc_wrapper #(
     parameter int DATA_WIDTH  = 8,
@@ -24,7 +55,9 @@ module serdes_soc_cdc_wrapper #(
     parameter int SYNC_LEN    = 8,
     parameter logic [SYNC_LEN-1:0] SYNC_PATTERN = 'hBC,
     parameter int ADAPT_FRAC_BITS = 12,
-    parameter int FIFO_DEPTH  = 16
+    parameter int FIFO_DEPTH  = 16,
+    parameter int BIST_PRBS_WIDTH = 7,
+    parameter logic [BIST_PRBS_WIDTH-1:0] BIST_SEED = '1
 ) (
     // APB
     input  logic                              pclk,
@@ -69,18 +102,25 @@ module serdes_soc_cdc_wrapper #(
     output logic                              rx_serial_valid,
     output logic signed [ADAPT_FRAC_BITS:0]   rx_freq_trim,
     output logic                              rx_clk_out,
-    output logic [7:0][31:0]                  csr_regs
+    output logic [15:0][31:0]                 csr_regs
 );
 
     localparam int TX_WORDS = WORDS + 1;
     localparam int RX_WORDS = WORDS;
 
+    // PRBS width reported in BIST_STATUS[7:5].
+    localparam logic [2:0] BIST_WIDTH_CODE = (BIST_PRBS_WIDTH == 7)  ? 3'b001 :
+                                             (BIST_PRBS_WIDTH == 15) ? 3'b010 :
+                                             (BIST_PRBS_WIDTH == 31) ? 3'b011 : 3'b000;
+
     // -------------------------------------------------------------------------
     // APB control / status
     // -------------------------------------------------------------------------
     logic [31:0] status;
+    logic [15:0][31:0] csr_ro;
 
     logic tx_enable_p, rx_enable_p, rx_flush_p, tx_clear_p, rx_clear_p;
+    logic bist_enable_p, bist_start_p, bist_clear_p, bist_inject_p, bist_loopback_p;
     logic tx_enable_tx, tx_clear_tx, tx_clear_tx_d, tx_clear_pulse;
     logic rx_enable_rx, rx_flush_rx, rx_flush_rx_d, rx_flush_pulse;
     logic rx_clear_rx, rx_clear_rx_d, rx_clear_pulse;
@@ -94,12 +134,20 @@ module serdes_soc_cdc_wrapper #(
     assign tx_clear_p  = csr_regs[0][3];
     assign rx_clear_p  = csr_regs[0][4];
 
+    assign bist_enable_p   = csr_regs[8][0];
+    assign bist_start_p    = csr_regs[8][1];
+    assign bist_clear_p    = csr_regs[8][2];
+    assign bist_inject_p   = csr_regs[8][3];
+    assign bist_loopback_p = csr_regs[8][4];
+
     assign status = {21'b0, m_axis_valid_p, rx_status_p, tx_status_p, tx_axis_ready_p};
 
     apb_csr #(
-        .NUM_REGS(8),
+        .NUM_REGS(16),
         .DATA_WIDTH(32),
-        .ADDR_WIDTH(16)
+        .ADDR_WIDTH(16),
+        .STATUS_IDX(7),
+        .RO_MASK(16'b0001_1100_0000_0000)
     ) u_csr (
         .pclk(pclk),
         .presetn(presetn),
@@ -112,7 +160,8 @@ module serdes_soc_cdc_wrapper #(
         .prdata(prdata),
         .pslverr(pslverr),
         .regs_o(csr_regs),
-        .status_i(status)
+        .status_i(status),
+        .ro_i(csr_ro)
     );
 
     // Control into TX domain.
@@ -153,6 +202,35 @@ module serdes_soc_cdc_wrapper #(
     assign rx_clear_pulse = rx_clear_rx & ~rx_clear_rx_d;
 
     // -------------------------------------------------------------------------
+    // BIST control into the link clock domains
+    // -------------------------------------------------------------------------
+    logic bist_enable_tx, bist_start_tx, bist_clear_tx, bist_inject_tx, bist_loopback_tx;
+    logic bist_enable_rx, bist_loopback_rx;
+
+    cdc_sync #(.WIDTH(1)) u_bist_enable_tx (
+        .clk(tx_clk), .rst_n(tx_rst_n), .d(bist_enable_p), .q(bist_enable_tx)
+    );
+    cdc_sync #(.WIDTH(1)) u_bist_start_tx (
+        .clk(tx_clk), .rst_n(tx_rst_n), .d(bist_start_p), .q(bist_start_tx)
+    );
+    cdc_sync #(.WIDTH(1)) u_bist_clear_tx (
+        .clk(tx_clk), .rst_n(tx_rst_n), .d(bist_clear_p), .q(bist_clear_tx)
+    );
+    cdc_sync #(.WIDTH(1)) u_bist_inject_tx (
+        .clk(tx_clk), .rst_n(tx_rst_n), .d(bist_inject_p), .q(bist_inject_tx)
+    );
+    cdc_sync #(.WIDTH(1)) u_bist_loopback_tx (
+        .clk(tx_clk), .rst_n(tx_rst_n), .d(bist_loopback_p), .q(bist_loopback_tx)
+    );
+
+    cdc_sync #(.WIDTH(1)) u_bist_enable_rx (
+        .clk(rx_clk), .rst_n(rx_rst_n), .d(bist_enable_p), .q(bist_enable_rx)
+    );
+    cdc_sync #(.WIDTH(1)) u_bist_loopback_rx (
+        .clk(rx_clk), .rst_n(rx_rst_n), .d(bist_loopback_p), .q(bist_loopback_rx)
+    );
+
+    // -------------------------------------------------------------------------
     // TX path: AXIS async FIFO -> adapter -> serializer_stream
     // -------------------------------------------------------------------------
     logic [DATA_WIDTH:0] tx_fifo_wdata, tx_fifo_rdata;
@@ -162,6 +240,7 @@ module serdes_soc_cdc_wrapper #(
     logic [DATA_WIDTH-1:0] tx_in_word;
     logic tx_busy, tx_frame_done, tx_frame_error;
     logic tx_done_sticky;
+    logic tx_core_enable, tx_core_serial_out, tx_core_serial_valid;
 
     assign s_axis_tready  = ~tx_fifo_wfull;
     assign tx_fifo_winc   = s_axis_tvalid && ~tx_fifo_wfull;
@@ -203,6 +282,8 @@ module serdes_soc_cdc_wrapper #(
         .frame_error(tx_frame_error)
     );
 
+    assign tx_core_enable = tx_enable_tx & ~bist_enable_tx;
+
     serializer_stream #(
         .DATA_WIDTH(DATA_WIDTH),
         .WORDS(TX_WORDS),
@@ -210,12 +291,12 @@ module serdes_soc_cdc_wrapper #(
     ) u_serializer (
         .clk(tx_clk),
         .rst_n(tx_rst_n),
-        .enable(tx_enable_tx),
+        .enable(tx_core_enable),
         .in_valid(tx_in_valid),
         .in_ready(tx_in_ready),
         .in_word(tx_in_word),
-        .serial_out(tx_serial_out),
-        .serial_valid(tx_serial_valid),
+        .serial_out(tx_core_serial_out),
+        .serial_valid(tx_core_serial_valid),
         .busy(tx_busy),
         .frame_done(tx_frame_done)
     );
@@ -232,6 +313,71 @@ module serdes_soc_cdc_wrapper #(
     assign tx_status_tx = {tx_frame_error, tx_done_sticky, tx_busy};
 
     // -------------------------------------------------------------------------
+    // PRBS BIST: generator/checker in tx_clk, loopback muxing, snapshot bridge.
+    // The checker input never feeds tx_serial_out, so there is no loop.
+    // -------------------------------------------------------------------------
+    logic bist_serial_out, bist_check_in, rx_serial_in_tx;
+    logic bist_error;
+    logic [31:0] bist_error_count, bist_bit_count;
+    logic bist_running;
+
+    assign tx_serial_out   = bist_enable_tx ? bist_serial_out : tx_core_serial_out;
+    assign tx_serial_valid = bist_enable_tx ? bist_start_tx   : tx_core_serial_valid;
+
+    assign bist_running = bist_start_tx & bist_enable_tx;
+
+    cdc_sync #(.WIDTH(1)) u_rx_serial_in_tx (
+        .clk(tx_clk), .rst_n(tx_rst_n), .d(rx_serial_in), .q(rx_serial_in_tx)
+    );
+
+    assign bist_check_in = (bist_loopback_tx ? tx_serial_out : rx_serial_in_tx)
+                           ^ bist_inject_tx;
+
+    serdes_bist #(
+        .WIDTH(BIST_PRBS_WIDTH),
+        .SEED(BIST_SEED)
+    ) u_bist (
+        .clk(tx_clk),
+        .rst_n(tx_rst_n),
+        .start(bist_start_tx),
+        .clear(bist_clear_tx),
+        .serial_out(bist_serial_out),
+        .serial_in(bist_check_in),
+        .error(bist_error),
+        .error_count(bist_error_count),
+        .bit_count(bist_bit_count)
+    );
+
+    logic bist_snap_valid, bist_error_snap, bist_running_snap;
+    logic [31:0] bist_error_count_snap, bist_bit_count_snap;
+
+    bist_snapshot #(.WIDTH(32)) u_bist_snapshot (
+        .pclk(pclk),
+        .presetn(presetn),
+        .req(csr_regs[8][5]),
+        .valid(bist_snap_valid),
+        .error_count_o(bist_error_count_snap),
+        .bit_count_o(bist_bit_count_snap),
+        .error_o(bist_error_snap),
+        .running_o(bist_running_snap),
+        .clk(tx_clk),
+        .rst_n(tx_rst_n),
+        .error_count_i(bist_error_count),
+        .bit_count_i(bist_bit_count),
+        .error_i(bist_error),
+        .running_i(bist_running)
+    );
+
+    // APB read-only view of the BIST registers (RO_MASK bits 10, 11, 12).
+    always_comb begin
+        csr_ro = '0;
+        csr_ro[10] = bist_error_count_snap;
+        csr_ro[11] = bist_bit_count_snap;
+        csr_ro[12] = {24'b0, BIST_WIDTH_CODE, bist_inject_p, bist_loopback_p,
+                      bist_snap_valid, bist_running_snap, bist_error_snap};
+    end
+
+    // -------------------------------------------------------------------------
     // RX path: RX core -> adapter -> AXIS async FIFO
     // -------------------------------------------------------------------------
     logic [RX_WORDS-1:0][DATA_WIDTH-1:0] rx_par_data;
@@ -242,6 +388,17 @@ module serdes_soc_cdc_wrapper #(
     logic [DATA_WIDTH:0] rx_fifo_wdata, rx_fifo_rdata;
     logic rx_fifo_wfull, rx_fifo_rempty, rx_fifo_winc, rx_fifo_rinc;
     logic rx_frame_seen_sticky;
+    logic rx_core_enable, rx_core_serial_in, tx_serial_out_rx;
+
+    // BIST loopback into the RX core: the TX serial output is a static-rate
+    // level in rx_clk terms for loopback testing, so a 2FF sync is sufficient;
+    // the RX core is gated off whenever the BIST owns the TX datapath.
+    cdc_sync #(.WIDTH(1)) u_tx_serial_out_rx (
+        .clk(rx_clk), .rst_n(rx_rst_n), .d(tx_serial_out), .q(tx_serial_out_rx)
+    );
+
+    assign rx_core_enable    = rx_enable_rx & ~bist_enable_rx;
+    assign rx_core_serial_in = bist_loopback_rx ? tx_serial_out_rx : rx_serial_in;
 
     serdes_rx_digital #(
         .DATA_WIDTH(DATA_WIDTH),
@@ -256,10 +413,10 @@ module serdes_soc_cdc_wrapper #(
     ) u_rx (
         .rx_clk(rx_clk),
         .rx_rst_n(rx_rst_n),
-        .rx_enable(rx_enable_rx),
+        .rx_enable(rx_core_enable),
         .rx_flush(rx_flush_pulse),
         .rx_align(1'b0),
-        .rx_serial_in(rx_serial_in),
+        .rx_serial_in(rx_core_serial_in),
         .rx_par_data(rx_par_data),
         .rx_par_valid(rx_par_valid),
         .rx_busy(rx_busy),

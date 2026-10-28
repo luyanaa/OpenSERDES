@@ -8,6 +8,7 @@ module prbs_gen #(
 ) (
     input  logic clk,
     input  logic rst_n,
+    input  logic clear,
     input  logic enable,
     output logic bit_out
 );
@@ -33,6 +34,8 @@ module prbs_gen #(
 
     always_ff @(posedge clk or negedge rst_n) begin
         if (!rst_n)
+            state_q <= SEED;
+        else if (clear)
             state_q <= SEED;
         else if (enable)
             state_q <= {state_q[WIDTH-2:0], feedback};

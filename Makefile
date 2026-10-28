@@ -108,6 +108,15 @@ $(BUILD)/tb_serdes_soc_wrapper: tb/tb_serdes_soc_wrapper.sv $(RTL) | $(BUILD)
 $(BUILD)/tb_serdes_soc_cdc_wrapper: tb/tb_serdes_soc_cdc_wrapper.sv $(RTL) | $(BUILD)
 	$(IVERILOG) -g2012 -Wall -o $@ $^
 
+$(BUILD)/tb_serdes_bist_7: tb/tb_serdes_bist.sv rtl/serdes_bist.sv rtl/prbs_gen.sv rtl/prbs_check.sv | $(BUILD)
+	$(IVERILOG) -g2012 -Wall -Ptb_serdes_bist.WIDTH=7 -o $@ $^
+
+$(BUILD)/tb_serdes_bist_15: tb/tb_serdes_bist.sv rtl/serdes_bist.sv rtl/prbs_gen.sv rtl/prbs_check.sv | $(BUILD)
+	$(IVERILOG) -g2012 -Wall -Ptb_serdes_bist.WIDTH=15 -o $@ $^
+
+$(BUILD)/tb_serdes_bist_31: tb/tb_serdes_bist.sv rtl/serdes_bist.sv rtl/prbs_gen.sv rtl/prbs_check.sv | $(BUILD)
+	$(IVERILOG) -g2012 -Wall -Ptb_serdes_bist.WIDTH=31 -o $@ $^
+
 SIM_BINS := $(BUILD)/tb_serializer_lsb $(BUILD)/tb_serializer_msb \
             $(BUILD)/tb_serializer_capture $(BUILD)/tb_serializer_stream \
             $(BUILD)/tb_deserializer_lsb $(BUILD)/tb_deserializer_msb \
@@ -119,7 +128,8 @@ SIM_BINS := $(BUILD)/tb_serializer_lsb $(BUILD)/tb_serializer_msb \
             $(BUILD)/tb_axis_tx_adapter $(BUILD)/tb_axis_rx_adapter \
             $(BUILD)/tb_serdes_tx_axis $(BUILD)/tb_serdes_rx_axis \
             $(BUILD)/tb_prbs_7 $(BUILD)/tb_prbs_15 $(BUILD)/tb_prbs_31 \
-            $(BUILD)/tb_serdes_soc_wrapper $(BUILD)/tb_serdes_soc_cdc_wrapper
+            $(BUILD)/tb_serdes_soc_wrapper $(BUILD)/tb_serdes_soc_cdc_wrapper \
+            $(BUILD)/tb_serdes_bist_7 $(BUILD)/tb_serdes_bist_15 $(BUILD)/tb_serdes_bist_31
 
 sim: $(SIM_BINS)
 	$(VVP) $(BUILD)/tb_serializer_lsb
@@ -150,6 +160,9 @@ sim: $(SIM_BINS)
 	$(VVP) $(BUILD)/tb_prbs_31
 	$(VVP) $(BUILD)/tb_serdes_soc_wrapper
 	$(VVP) $(BUILD)/tb_serdes_soc_cdc_wrapper
+	$(VVP) $(BUILD)/tb_serdes_bist_7
+	$(VVP) $(BUILD)/tb_serdes_bist_15
+	$(VVP) $(BUILD)/tb_serdes_bist_31
 
 lint:
 	$(VERILATOR) --lint-only -Wall --top-module serdes_digital_top $(RTL)
@@ -170,6 +183,8 @@ lint:
 	$(VERILATOR) --lint-only -Wall --top-module prbs_check $(RTL)
 	$(VERILATOR) --lint-only -Wall --top-module serdes_soc_wrapper $(RTL)
 	$(VERILATOR) --lint-only -Wall --top-module serdes_soc_cdc_wrapper $(RTL)
+	$(VERILATOR) --lint-only -Wall --top-module serdes_bist $(RTL)
+	$(VERILATOR) --lint-only -Wall --top-module bist_snapshot $(RTL)
 	$(VERILATOR) --lint-only -Wall --top-module serializer_unit_cell_1 rtl/serializer.sv rtl/compat/serializer_unit_cell_1.v
 	$(VERILATOR) --lint-only -Wall --top-module deserialiser_unit_cell_1 rtl/deserializer_word.sv rtl/deserializer.sv rtl/compat/deserialiser_unit_cell_1.v
 
@@ -188,9 +203,16 @@ synth:
 	$(YOSYS) -q -p "read_verilog -sv rtl/prbs_gen.sv rtl/prbs_check.sv; synth -top prbs_check; stat"
 	$(YOSYS) -q -p "read_verilog -sv $(RTL); synth -top serdes_soc_wrapper; stat"
 	$(YOSYS) -q -p "read_verilog -sv $(RTL); synth -top serdes_soc_cdc_wrapper; stat"
+	$(YOSYS) -q -p "read_verilog -sv rtl/serdes_bist.sv rtl/prbs_gen.sv rtl/prbs_check.sv; synth -top serdes_bist; stat"
+	$(YOSYS) -q -p "read_verilog -sv rtl/bist_snapshot.sv rtl/cdc_sync.sv; synth -top bist_snapshot; stat"
 	$(YOSYS) -q -p "read_verilog -sv $(RTL); synth -top serdes_digital_top; stat"
 
 regress:
+	@$(PYTHON) -c "import yaml" >/dev/null 2>&1 || { \
+		echo "error: $(PYTHON) cannot import PyYAML"; \
+		echo "  install dependencies: $(PYTHON) -m pip install -r requirements.txt"; \
+		echo "  or select a system interpreter: make regress PYTHON=/usr/bin/python3"; \
+		exit 1; }
 	$(PYTHON) scripts/regress.py
 
 gen:

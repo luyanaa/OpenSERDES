@@ -57,7 +57,9 @@ DESIGN_FILES = {
         "axis_rx_adapter.sv", "serdes_rx_axis_digital.sv",
     ],
     "serdes_soc_wrapper": [
-        "apb_csr.sv", "axis_tx_adapter.sv", "serializer_stream.sv",
+        "apb_csr.sv", "bist_snapshot.sv", "cdc_sync.sv", "serdes_bist.sv",
+        "prbs_gen.sv", "prbs_check.sv",
+        "axis_tx_adapter.sv", "serializer_stream.sv",
         "serdes_tx_axis_digital.sv", "axis_rx_adapter.sv",
         "deserializer_word.sv", "deserializer.sv", "cdr_sync.sv",
         "cdr_oversampling.sv", "cdr_adaptive.sv", "comma_align.sv",
@@ -66,6 +68,7 @@ DESIGN_FILES = {
     ],
     "serdes_soc_cdc_wrapper": [
         "apb_csr.sv", "async_fifo.sv", "cdc_sync.sv",
+        "bist_snapshot.sv", "serdes_bist.sv", "prbs_gen.sv", "prbs_check.sv",
         "axis_tx_adapter.sv", "serializer_stream.sv", "axis_rx_adapter.sv",
         "deserializer_word.sv", "deserializer.sv", "cdr_sync.sv",
         "cdr_oversampling.sv", "cdr_adaptive.sv", "comma_align.sv",
@@ -75,8 +78,9 @@ DESIGN_FILES = {
 }
 
 OPTIONAL_FILES = {
-    "soc": ["apb_csr.sv", "async_fifo.sv", "prbs_gen.sv", "prbs_check.sv"],
-    "phy_ip": ["apb_csr.sv", "async_fifo.sv", "prbs_gen.sv", "prbs_check.sv"],
+    "soc": [],
+    "phy_ip": ["apb_csr.sv", "async_fifo.sv", "prbs_gen.sv", "prbs_check.sv",
+               "serdes_bist.sv", "bist_snapshot.sv"],
 }
 
 PRESETS = {
@@ -634,6 +638,7 @@ def build_plan(cfg: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
             "SYNC_LEN": cfg["sync_len"],
             "SYNC_PATTERN": cfg["sync_pattern"],
             "ADAPT_FRAC_BITS": 12,
+            "BIST_PRBS_WIDTH": 7,
         })
     if design == "serdes_soc_cdc_wrapper":
         params["FIFO_DEPTH"] = 16
@@ -712,7 +717,8 @@ def synth_parameters(params: dict[str, Any]) -> list[str]:
     order = ["DATA_WIDTH", "WORDS", "LSB_FIRST", "CAPTURE_MODE", "OVERSAMPLE",
              "SYNC_STAGES", "LOCK_THRESH", "LOCK_STALE_BITS", "CDR_MODE",
              "CDR_BYPASS", "ALIGN_MODE", "SYNC_LEN", "SYNC_PATTERN",
-             "ADAPT_FRAC_BITS", "ADAPT_LOOP_GAIN", "FIFO_DEPTH"]
+             "ADAPT_FRAC_BITS", "ADAPT_LOOP_GAIN", "FIFO_DEPTH",
+             "BIST_PRBS_WIDTH"]
     return [f"{k}={params[k]}" for k in order if k in params]
 
 

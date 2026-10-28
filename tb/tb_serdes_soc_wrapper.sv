@@ -34,12 +34,15 @@ module tb_serdes_soc_wrapper;
     logic rx_serial_valid;
     logic signed [12:0] rx_freq_trim;
     logic rx_clk_out;
-    logic [7:0][31:0] csr_regs;
+    logic [15:0][31:0] csr_regs;
 
     int errors;
+    int cyc;
     logic [RATIO-1:0] payload;
 
     always #5 clk = ~clk;
+
+    always @(posedge clk) cyc++;
 
     assign rx_serial_in = tx_serial_out;
 
@@ -119,10 +122,76 @@ module tb_serdes_soc_wrapper;
         end
     endtask
 
+    // Poll BIST_STATUS.snap_valid and read the coherent snapshot words.
+    // ok is low when the snapshot did not become valid within 64 reads.
+    task automatic bist_wait_snapshot(
+        output logic        ok,
+        output logic [31:0] error_count,
+        output logic [31:0] bit_count,
+        output logic [31:0] bist_status
+    );
+        logic [31:0] rd;
+        logic        seen;
+        begin
+            rd   = '0;
+            seen = 1'b0;
+            for (int i = 0; i < 64 && !seen; i = i + 1) begin
+                apb_read(16'h0030, rd);
+                seen = rd[2];
+            end
+            ok = seen;
+            apb_read(16'h0028, error_count);
+            apb_read(16'h002C, bit_count);
+            apb_read(16'h0030, bist_status);
+        end
+    endtask
+
+    // Request a snapshot (BIST_CTRL[5] 0->1 then back to 0) and return the
+    // captured words.  base holds the rest of BIST_CTRL; for the running BIST
+    // this writes 0x33 then 0x13.  stamp is taken at a fixed offset from the
+    // request commit so a bit_count delta can be compared with cycles.
+    task automatic bist_snapshot(
+        input  logic [31:0] base,
+        output logic [31:0] error_count,
+        output logic [31:0] bit_count,
+        output logic [31:0] bist_status,
+        output int          stamp
+    );
+        logic        ok;
+        logic [31:0] ecnt;
+        logic [31:0] bcnt;
+        logic [31:0] bstat;
+        begin
+            ok    = 1'b0;
+            ecnt  = '0;
+            bcnt  = '0;
+            bstat = '0;
+            apb_write(16'h0020, base | 32'h0000_0020);
+            stamp = cyc;
+            apb_write(16'h0020, base);
+            bist_wait_snapshot(ok, ecnt, bcnt, bstat);
+            if (!ok) begin
+                $display("ERROR: BIST snapshot valid did not assert within 64 reads");
+                errors++;
+            end
+            error_count = ecnt;
+            bit_count   = bcnt;
+            bist_status = bstat;
+        end
+    endtask
+
     initial begin
         logic [31:0] status;
         logic [DW-1:0] data;
         logic last;
+        logic [31:0] ecnt;
+        logic [31:0] bcnt;
+        logic [31:0] bc1;
+        logic [31:0] bstat;
+        int          c0;
+        int          c1;
+        int          dcyc;
+        int          dbits;
         clk           = 1'b0;
         rst_n         = 1'b0;
         paddr         = '0;
@@ -135,6 +204,7 @@ module tb_serdes_soc_wrapper;
         s_axis_tlast  = 1'b0;
         m_axis_tready = 1'b0;
         errors        = 0;
+        cyc           = 0;
         payload       = 32'h0123_4567;
 
         repeat (3) @(posedge clk);
@@ -184,6 +254,101 @@ module tb_serdes_soc_wrapper;
         if (status[3]) begin
             $display("ERROR: status tx_frame_error high");
             errors++;
+        end
+
+        // ------------------------------------------------------------------
+        // BIST / loopback tests
+        // ------------------------------------------------------------------
+        // Disable normal traffic; the BIST owns the serial line from here.
+        apb_write(16'h0000, 32'h0000_0000);
+        apb_write(16'h0020, 32'h0000_0017); // enable|start|clear|loopback
+        apb_write(16'h0020, 32'h0000_0013); // drop clear, BIST runs
+        repeat (300) @(posedge clk);
+
+        // b) Snapshot of the healthy PRBS7 link.
+        bist_snapshot(32'h0000_0013, ecnt, bcnt, bstat, c0);
+        if (!bstat[2]) begin
+            $display("ERROR: BIST snapshot valid not set");
+            errors++;
+        end
+        if (bstat[0]) begin
+            $display("ERROR: BIST error flag set on clean loopback");
+            errors++;
+        end
+        if (!bstat[1]) begin
+            $display("ERROR: BIST running flag low while start&enable");
+            errors++;
+        end
+        if (bstat[7:5] !== 3'b001) begin
+            $display("ERROR: BIST width code %b expected 3'b001 (PRBS7)", bstat[7:5]);
+            errors++;
+        end
+        if (ecnt !== 32'd0) begin
+            $display("ERROR: BIST error_count %0d expected 0", ecnt);
+            errors++;
+        end
+
+        // c) bit_count must track the free-running clock.
+        bist_snapshot(32'h0000_0013, ecnt, bcnt, bstat, c0);
+        repeat (500) @(posedge clk);
+        bist_snapshot(32'h0000_0013, ecnt, bc1, bstat, c1);
+        dcyc  = c1 - c0;
+        dbits = int'(bc1) - int'(bcnt);
+        if (dbits < dcyc - 8 || dbits > dcyc + 8) begin
+            $display("ERROR: BIST bit_count delta %0d vs cycle delta %0d",
+                     dbits, dcyc);
+            errors++;
+        end
+
+        // d) Inject a bit error; the checker must go sticky.
+        apb_write(16'h0020, 32'h0000_001B); // enable|start|inject|loopback
+        repeat (2) @(posedge clk);
+        apb_write(16'h0020, 32'h0000_0013); // remove inject
+        repeat (4) @(posedge clk);
+        bist_snapshot(32'h0000_0013, ecnt, bcnt, bstat, c1);
+        if (!bstat[0]) begin
+            $display("ERROR: BIST error flag not set after injection");
+            errors++;
+        end
+        if (ecnt < 32'd1) begin
+            $display("ERROR: BIST error_count %0d expected >= 1 after injection",
+                     ecnt);
+            errors++;
+        end
+
+        // e) clear while paused must zero counters and the sticky error.
+        apb_write(16'h0020, 32'h0000_0014); // clear|loopback, start=0
+        bist_snapshot(32'h0000_0014, ecnt, bcnt, bstat, c1);
+        if (bstat[0]) begin
+            $display("ERROR: BIST error flag still set after clear");
+            errors++;
+        end
+        if (ecnt !== 32'd0) begin
+            $display("ERROR: BIST error_count %0d not cleared", ecnt);
+            errors++;
+        end
+        if (bcnt !== 32'd0) begin
+            $display("ERROR: BIST bit_count %0d not cleared", bcnt);
+            errors++;
+        end
+
+        // f) Normal-mode internal loopback: BIST off, RX fed from tx_serial_out.
+        apb_write(16'h0020, 32'h0000_0010); // loopback only
+        apb_write(16'h0000, 32'h0000_0003); // tx_enable | rx_enable
+        send_word(8'hBC, 1'b0);
+        for (int w = 0; w < WORDS; w++)
+            send_word(payload[w*DW +: DW], (w == WORDS-1));
+        for (int w = 0; w < WORDS; w++) begin
+            read_beat(data, last);
+            if (data !== payload[w*DW +: DW]) begin
+                $display("ERROR: loopback RX word %0d got %h expected %h",
+                         w, data, payload[w*DW +: DW]);
+                errors++;
+            end
+            if (last !== (w == WORDS-1)) begin
+                $display("ERROR: loopback RX tlast wrong at word %0d", w);
+                errors++;
+            end
         end
 
         if (errors != 0) begin

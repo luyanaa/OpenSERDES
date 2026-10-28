@@ -20,7 +20,7 @@ module tb_prbs #(
     always #5 clk = ~clk;
 
     prbs_gen #(.WIDTH(WIDTH), .SEED('1)) u_gen (
-        .clk(clk), .rst_n(rst_n), .enable(enable), .bit_out(bit_gen)
+        .clk(clk), .rst_n(rst_n), .clear(clear), .enable(enable), .bit_out(bit_gen)
     );
 
     assign bit_check = bit_gen ^ inject;

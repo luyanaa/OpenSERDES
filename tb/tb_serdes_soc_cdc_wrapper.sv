@@ -43,10 +43,19 @@ module tb_serdes_soc_cdc_wrapper;
     logic rx_serial_valid;
     logic signed [12:0] rx_freq_trim;
     logic rx_clk_out;
-    logic [7:0][31:0] csr_regs;
+    logic [15:0][31:0] csr_regs;
 
     int errors;
+    int tx_cycles;
     logic [RATIO-1:0] payload;
+
+    // CSR word addresses used by the BIST checks.
+    localparam logic [15:0] ADDR_CONTROL   = 16'h0000;
+    localparam logic [15:0] ADDR_STATUS    = 16'h001C;
+    localparam logic [15:0] ADDR_BIST_CTRL = 16'h0020;
+    localparam logic [15:0] ADDR_BIST_ERR  = 16'h0028;
+    localparam logic [15:0] ADDR_BIST_BITS = 16'h002C;
+    localparam logic [15:0] ADDR_BIST_STAT = 16'h0030;
 
     always #5 pclk = ~pclk;
     always #5 s_axis_aclk = ~s_axis_aclk;
@@ -54,11 +63,14 @@ module tb_serdes_soc_cdc_wrapper;
     always #20 tx_clk = ~tx_clk;
     always #20 rx_clk = ~rx_clk;
 
+    always @(posedge tx_clk) tx_cycles++;
+
     assign rx_serial_in = tx_serial_out;
 
     serdes_soc_cdc_wrapper #(
         .DATA_WIDTH(DW), .WORDS(WORDS), .LSB_FIRST(1'b1),
-        .SYNC_LEN(8), .SYNC_PATTERN(8'hBC), .FIFO_DEPTH(16)
+        .SYNC_LEN(8), .SYNC_PATTERN(8'hBC), .FIFO_DEPTH(16),
+        .BIST_PRBS_WIDTH(7), .BIST_SEED(7'h7F)
     ) dut (
         .pclk(pclk), .presetn(presetn),
         .paddr(paddr), .psel(psel), .penable(penable), .pwrite(pwrite),
@@ -135,10 +147,37 @@ module tb_serdes_soc_cdc_wrapper;
         end
     endtask
 
+    // Pulse BIST_CTRL[5] while keeping 'base' in the rest of the register,
+    // wait for the stable-bus snapshot to be acknowledged, then read the
+    // coherent counter words.  The helper leaves the snapshot bit low so the
+    // next call produces a fresh rising edge.
+    task automatic bist_snapshot(input  logic [31:0] base,
+                                 output logic [31:0] err_cnt,
+                                 output logic [31:0] bit_cnt,
+                                 output logic [31:0] bist_status);
+        begin
+            logic [31:0] word;
+            apb_write(ADDR_BIST_CTRL, base | 32'h0000_0020);
+            apb_write(ADDR_BIST_CTRL, base & ~32'h0000_0020);
+            word = '0;
+            for (int i = 0; i < 64 && !word[2]; i++)
+                apb_read(ADDR_BIST_STAT, word);
+            if (!word[2]) begin
+                $display("ERROR: BIST snapshot valid not set after 64 reads");
+                errors++;
+            end
+            apb_read(ADDR_BIST_ERR,  err_cnt);
+            apb_read(ADDR_BIST_BITS, bit_cnt);
+            apb_read(ADDR_BIST_STAT, bist_status);
+        end
+    endtask
+
     initial begin
         logic [31:0] status;
         logic [DW-1:0] data;
         logic last;
+        logic [31:0] err_cnt, bit_cnt, bist_status;
+        int b0, c0, d_bits, d_cyc;
         pclk            = 1'b0;
         s_axis_aclk     = 1'b0;
         m_axis_aclk     = 1'b0;
@@ -159,6 +198,7 @@ module tb_serdes_soc_cdc_wrapper;
         s_axis_tlast    = 1'b0;
         m_axis_tready   = 1'b0;
         errors          = 0;
+        tx_cycles       = 0;
         payload         = 32'h89AB_CDEF;
 
         repeat (4) @(posedge tx_clk);
@@ -198,7 +238,7 @@ module tb_serdes_soc_cdc_wrapper;
         end
 
         repeat (8) @(posedge pclk);
-        apb_read(16'h001C, status);
+        apb_read(ADDR_STATUS, status);
         if (!status[4]) begin
             $display("ERROR: status rx_lock low");
             errors++;
@@ -213,6 +253,91 @@ module tb_serdes_soc_cdc_wrapper;
         end
         if (status[3]) begin
             $display("ERROR: status tx_frame_error high");
+            errors++;
+        end
+
+        // ------------------------------------------------------------------
+        // PRBS BIST: loopback self-check, coherent counters, injection, clear.
+        // ------------------------------------------------------------------
+        apb_write(ADDR_CONTROL, 32'h0000_0000); // park the AXIS datapath
+
+        // a. PRBS7 loopback: enable|start|clear|loopback, then release clear.
+        apb_write(ADDR_BIST_CTRL, 32'h0000_0017);
+        apb_write(ADDR_BIST_CTRL, 32'h0000_0013);
+        repeat (12) @(posedge tx_clk);          // cdc_sync latency
+        repeat (400) @(posedge tx_clk);         // let the counters run
+
+        // b. First snapshot: running, self-checking, PRBS7 selected.
+        bist_snapshot(32'h0000_0013, err_cnt, bit_cnt, bist_status);
+        if (!bist_status[2]) begin
+            $display("ERROR: BIST snap_valid low status=%h", bist_status);
+            errors++;
+        end
+        if (bist_status[0]) begin
+            $display("ERROR: BIST error sticky high in loopback");
+            errors++;
+        end
+        if (!bist_status[1]) begin
+            $display("ERROR: BIST running low while start&enable");
+            errors++;
+        end
+        if (bist_status[7:5] !== 3'b001) begin
+            $display("ERROR: BIST width code %b expected 001", bist_status[7:5]);
+            errors++;
+        end
+        if (bist_status[3] !== 1'b1) begin
+            $display("ERROR: BIST loopback live bit low");
+            errors++;
+        end
+        if (err_cnt != 32'd0) begin
+            $display("ERROR: BIST error_count %0d expected 0", err_cnt);
+            errors++;
+        end
+        $display("INFO: BIST snapshot bits=%0d errors=%0d status=%h",
+                 bit_cnt, err_cnt, bist_status);
+
+        // c. Two snapshots 400 TX clocks apart: bit_count must track tx_clk.
+        bist_snapshot(32'h0000_0013, err_cnt, bit_cnt, bist_status);
+        b0 = int'(bit_cnt);
+        c0 = tx_cycles;
+        repeat (400) @(posedge tx_clk);
+        bist_snapshot(32'h0000_0013, err_cnt, bit_cnt, bist_status);
+        d_bits = int'(bit_cnt) - b0;
+        d_cyc  = tx_cycles - c0;
+        if (d_bits < d_cyc - 8 || d_bits > d_cyc + 8) begin
+            $display("ERROR: BIST bit delta %0d vs tx delta %0d", d_bits, d_cyc);
+            errors++;
+        end
+
+        // d. Error injection: XOR the checker input for a few TX clocks.
+        apb_write(ADDR_BIST_CTRL, 32'h0000_001B); // enable|start|inject|loopback
+        repeat (4) @(posedge tx_clk);
+        apb_write(ADDR_BIST_CTRL, 32'h0000_0013); // stop injecting
+        repeat (4) @(posedge tx_clk);
+        bist_snapshot(32'h0000_0013, err_cnt, bit_cnt, bist_status);
+        if (bist_status[0] !== 1'b1) begin
+            $display("ERROR: BIST error sticky low after injection");
+            errors++;
+        end
+        if (err_cnt < 32'd1) begin
+            $display("ERROR: BIST error_count %0d expected >=1", err_cnt);
+            errors++;
+        end
+
+        // e. Clear while paused: sticky error and counters snap to zero.
+        apb_write(ADDR_BIST_CTRL, 32'h0000_0014); // clear|loopback, BIST paused
+        repeat (4) @(posedge tx_clk);             // let clear reach tx_clk
+        bist_snapshot(32'h0000_0014, err_cnt, bit_cnt, bist_status);
+        if (bist_status[0] !== 1'b0) begin
+            $display("ERROR: BIST error sticky high after clear");
+            errors++;
+        end
+        if (err_cnt != 32'd0) begin
+            $display("ERROR: BIST error_count %0d expected 0 after clear", err_cnt);
+            errors++;
+        end
+        if (bit_cnt != 32'd0) begin
+            $display("ERROR: BIST bit_count %0d expected 0 after clear", bit_cnt);
             errors++;
         end
 
