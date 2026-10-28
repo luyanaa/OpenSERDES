@@ -123,6 +123,13 @@ request/acknowledge 跨两个时钟域。与 `serializer_stream` 位精确对照
 **0.658 ns**（baseline 0.406 ns，约 +0.25 ns）。仍是原型，未接入 SoC/generator，
 `enable` 和完整 RX half-rate 状态机待补。
 
+### `rtl/receiver_pair_sampler.sv`
+
+Full-rate sampler boundary for the half-rate RX prototype：bit clock 采样 2-bit
+history，在 word clock 输出 `bit0`（较早）/`bit1`（较新）与 `pair_valid`；
+`tb_receiver_pair_sampler` 与参考 history 对照。它不包含 CDR、comma alignment
+或完整帧 valid 语义。
+
 ### `rtl/deserializer_half_rate.sv`
 
 Half-rate RX 原型的并行 bank：每个 `clk_word` 接收 2 bit（bit0 先、bit1 后），

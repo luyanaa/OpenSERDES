@@ -73,6 +73,8 @@ CASES = [
      ["rtl/deserializer_half_rate.sv"], {"DATA_WIDTH": 8, "WORDS": 4, "LSB_FIRST": 1}),
     ("deserializer_half_32x8", "tb_deserializer_half_rate",
      ["rtl/deserializer_half_rate.sv"], {"DATA_WIDTH": 32, "WORDS": 8, "LSB_FIRST": 0}),
+    ("receiver_pair_sampler", "tb_receiver_pair_sampler",
+     ["rtl/receiver_pair_sampler.sv"], {}),
     ("serializer_hier_8x4_lsb", "tb_serializer_hier_2to1",
      ["rtl/serializer_stream.sv", "rtl/serializer_hier_2to1.sv"],
      {"DATA_WIDTH": 8, "WORDS": 4, "LSB_FIRST": 1}),

@@ -168,6 +168,13 @@ The periods differ because the RX prototype only covers the parallel bank; the
 sampler still sees every UI.  Do not compare these as end-to-end RX latency or
 as a complete half-rate RX claim.
 
+`rtl/receiver_pair_sampler.sv` adds the small full-rate sampler boundary: a
+2-bit history is transferred to `clk_word` as `bit0` (older) / `bit1` (newer).
+`tb_receiver_pair_sampler` checks the pair/valid output against a reference
+history.  The pair deserializer and sampler are now individually verified;
+wiring them into one frame-aligned RX with valid gaps/CDR/comma alignment is
+still open.
+
 ## 5. Recommendation
 
 1. Keep full-rate one-hot as the correctness baseline.

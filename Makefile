@@ -80,6 +80,9 @@ $(BUILD)/tb_serializer_half_rate: tb/tb_serializer_half_rate.sv rtl/serializer_s
 $(BUILD)/tb_deserializer_half_rate: tb/tb_deserializer_half_rate.sv rtl/deserializer_half_rate.sv | $(BUILD)
 	$(IVERILOG) -g2012 -Wall -o $@ $^
 
+$(BUILD)/tb_receiver_pair_sampler: tb/tb_receiver_pair_sampler.sv rtl/receiver_pair_sampler.sv | $(BUILD)
+	$(IVERILOG) -g2012 -Wall -o $@ $^
+
 $(BUILD)/tb_deserializer_lsb: tb/tb_deserializer.sv rtl/deserializer_word.sv rtl/deserializer.sv | $(BUILD)
 	$(IVERILOG) -g2012 -Wall -DTB_LSB_FIRST=1 -o $@ $^
 
@@ -167,7 +170,7 @@ $(BUILD)/tb_serdes_bist_word: tb/tb_serdes_bist_word.sv rtl/prbs_word_gen.sv rtl
 SIM_BINS := $(BUILD)/tb_serializer_lsb $(BUILD)/tb_serializer_msb \
             $(BUILD)/tb_serializer_capture $(BUILD)/tb_serializer_stream \
             $(BUILD)/tb_serializer_hier_2to1 $(BUILD)/tb_serializer_half_rate \
-            $(BUILD)/tb_deserializer_half_rate \
+            $(BUILD)/tb_deserializer_half_rate $(BUILD)/tb_receiver_pair_sampler \
             $(BUILD)/tb_deserializer_lsb $(BUILD)/tb_deserializer_msb \
             $(BUILD)/tb_serdes_loopback_lsb $(BUILD)/tb_serdes_loopback_msb \
             $(BUILD)/tb_serdes_default $(BUILD)/tb_serdes_channel $(BUILD)/tb_channel \
@@ -189,6 +192,7 @@ sim: $(SIM_BINS)
 	$(VVP) $(BUILD)/tb_serializer_hier_2to1
 	$(VVP) $(BUILD)/tb_serializer_half_rate
 	$(VVP) $(BUILD)/tb_deserializer_half_rate
+	$(VVP) $(BUILD)/tb_receiver_pair_sampler
 	$(VVP) $(BUILD)/tb_deserializer_lsb
 	$(VVP) $(BUILD)/tb_deserializer_msb
 	$(VVP) $(BUILD)/tb_serdes_loopback_lsb
@@ -229,6 +233,7 @@ lint:
 	$(VERILATOR) --lint-only -Wall --top-module serializer_hier_2to1 $(RTL)
 	$(VERILATOR) --lint-only -Wall --top-module serializer_half_rate $(RTL)
 	$(VERILATOR) --lint-only -Wall --top-module deserializer_half_rate $(RTL)
+	$(VERILATOR) --lint-only -Wall --top-module receiver_pair_sampler $(RTL)
 	$(VERILATOR) --lint-only -Wall --top-module comma_align $(RTL)
 	$(VERILATOR) --lint-only -Wall --top-module apb_csr $(RTL)
 	$(VERILATOR) --lint-only -Wall --top-module async_fifo $(RTL)
@@ -253,6 +258,7 @@ synth: $(SV2V_RTL)
 	$(YOSYS) -q -p "read_verilog $(SV2V_RTL); synth -top serializer_hier_2to1; stat"
 	$(YOSYS) -q -p "read_verilog $(SV2V_RTL); synth -top serializer_half_rate; stat"
 	$(YOSYS) -q -p "read_verilog $(SV2V_RTL); synth -top deserializer_half_rate; stat"
+	$(YOSYS) -q -p "read_verilog $(SV2V_RTL); synth -top receiver_pair_sampler; stat"
 	$(YOSYS) -q -p "read_verilog $(SV2V_RTL); synth -top deserializer; stat"
 	$(YOSYS) -q -p "read_verilog $(SV2V_RTL); synth -top cdr_oversampling; stat"
 	$(YOSYS) -q -p "read_verilog $(SV2V_RTL); synth -top cdr_adaptive; stat"
