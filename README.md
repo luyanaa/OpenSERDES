@@ -115,6 +115,15 @@ PRBS7/15/31 串行 generator/checker，带 sticky `error`、`error_count` 和 `b
 
 ### `rtl/axis_tx_adapter.sv` / `rtl/axis_rx_adapter.sv`
 
+### `rtl/serializer_hier_2to1.sv`
+
+`serializer_stream` 的位精确 2:1 分级 word 选择树原型：接口/握手/输出时序相同，
+用 balanced 2:1 mux 代替 flat WORDS-way one-hot mux。已通过 8x4/32x8/5x3、
+LSB/MSB、随机 backpressure 对照 TB；sky130 HD 5 ns 的首次 Yosys/ABC 对比
+worst slack 与 baseline 相同（0.406 ns），说明纯组合 mux tree 本身不会被 ABC
+保留为更短路径；下一步需要寄存器化树级/half-rate 才能真正改变 critical path。
+见 [`docs/timing_optimization.md`](docs/timing_optimization.md)。
+
 AXIS word adapter：一个 beat 是一个 `DATA_WIDTH` word，`tlast` 标最后一 word。TX adapter 驱动 `serializer_stream` 的 `in_valid/in_ready/in_word`；RX adapter 把 `rx_frame_valid` 的并行 frame 拆成 AXIS beats，并在上一帧未排空时置 `frame_overflow`。
 
 `serdes_tx_axis_digital` / `serdes_rx_axis_digital` 是 AXIS endpoint wrapper；AXIS 时钟与 `tx_clk`/`rx_clk` 相同，跨时钟域需要外接 AXIS async FIFO。

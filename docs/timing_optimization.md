@@ -99,6 +99,28 @@ scoreboard, reset/flush and clock-domain tests pass.
    existing PVT/MC and JTOL evidence levels; do not use a custom flop to mask
    a failing standard-cell path.
 
+## 4.1 First prototype result
+
+`rtl/serializer_hier_2to1.sv` is bit-exact against `serializer_stream` for
+8x4, 32x8, 5x3, LSB/MSB and randomized backpressure (200 frames).  The first
+Yosys/ABC mapping to sky130 `hd` at a 5 ns clock gives the same worst path
+slack for both variants (0.406 ns, TT, 32x8):
+
+```bash
+make timing-compare TIMING_LIB=/path/to/sky130_fd_sc_hd__tt_025C_1v80.lib
+```
+
+The result is important: a purely combinational 2:1 mux tree is logically
+equivalent to the flat mux and ABC normalizes both to the same mapped network;
+it does **not** by itself shorten the critical path.  The prototype is a
+correctness/reference step.  A measurable gain requires one of:
+
+- registering the mux-tree levels with a pipeline/retiming contract;
+- a half-rate/DDR final stage with a real clock-phase plan;
+- attacking the capture/control fanout that dominates the current path.
+
+Do not claim a timing optimization from the mux-tree prototype alone.
+
 ## 5. Recommendation
 
 1. Keep full-rate one-hot as the correctness baseline.

@@ -28,6 +28,9 @@ PVT_CORNERS ?= tt ss ff sf fs
 PVT_VOLTAGES ?= 1.62 1.80 1.98
 PVT_TEMPERATURES ?= -40 25 100
 PVT_OUT ?= $(BUILD)/verify/sky130_pvt_lut.json
+TIMING_LIB ?=
+TIMING_PERIOD_NS ?= 5.0
+TIMING_OUT ?= $(BUILD)/timing_compare.json
 MC_SAMPLES ?= 20
 MC_OUT ?= $(BUILD)/verify/sky130_mc.json
 VERIFY_TX_LOAD_FF ?= 50
@@ -40,7 +43,7 @@ RTL   := $(wildcard rtl/*.sv)
 SV2V_DIR := $(BUILD)/sv2v
 SV2V_RTL := $(SV2V_DIR)/rtl.v
 
-.PHONY: all sim lint synth regress gen qualify signoff ppa-import clean si-eye si-bathtub si-jtol si-rtl-jtol verify-link analog-lut sky130-lut analog-lut-demo analog-tech-check sky130-pvt sky130-mc pex-compare lib-catalog
+.PHONY: all sim lint synth regress gen qualify signoff ppa-import clean si-eye si-bathtub si-jtol si-rtl-jtol verify-link analog-lut sky130-lut analog-lut-demo analog-tech-check sky130-pvt sky130-mc pex-compare lib-catalog timing-compare
 
 all: sim
 
@@ -65,6 +68,9 @@ $(BUILD)/tb_serializer_capture: tb/tb_serializer.sv rtl/serializer.sv | $(BUILD)
 	$(IVERILOG) -g2012 -Wall -DTB_LSB_FIRST=1 -DTB_CAPTURE_MODE=1 -o $@ $^
 
 $(BUILD)/tb_serializer_stream: tb/tb_serializer_stream.sv rtl/serializer_stream.sv | $(BUILD)
+	$(IVERILOG) -g2012 -Wall -o $@ $^
+
+$(BUILD)/tb_serializer_hier_2to1: tb/tb_serializer_hier_2to1.sv rtl/serializer_stream.sv rtl/serializer_hier_2to1.sv | $(BUILD)
 	$(IVERILOG) -g2012 -Wall -o $@ $^
 
 $(BUILD)/tb_deserializer_lsb: tb/tb_deserializer.sv rtl/deserializer_word.sv rtl/deserializer.sv | $(BUILD)
@@ -171,6 +177,7 @@ sim: $(SIM_BINS)
 	$(VVP) $(BUILD)/tb_serializer_msb
 	$(VVP) $(BUILD)/tb_serializer_capture
 	$(VVP) $(BUILD)/tb_serializer_stream
+	$(VVP) $(BUILD)/tb_serializer_hier_2to1
 	$(VVP) $(BUILD)/tb_deserializer_lsb
 	$(VVP) $(BUILD)/tb_deserializer_msb
 	$(VVP) $(BUILD)/tb_serdes_loopback_lsb
@@ -208,6 +215,7 @@ lint:
 	$(VERILATOR) --lint-only -Wall --top-module cdr_oversampling $(RTL)
 	$(VERILATOR) --lint-only -Wall --top-module cdr_adaptive $(RTL)
 	$(VERILATOR) --lint-only -Wall --top-module serializer_stream $(RTL)
+	$(VERILATOR) --lint-only -Wall --top-module serializer_hier_2to1 $(RTL)
 	$(VERILATOR) --lint-only -Wall --top-module comma_align $(RTL)
 	$(VERILATOR) --lint-only -Wall --top-module apb_csr $(RTL)
 	$(VERILATOR) --lint-only -Wall --top-module async_fifo $(RTL)
@@ -229,6 +237,7 @@ lint:
 synth: $(SV2V_RTL)
 	$(YOSYS) -q -p "read_verilog $(SV2V_RTL); synth -top serializer; stat"
 	$(YOSYS) -q -p "read_verilog $(SV2V_RTL); synth -top serializer_stream; stat"
+	$(YOSYS) -q -p "read_verilog $(SV2V_RTL); synth -top serializer_hier_2to1; stat"
 	$(YOSYS) -q -p "read_verilog $(SV2V_RTL); synth -top deserializer; stat"
 	$(YOSYS) -q -p "read_verilog $(SV2V_RTL); synth -top cdr_oversampling; stat"
 	$(YOSYS) -q -p "read_verilog $(SV2V_RTL); synth -top cdr_adaptive; stat"
@@ -272,6 +281,12 @@ pex-compare:
 		echo "error: set SCHEM_LUT=<lut.json> PEX_LUT=<pex_lut.json>"; exit 1; }
 	$(PYTHON) verification/analog/pex_characterize.py \
 		--schematic-lut $(SCHEM_LUT) --pex-lut $(PEX_LUT) --out $(PEX_OUT)
+
+timing-compare:
+	@test -n "$(TIMING_LIB)" || { \
+		echo "error: set TIMING_LIB=<liberty file>"; exit 1; }
+	$(PYTHON) scripts/compare_timing.py --liberty $(TIMING_LIB) \
+		--period-ns $(TIMING_PERIOD_NS) --out $(TIMING_OUT)
 
 lib-catalog:
 	$(PYTHON) scripts/library_catalog.py --out $(BUILD)/library_catalog.json --markdown $(BUILD)/library_catalog.md
