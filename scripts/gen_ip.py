@@ -41,10 +41,20 @@ DESIGN_FILES = {
         "serializer_stream.sv", "reset_sync.sv",
         "serdes_tx_stream_digital.sv",
     ],
+    "serdes_tx_axis_digital": [
+        "axis_tx_adapter.sv", "serializer_stream.sv", "reset_sync.sv",
+        "serdes_tx_axis_digital.sv",
+    ],
     "serdes_rx_digital": [
         "deserializer_word.sv", "deserializer.sv", "cdr_sync.sv",
         "cdr_oversampling.sv", "cdr_adaptive.sv", "comma_align.sv",
         "receiver_sampler.sv", "reset_sync.sv", "serdes_rx_digital.sv",
+    ],
+    "serdes_rx_axis_digital": [
+        "deserializer_word.sv", "deserializer.sv", "cdr_sync.sv",
+        "cdr_oversampling.sv", "cdr_adaptive.sv", "comma_align.sv",
+        "receiver_sampler.sv", "reset_sync.sv", "serdes_rx_digital.sv",
+        "axis_rx_adapter.sv", "serdes_rx_axis_digital.sv",
     ],
 }
 
@@ -461,7 +471,7 @@ def validate(spec: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
     user_clock = interface.get("user_clock_mhz")
     if user_clock is not None:
         user_clock = as_float(user_clock, "interface.user_clock_mhz")
-        phy_clock = line_rate
+        phy_clock = (1000.0 / rx_period_ns) if target == "rx" else line_rate
         differs = abs(user_clock - phy_clock) > max(0.001, phy_clock * 1e-6)
         if cdc == "auto":
             cdc = "async_fifo" if differs else "none"
@@ -471,11 +481,16 @@ def validate(spec: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
     elif cdc == "auto":
         cdc = "none"
 
-    if (data_mode == "axi4_stream" or control == "apb" or
-            cdc != "none" or features):
+    if data_mode == "axi4_stream" and target == "link":
         if not args.allow_incomplete:
-            fail("AXI4-Stream/APB/CDC/BIST/calibration/DFT blocks are not "
-                 "implemented yet; use --allow-incomplete to emit a scaffold package")
+            fail("target link has no AXIS wrapper yet; use target: tx or rx "
+                 "for an AXIS endpoint, or --allow-incomplete for a core scaffold")
+        spec.setdefault("_warnings", []).append(
+            "target link AXIS/APB/CDC wrapper is not integrated; package is a core scaffold")
+    if control == "apb" or cdc != "none" or features:
+        if not args.allow_incomplete:
+            fail("APB/CDC/BIST/calibration/DFT integration is not implemented "
+                 "for this target; use --allow-incomplete to emit a scaffold package")
 
     enable_mode = str(interface.get("enable_mode", "static")).lower()
     if enable_mode not in ("static", "dynamic"):
@@ -554,9 +569,11 @@ def build_plan(cfg: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
     if cfg["target"] == "link":
         design = "serdes_digital_top"
     elif cfg["target"] == "tx":
-        design = tx_arch["module"]
+        design = ("serdes_tx_axis_digital"
+                  if cfg["data_mode"] == "axi4_stream" else tx_arch["module"])
     else:
-        design = rx_arch["module"]
+        design = ("serdes_rx_axis_digital"
+                  if cfg["data_mode"] == "axi4_stream" else rx_arch["module"])
 
     if design not in DESIGN_FILES:
         fail(f"internal: no file list for design {design}")
@@ -568,7 +585,7 @@ def build_plan(cfg: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
     }
     if design in ("serdes_tx_digital", "serdes_digital_top"):
         params["CAPTURE_MODE"] = int(tx_arch.get("capture_mode", 0))
-    if design in ("serdes_rx_digital", "serdes_digital_top"):
+    if design in ("serdes_rx_digital", "serdes_rx_axis_digital", "serdes_digital_top"):
         params.update({
             "OVERSAMPLE": cfg["oversample"],
             "SYNC_STAGES": 3,
@@ -600,8 +617,9 @@ def build_plan(cfg: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
         "parallel_mux": "atomic: load && ready captures the full frame; upstream may change data the next cycle",
         "word_group_capture": "word_group_hold: ready is low for WORDS cycles; upstream must hold the full frame stable",
         "word_streaming": "word_streaming: per-word in_valid/in_ready; upstream holds one word per accepted cycle",
+        "axi4_stream": "axi4_stream: per-word AXIS beats; tlast marks the last word; no full-frame hold",
         "not_used": "n/a",
-    }.get(tx_arch["name"], "unknown")
+    }.get("axi4_stream" if design == "serdes_tx_axis_digital" else tx_arch["name"], "unknown")
 
     files = list(DESIGN_FILES[design])
     optional = OPTIONAL_FILES.get(cfg["preset"], [])
@@ -672,7 +690,12 @@ def sdc_text(cfg: dict[str, Any], plan: dict[str, Any], stage: str) -> str:
     lines += [""]
 
     if target in ("link", "tx"):
-        if target == "tx" and plan["design"] == "serdes_tx_stream_digital":
+        if target == "tx" and plan["design"] == "serdes_tx_axis_digital":
+            lines += [
+                "set_input_delay  -clock tx_clk 0.200 [get_ports {s_axis_tvalid s_axis_tdata* s_axis_tlast}]",
+                "set_output_delay -clock tx_clk 0.200 [get_ports {s_axis_tready tx_serial_out tx_serial_valid tx_busy tx_frame_done tx_frame_error}]",
+            ]
+        elif target == "tx" and plan["design"] == "serdes_tx_stream_digital":
             lines += [
                 "set_input_delay  -clock tx_clk 0.200 [get_ports {tx_in_valid tx_in_word*}]",
                 "set_output_delay -clock tx_clk 0.200 [get_ports {tx_in_ready tx_serial_out tx_serial_valid tx_busy tx_frame_done}]",
@@ -687,11 +710,18 @@ def sdc_text(cfg: dict[str, Any], plan: dict[str, Any], stage: str) -> str:
         else:
             lines += ["# tx_enable is dynamic; do not false-path it"]
     if target in ("link", "rx"):
-        lines += [
-            "set_input_delay  -clock rx_clk 0.200 [get_ports {rx_serial_in rx_enable rx_flush rx_align}]",
-            "set_output_delay -clock rx_clk 0.200 [get_ports {rx_par_data* rx_par_valid rx_busy rx_lock rx_lock_stale rx_sample_strobe rx_frame_locked rx_frame_valid rx_serial_data rx_serial_valid rx_freq_trim*}]",
-            "set_false_path -to [get_ports rx_clk_out]",
-        ]
+        if plan["design"] == "serdes_rx_axis_digital":
+            lines += [
+                "set_input_delay  -clock rx_clk 0.200 [get_ports {rx_serial_in rx_enable rx_flush rx_align m_axis_tready}]",
+                "set_output_delay -clock rx_clk 0.200 [get_ports {m_axis_tvalid m_axis_tdata* m_axis_tlast rx_lock rx_lock_stale rx_frame_locked rx_frame_overflow rx_par_valid rx_sample_strobe rx_serial_data rx_serial_valid rx_busy rx_freq_trim*}]",
+                "set_false_path -to [get_ports rx_clk_out]",
+            ]
+        else:
+            lines += [
+                "set_input_delay  -clock rx_clk 0.200 [get_ports {rx_serial_in rx_enable rx_flush rx_align}]",
+                "set_output_delay -clock rx_clk 0.200 [get_ports {rx_par_data* rx_par_valid rx_busy rx_lock rx_lock_stale rx_sample_strobe rx_frame_locked rx_frame_valid rx_serial_data rx_serial_valid rx_freq_trim*}]",
+                "set_false_path -to [get_ports rx_clk_out]",
+            ]
         if cfg["enable_mode"] == "static":
             lines += ["set_false_path -from [get_ports rx_enable]"]
         else:

@@ -80,6 +80,16 @@ CASES = [
       "rtl/compat/serializer_unit_cell_1.v", "rtl/compat/deserialiser_unit_cell_1.v"], {}),
     ("apb_csr", "tb_apb_csr", ["rtl/apb_csr.sv"], {}),
     ("async_fifo", "tb_async_fifo", ["rtl/async_fifo.sv"], {}),
+    ("axis_tx_adapter", "tb_axis_tx_adapter", ["rtl/axis_tx_adapter.sv"], {}),
+    ("axis_rx_adapter", "tb_axis_rx_adapter", ["rtl/axis_rx_adapter.sv"], {}),
+    ("serdes_tx_axis", "tb_serdes_tx_axis",
+     ["rtl/serdes_tx_axis_digital.sv", "rtl/axis_tx_adapter.sv",
+      "rtl/serializer_stream.sv", "rtl/reset_sync.sv"], {}),
+    ("serdes_rx_axis", "tb_serdes_rx_axis",
+     ["rtl/serdes_rx_axis_digital.sv", "rtl/deserializer_word.sv", "rtl/deserializer.sv",
+      "rtl/cdr_sync.sv", "rtl/cdr_oversampling.sv", "rtl/cdr_adaptive.sv",
+      "rtl/comma_align.sv", "rtl/receiver_sampler.sv", "rtl/reset_sync.sv",
+      "rtl/serdes_rx_digital.sv", "rtl/axis_rx_adapter.sv"], {}),
 ]
 
 
@@ -113,6 +123,8 @@ def run_generator_checks() -> tuple[int, int]:
         ("default", [], 0),
         ("minimal", [], 0),
         ("tx_stream", [], 0),
+        ("tx_axis", [], 0),
+        ("rx_axis", [], 0),
         ("soc", [], 2),
         ("soc", ["--allow-incomplete"], 0),
         ("phy_ip", ["--allow-incomplete"], 0),
@@ -130,7 +142,9 @@ def run_generator_checks() -> tuple[int, int]:
 
     for spec_name, expected_design in (("default", "serdes_digital_top"),
                                        ("tx_stream", "serdes_tx_stream_digital"),
-                                       ("minimal", "serdes_digital_top")):
+                                       ("minimal", "serdes_digital_top"),
+                                       ("tx_axis", "serdes_tx_axis_digital"),
+                                       ("rx_axis", "serdes_rx_axis_digital")):
         total += 1
         out = ROOT / "build" / "gen" / spec_name
         cmd = [py, "scripts/gen_ip.py", "--spec", f"spec/{spec_name}.yaml",
@@ -148,6 +162,14 @@ def run_generator_checks() -> tuple[int, int]:
                         out / "qualification.json"]
             ok = manifest.get("design") == expected_design and all(p.exists() for p in required)
             detail = f"design={manifest.get('design')} files={'ok' if ok else 'missing'}"
+            if ok:
+                files = (out / "rtl" / "filelist.f").read_text().split()
+                compile_cmd = [IVERILOG, "-g2012", "-Wall", "-s", expected_design,
+                               "-o", str(out / "compile_smoke"), *files]
+                compile_proc = subprocess.run(compile_cmd, cwd=out / "rtl", text=True,
+                                              capture_output=True, timeout=120)
+                ok = compile_proc.returncode == 0
+                detail += f" compile={'ok' if ok else 'fail'}"
         print(f"{'PASS' if ok else 'FAIL'} generator_package_{spec_name}: {detail}")
         if not ok:
             failed += 1

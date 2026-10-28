@@ -1,0 +1,38 @@
+name: tx_axis_8x4_50m
+target: tx
+
+link:
+  payload_width: 8
+  words: 4
+  line_rate_mbps: 50
+  coding: raw
+  bit_order: lsb_first
+
+tx:
+  architecture: word_streaming
+
+rx:
+  architecture: fixed_oversampling
+  oversample: 4
+  align: external
+  clocking: independent
+  ppm: 0
+
+tech:
+  tx: sky130
+  rx: sky130
+
+interface:
+  preset: default
+  data: axi4_stream
+  control: native
+  cdc: none
+  enable_mode: static
+  user_clock_mhz: 50
+
+constraints:
+  uncertainty_setup_ns: 0.100
+  uncertainty_hold_ns: 0.050
+
+optimization:
+  objectives: [area, power]

@@ -81,6 +81,18 @@ $(BUILD)/tb_apb_csr: tb/tb_apb_csr.sv rtl/apb_csr.sv | $(BUILD)
 $(BUILD)/tb_async_fifo: tb/tb_async_fifo.sv rtl/async_fifo.sv | $(BUILD)
 	$(IVERILOG) -g2012 -Wall -o $@ $^
 
+$(BUILD)/tb_axis_tx_adapter: tb/tb_axis_tx_adapter.sv rtl/axis_tx_adapter.sv | $(BUILD)
+	$(IVERILOG) -g2012 -Wall -o $@ $^
+
+$(BUILD)/tb_axis_rx_adapter: tb/tb_axis_rx_adapter.sv rtl/axis_rx_adapter.sv | $(BUILD)
+	$(IVERILOG) -g2012 -Wall -o $@ $^
+
+$(BUILD)/tb_serdes_tx_axis: tb/tb_serdes_tx_axis.sv rtl/serdes_tx_axis_digital.sv rtl/axis_tx_adapter.sv rtl/serializer_stream.sv rtl/reset_sync.sv | $(BUILD)
+	$(IVERILOG) -g2012 -Wall -o $@ $^
+
+$(BUILD)/tb_serdes_rx_axis: tb/tb_serdes_rx_axis.sv $(RTL) | $(BUILD)
+	$(IVERILOG) -g2012 -Wall -o $@ $^
+
 SIM_BINS := $(BUILD)/tb_serializer_lsb $(BUILD)/tb_serializer_msb \
             $(BUILD)/tb_serializer_capture $(BUILD)/tb_serializer_stream \
             $(BUILD)/tb_deserializer_lsb $(BUILD)/tb_deserializer_msb \
@@ -88,7 +100,9 @@ SIM_BINS := $(BUILD)/tb_serializer_lsb $(BUILD)/tb_serializer_msb \
             $(BUILD)/tb_serdes_default $(BUILD)/tb_serdes_channel $(BUILD)/tb_channel \
             $(BUILD)/tb_cdr $(BUILD)/tb_cdr_adaptive $(BUILD)/tb_frame_sync \
             $(BUILD)/tb_cdr_bypass $(BUILD)/tb_compat_legacy $(BUILD)/tb_compat_port_order \
-            $(BUILD)/tb_apb_csr $(BUILD)/tb_async_fifo
+            $(BUILD)/tb_apb_csr $(BUILD)/tb_async_fifo \
+            $(BUILD)/tb_axis_tx_adapter $(BUILD)/tb_axis_rx_adapter \
+            $(BUILD)/tb_serdes_tx_axis $(BUILD)/tb_serdes_rx_axis
 
 sim: $(SIM_BINS)
 	$(VVP) $(BUILD)/tb_serializer_lsb
@@ -110,6 +124,10 @@ sim: $(SIM_BINS)
 	$(VVP) $(BUILD)/tb_compat_port_order
 	$(VVP) $(BUILD)/tb_apb_csr
 	$(VVP) $(BUILD)/tb_async_fifo
+	$(VVP) $(BUILD)/tb_axis_tx_adapter
+	$(VVP) $(BUILD)/tb_axis_rx_adapter
+	$(VVP) $(BUILD)/tb_serdes_tx_axis
+	$(VVP) $(BUILD)/tb_serdes_rx_axis
 
 lint:
 	$(VERILATOR) --lint-only -Wall --top-module serdes_digital_top $(RTL)
@@ -122,6 +140,10 @@ lint:
 	$(VERILATOR) --lint-only -Wall --top-module comma_align $(RTL)
 	$(VERILATOR) --lint-only -Wall --top-module apb_csr $(RTL)
 	$(VERILATOR) --lint-only -Wall --top-module async_fifo $(RTL)
+	$(VERILATOR) --lint-only -Wall --top-module axis_tx_adapter $(RTL)
+	$(VERILATOR) --lint-only -Wall --top-module axis_rx_adapter $(RTL)
+	$(VERILATOR) --lint-only -Wall --top-module serdes_tx_axis_digital $(RTL)
+	$(VERILATOR) --lint-only -Wall --top-module serdes_rx_axis_digital $(RTL)
 	$(VERILATOR) --lint-only -Wall --top-module serializer_unit_cell_1 rtl/serializer.sv rtl/compat/serializer_unit_cell_1.v
 	$(VERILATOR) --lint-only -Wall --top-module deserialiser_unit_cell_1 rtl/deserializer_word.sv rtl/deserializer.sv rtl/compat/deserialiser_unit_cell_1.v
 
@@ -133,6 +155,10 @@ synth:
 	$(YOSYS) -q -p "read_verilog -sv rtl/cdr_sync.sv rtl/cdr_adaptive.sv; synth -top cdr_adaptive; stat"
 	$(YOSYS) -q -p "read_verilog -sv rtl/apb_csr.sv; synth -top apb_csr; stat"
 	$(YOSYS) -q -p "read_verilog -sv rtl/async_fifo.sv; synth -top async_fifo; stat"
+	$(YOSYS) -q -p "read_verilog -sv rtl/axis_tx_adapter.sv; synth -top axis_tx_adapter; stat"
+	$(YOSYS) -q -p "read_verilog -sv rtl/axis_rx_adapter.sv; synth -top axis_rx_adapter; stat"
+	$(YOSYS) -q -p "read_verilog -sv rtl/serdes_tx_axis_digital.sv rtl/axis_tx_adapter.sv rtl/serializer_stream.sv rtl/reset_sync.sv; synth -top serdes_tx_axis_digital; stat"
+	$(YOSYS) -q -p "read_verilog -sv $(RTL); synth -top serdes_rx_axis_digital; stat"
 	$(YOSYS) -q -p "read_verilog -sv $(RTL); synth -top serdes_digital_top; stat"
 
 regress:

@@ -75,9 +75,10 @@ The digital migration now has a product packaging step:
   reports into `signoff.json`.
 - `scripts/import_ppa.py` fills `tech/ppa_measured.yaml`; `gen_ip.py --ppa-db`
   applies measured gates/metrics before architecture selection.
-- `apb_csr` and `async_fifo` primitives exist and are tested; `soc`/`phy_ip`
-  presets remain scaffolds until the AXI4-Stream/CDC/top integration wrappers
-  and BIST/DFT blocks exist.
+- `apb_csr`, `async_fifo`, AXIS adapters and `serdes_tx_axis_digital` /
+  `serdes_rx_axis_digital` endpoints exist and are tested.  `soc`/`phy_ip`
+  presets remain scaffolds until the link-level APB/AXIS/CDC integration
+  wrapper and BIST/DFT blocks exist.
 
 See [`generator.md`](generator.md) and [`qualification.md`](qualification.md).
 
@@ -86,8 +87,9 @@ See [`generator.md`](generator.md) and [`qualification.md`](qualification.md).
 - The adaptive CDR is a first-order frequency-tracking loop, not a clone of
   the original `CLK_RECOVERY` period tracker.  No analog/gate-level
   equivalence is claimed; jitter tolerance and BER are not measured here.
-- APB CSR and dual-clock async FIFO are implemented as standalone RTL; AXI4-Stream,
-  the SoC CDC wrapper, BIST and calibration remain scaffolded in the presets.
+- APB CSR, dual-clock async FIFO, AXIS adapters and AXIS endpoint wrappers are
+  implemented; the link-level SoC CDC/APB register map, BIST and calibration
+  remain scaffolded in the presets.
 - The receiver, inverter-based TX, resistive-feedback inverter, and custom
   DFF/NAND physical cells remain legacy until a new analog/back-end design is
   available.

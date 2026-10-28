@@ -92,6 +92,12 @@ deserializer #(
 
 每个 word 一个 `DATA_WIDTH` 寄存器组；`capture` 只在选中的 word 且 `serial_valid` 时有效。`par_data` 直接映射到这些 word 寄存器，修复了原 DeSer 的 `INT_PAR_IN` 传递问题。
 
+### `rtl/axis_tx_adapter.sv` / `rtl/axis_rx_adapter.sv`
+
+AXIS word adapter：一个 beat 是一个 `DATA_WIDTH` word，`tlast` 标最后一 word。TX adapter 驱动 `serializer_stream` 的 `in_valid/in_ready/in_word`；RX adapter 把 `rx_frame_valid` 的并行 frame 拆成 AXIS beats，并在上一帧未排空时置 `frame_overflow`。
+
+`serdes_tx_axis_digital` / `serdes_rx_axis_digital` 是 AXIS endpoint wrapper；AXIS 时钟与 `tx_clk`/`rx_clk` 相同，跨时钟域需要外接 AXIS async FIFO。
+
 ### `rtl/apb_csr.sv` / `rtl/async_fifo.sv`
 
 `apb_csr` 是 word-aligned APB 控制/状态寄存器组：`NUM_REGS-1` 个 RW 寄存器，最后一个地址只读 `status_i`；非 word 对齐或越界访问返回 `pslverr`。它用于 `soc`/`phy_ip` preset 的配置接口，目前是独立原语，尚未强制接入数字 top。
@@ -178,12 +184,12 @@ cdr_adaptive #(
 | DeSer `INT_PAR_IN` 没有正确传递 | 每个 word 单寄存器组，`par_data` 直连，无影子锁存 |
 | CDR 只有门级网表、22 位 SCAN_IN 语义未文档化 | fixed/adaptive/source-sync 三种可综合模式；明确 `sample_strobe/lock/lock_stale/freq_trim` 契约；`comma_align` 帧同步 |
 | 原 Serializer 只有 13 个 DFF（输入寄存器被删），DeSer 更多 | 抽象后 Serializer 266 FF、DeSer 266 FF、Top 550 FF；单时钟 + `enable`，必须走 CTS；见 `docs/clocking.md` |
-| 无 testbench | 19 个自检 TB（serializer LSB/MSB/capture/stream、deserializer LSB/MSB、loopback LSB/MSB、32×8、link scoreboard、channel、fixed/adaptive CDR、frame sync、CDR bypass、compat legacy/port-order、APB CSR、async FIFO） |
+| 无 testbench | 23 个自检 TB（serializer LSB/MSB/capture/stream、deserializer LSB/MSB、loopback LSB/MSB、32×8、link scoreboard、channel、fixed/adaptive CDR、frame sync、CDR bypass、compat legacy/port-order、APB CSR、async FIFO、AXIS TX/RX adapter + endpoint） |
 
 ## 4. 验证
 
 ```bash
-make sim      # iverilog：19 个自检 TB
+make sim      # iverilog：23 个自检 TB
 make regress  # 参数矩阵 + link/scoreboard + generator 包检查
 make lint     # Verilator -Wall（0 warning）
 make synth    # Yosys 通用门级检查
@@ -209,7 +215,7 @@ make ppa-import PPA_CSV=measured.csv PPA_OUT=tech/ppa_measured.yaml
 - `tb_compat_legacy` / `tb_compat_port_order`：named 和 positional legacy 兼容：PASS
 - Verilator lint：0 warning
 - Yosys synth：仅通用门/DFF，无 latch、无 memory
-- `scripts/regress.py`：43/43，含参数矩阵、link scoreboard、APB/FIFO、generator package、signoff collector 和 measured-PPA gate
+- `scripts/regress.py`：51/51，含参数矩阵、link scoreboard、APB/FIFO、AXIS endpoint、generator package、signoff collector 和 measured-PPA gate
 
 顶层/信道/SDC：
 
@@ -250,7 +256,7 @@ limits:
 - `RATIO <= 128` 可用 single-cycle `parallel_mux`；更大 RATIO 用 `word_group_capture`。
 - 窄输入 / MPW 小面积目标可用 endpoint-only `word_streaming`。
 - 同源时钟用 `fixed_oversampling`；有 ppm 频偏用 `adaptive_oversampling`（OS ≥ 8）；有 forwarded clock 用 `source_sync`。
-- `apb_csr` 和 `async_fifo` 已有可验证 RTL；`soc`/`phy_ip` preset 仍需要 AXI4-Stream/CDC/BIST 集成 wrapper，因此仍只生成 scaffold，必须显式 `--allow-incomplete`。
+- `apb_csr`、`async_fifo`、`axis_tx_adapter`、`axis_rx_adapter` 和 `serdes_tx_axis_digital`/`serdes_rx_axis_digital` endpoint 已有可验证 RTL；`target=tx/rx` 的 AXIS package 可以直接生成。`soc`/`phy_ip` 仍缺 link 级 APB/AXIS/CDC/BIST 集成 wrapper，因此仍只生成 scaffold，必须显式 `--allow-incomplete`。
 
 ## 6. 下一层抽象
 
@@ -264,7 +270,7 @@ limits:
 仍未实现 / 不在本目录承诺：
 
 - 8b10b/64b66b、scrambler、CRC、FEC。
-- `async_fifo` 原语已实现；仍缺 RX 恢复时钟 → 本地 SoC 时钟的完整 CDC wrapper、AXI4-Stream 适配和 `soc` 顶层集成。
+- `async_fifo`、AXIS TX/RX adapter 和 AXIS endpoint wrapper 已实现；仍缺 RX 恢复时钟 → 本地 SoC 时钟的完整 CDC wrapper、APB 寄存器映射和 `soc` link 级顶层集成。
 - Scan/DFT、clock gating、BIST/calibration、DFT signoff。
 - 模拟 TX/RX 的 Verilog-A/RNM wrapper、PEX、SI/PI、jitter/BER、silicon correlation。
 - 目标 PDK 的 cellmap/floorplan/post-route signoff adapter；当前 `native_dff` 仍是文档字段，尚无自动 `dfflibmap` runner。
@@ -322,7 +328,7 @@ python3 scripts/gen_ip.py --list-arch
 |---|---|---|---|---|
 | `minimal` | valid/ready parallel | native | none | 可用 |
 | `default` | valid/ready parallel | native | auto | 可用 |
-| `soc` | AXI4-Stream | APB | async FIFO | APB/FIFO 原语可用；顶层集成仍 scaffold，需要 `--allow-incomplete` |
+| `soc` | AXI4-Stream | APB | async FIFO | AXIS endpoint + APB/FIFO 原语可用；link 级集成仍 scaffold，需要 `--allow-incomplete` |
 | `phy_ip` | valid/ready + BIST/calibration/DFT | APB | async FIFO | APB/FIFO 原语可用；BIST/DFT 集成仍 scaffold |
 
 验证等级由 `scripts/qualify.py` 强制执行：`RTL_FUNCTIONAL`（lint/sim/synth）、`PRE_PNR_TIMING`、`POST_ROUTE_TIMING`、`PHYSICAL_SIGNOFF`、`LINK_VALIDATED`。`scripts/collect_signoff.py` 把 PnR/STA/DRC/LVS/CDC/BER 报告收集成 `signoff.json`；缺失的检查不会被猜测为通过。

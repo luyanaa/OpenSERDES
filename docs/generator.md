@@ -66,6 +66,11 @@ Rules:
 - The line-rate gate uses max_link_line_rate_mbps for target link and
   max_endpoint_line_rate_mbps for target tx/rx.  --relax-limits is for
   explicit experiments, not signoff.
+- interface.data: axi4_stream is supported for target tx/rx, generating
+  serdes_tx_axis_digital / serdes_rx_axis_digital.  target link AXIS is still a
+  scaffold because there is no link-level APB/AXIS/CDC wrapper.
+
+Example endpoint specs: spec/tx_axis.yaml, spec/rx_axis.yaml.
 
 ## 3. Architecture selection
 
@@ -121,15 +126,16 @@ Current candidates:
 |---|---|---|---|---|
 | minimal | valid/ready parallel | native | none | complete |
 | default | valid/ready parallel | native | auto | complete |
-| soc | AXI4-Stream | APB | async FIFO | APB/FIFO primitives exist; AXI/CDC/top integration is scaffold |
+| soc | AXI4-Stream | APB | async FIFO | AXIS endpoint + APB/FIFO primitives exist; link-level CDC/top integration is scaffold |
 | phy_ip | valid/ready + optional blocks | APB | async FIFO + BIST/calibration/DFT | APB/FIFO primitives exist; BIST/DFT/top integration is scaffold |
 
-soc and phy_ip still require the AXI4-Stream/CDC/top integration wrappers and
-BIST/DFT blocks that are not in this release.  APB CSR (`rtl/apb_csr.sv`) and
-the async FIFO (`rtl/async_fifo.sv`) primitives are implemented and tested, but
-they are not yet wired into a generated top.  The presets fail fast unless
---allow-incomplete is passed, and the generated package explicitly records the
-missing blocks.
+soc and phy_ip still require the link-level APB/AXIS/CDC/top integration
+wrappers and BIST/DFT blocks that are not in this release.  APB CSR
+(`rtl/apb_csr.sv`), async FIFO (`rtl/async_fifo.sv`), AXIS adapters and the TX/RX
+AXIS endpoint wrappers are implemented and tested.  `target: tx`/`rx` with
+`interface.data: axi4_stream` generates a real endpoint package; `target: link`
+AXIS is still a scaffold.  The presets fail fast unless --allow-incomplete is
+passed, and the generated package explicitly records the missing blocks.
 
 ## 5. Package layout
 
