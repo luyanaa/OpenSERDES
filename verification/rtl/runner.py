@@ -58,13 +58,14 @@ class JtolResult:
         return asdict(self)
 
 
-def _compile_tb(chain: str = "cdr") -> Path:
+def _compile_tb(chain: str = "cdr", data_width: int = 8,
+                words: int = 4, sync_len: int | None = None) -> Path:
     BUILD_DIR.mkdir(parents=True, exist_ok=True)
     if chain == "rx":
-        binary = BUILD_DIR / "tb_rx_jtol"
+        binary = BUILD_DIR / f"tb_rx_jtol_dw{data_width}_w{words}"
         sources = [TB_RX, *sorted((ROOT / "rtl").glob("*.sv"))]
     elif chain == "frame":
-        binary = BUILD_DIR / "tb_rx_frame_jtol"
+        binary = BUILD_DIR / f"tb_rx_frame_jtol_dw{data_width}_w{words}_s{sync_len or data_width}"
         sources = [TB_FRAME, *sorted((ROOT / "rtl").glob("*.sv"))]
     else:
         binary = BUILD_DIR / "tb_cdr_jtol"
@@ -76,6 +77,13 @@ def _compile_tb(chain: str = "cdr") -> Path:
     if shutil.which("iverilog") is None:
         raise RuntimeError("iverilog is required for the RTL jitter harness")
     cmd = ["iverilog", "-g2012", "-Wall", "-o", str(binary), *map(str, sources)]
+    if chain == "rx":
+        cmd[1:1] = ["-Ptb_rx_jtol.DATA_WIDTH=" + str(data_width),
+                    "-Ptb_rx_jtol.WORDS=" + str(words)]
+    elif chain == "frame":
+        cmd[1:1] = ["-Ptb_rx_frame_jtol.DATA_WIDTH=" + str(data_width),
+                    "-Ptb_rx_frame_jtol.WORDS=" + str(words),
+                    "-Ptb_rx_frame_jtol.SYNC_LEN=" + str(sync_len or data_width)]
     proc = subprocess.run(cmd, text=True, capture_output=True)
     if proc.returncode != 0:
         raise RuntimeError(f"iverilog failed:\n{proc.stdout}\n{proc.stderr}")
@@ -197,11 +205,12 @@ def analyse_frames(
     *,
     lock_losses: int,
     lock_wait: int,
+    data_width: int = 8,
     params: dict[str, float],
 ) -> JtolResult:
     """Compare recovered frame words with the transmitted PRBS frames."""
     words = expected.shape[1]
-    bits_per_frame = words * 8
+    bits_per_frame = words * data_width
     if recovered.size == 0:
         return JtolResult(
             ber=1.0, errors=0, compared=0, bit_slips=0,
@@ -249,9 +258,7 @@ def _read_frames(path: Path) -> np.ndarray:
     if path.exists():
         for line in path.read_text().splitlines():
             parts = line.split()
-            if len(parts) != 4:
-                continue
-            rows.append([int(x, 16) for x in parts])
+            rows.append([int(x) for x in parts])
     return np.asarray(rows, dtype=np.int64)
 
 
@@ -357,6 +364,9 @@ def run_rtl_jtol(
     prbs_width: int = 15,
     seed: int = 2026,
     chain: str = "cdr",
+    data_width: int = 8,
+    words: int = 4,
+    sync_len: int | None = None,
     noise_rms_v: float = 0.0,
     channel_tau_ui: float = 0.16,
     threshold_v: float = 0.0,
@@ -372,13 +382,15 @@ def run_rtl_jtol(
     expected_frames = None
     n_frames = 0
     if chain == "frame":
-        n_frames = max(8, int(math.ceil(nbits / 32.0)))
+        bits_per_frame = int(data_width) * int(words)
+        n_frames = max(8, int(math.ceil(nbits / float(bits_per_frame))))
         expected_serial, expected_frames = build_framed_bits(
-            prbs_width, n_frames, word_bits=8, words=4, comma=0xBC
+            prbs_width, n_frames, word_bits=int(data_width),
+            words=int(words), comma=0xBC
         )
     else:
         expected_serial = expected
-    binary = _compile_tb(chain)
+    binary = _compile_tb(chain, data_width, words, sync_len)
 
     tmp = Path(tempfile.mkdtemp(prefix="serdes_jtol_", dir=str(ROOT / "build" / "verify")))
     stim = tmp / "stim.txt"
@@ -465,6 +477,7 @@ def run_rtl_jtol(
             expected_frames,
             lock_losses=lock_losses,
             lock_wait=lock_wait,
+            data_width=int(data_width),
             params=params,
         )
         result.locked = result.locked and locked and frame_locked
@@ -497,6 +510,12 @@ def _main() -> int:
     ap.add_argument("--sj-freq-hz", type=float, default=0.0)
     ap.add_argument("--dcd-peak-ui", type=float, default=0.0)
     ap.add_argument("--ppm", type=float, default=0.0)
+    ap.add_argument("--data-width", type=int, default=8,
+                    help="RX DATA_WIDTH for rx/frame chains")
+    ap.add_argument("--words", type=int, default=4,
+                    help="RX WORDS for rx/frame chains")
+    ap.add_argument("--sync-len", type=int, default=None,
+                    help="RX SYNC_LEN (default: DATA_WIDTH for the frame chain)")
     ap.add_argument("--chain", choices=("cdr", "rx", "frame"), default="cdr",
                     help="cdr = cdr_adaptive only; rx = full serdes_rx_digital; "
                          "frame = comma-framed RX with rx_par_data scoreboard")
@@ -517,6 +536,9 @@ def _main() -> int:
         ppm=args.ppm,
         seed=args.seed,
         chain=args.chain,
+        data_width=args.data_width,
+        words=args.words,
+        sync_len=args.sync_len,
         noise_rms_v=args.noise_rms_v,
         channel_tau_ui=args.channel_tau_ui,
         threshold_v=args.threshold_v,

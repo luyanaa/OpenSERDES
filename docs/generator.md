@@ -31,7 +31,7 @@ link:
   payload_width: 32
   words: 8
   line_rate_mbps: 100   # serial line rate (wire rate)
-  coding: raw           # raw | 8b10b | 64b66b
+  coding: raw           # only raw is implemented; others fail closed
   bit_order: lsb_first
 tx:
   architecture: auto    # parallel_mux | word_group_capture | word_streaming
@@ -43,7 +43,7 @@ rx:
   clocking: independent # independent | source_sync
   ppm: 0
   sync_pattern: 0xBC
-  sync_len: 8
+  sync_len: 32         # must equal payload_width for comma alignment
 tech:
   tx: {name: icsprout55, scl: ics55_LLSC_H7CL}
   rx: {name: icsprout55, scl: ics55_LLSC_H7CL}
@@ -57,6 +57,15 @@ optimization:
 
 Rules:
 
+- `link.coding` is currently limited to `raw`: there is no 8b/10b or 64b/66b
+  encoder/decoder, training or framing, so other values fail the generator.
+- Comma alignment requires `rx.sync_len == link.payload_width`; a comma is a
+  full word, not a byte embedded in a wider word.
+- `interface.cdc: auto` is not inferred from equal clock numbers.  For a `soc`
+  preset it resolves to `async_fifo` unless the spec supplies both
+  `tx_user_clock_mhz` and `rx_user_clock_mhz` and sets
+  `cdc_proven_synchronous: true`.  Explicit `cdc: none` is checked against the
+  PHY clock on both sides.
 - target link requires the same tech/scl for TX and RX.  Generate target tx and
   target rx separately for a cross-PDK link.
 - fixed CDR requires OVERSAMPLE >= 4; OVERSAMPLE=2 requires allow_os2: true.
@@ -145,7 +154,7 @@ calibration/DFT integration exists.  `target: tx`/`rx` with
 `interface.data: axi4_stream` generates a real endpoint package.  The presets
 fail fast unless --allow-incomplete is passed, and the generated package
 explicitly records the missing blocks.  The generated manifest starts with
-`link_capability.supported = false`; `make verify-link PACKAGE=<out>` runs the
+`link_capability.supported = false`; `make verify-link VERIFY_PACKAGE=<out>` runs the
 SI/BER gate and only then records a validated rate and profile hash.  The
 generator itself never invents a link-rate claim.  The generated soc packages include
 `serdes_bist.sv`, `bist_snapshot.sv` and the word BIST primitives.
@@ -154,7 +163,9 @@ generator itself never invents a link-rate claim.  The generated soc packages in
 
 ~~~text
 out/<name>/
-  rtl/                  selected RTL sources + filelist.f + params.svh/json
+  rtl/                  selected native SV sources + filelist.f + params.svh/json
+  rtl/sv2v/             sv2v-converted Verilog used by LibreLane/Yosys
+  rtl/filelist_sv2v.f   converted-source file list
   constraints/
     pre_pnr.sdc         async reset excluded; pre-CTS
     post_cts.sdc        propagated clock; reset recovery enabled
@@ -167,6 +178,11 @@ out/<name>/
 ~~~
 
 The package copies the needed RTL; it is self-contained for synthesis and PnR.
+Native SystemVerilog is retained for simulation, lint and generated-package
+compile smoke tests.  `pnr/librelane.yaml` points at the sv2v-converted files,
+so the LibreLane Yosys frontend never sees packed arrays, `always_comb` or other
+newer SV constructs.  Generation fails closed if sv2v is missing; the explicit
+`--allow-native-sv` escape hatch emits native files for experiments only.
 It does not include the analog TX/RX wrapper, PEX, SI/PI, jitter/BER or silicon
 data.
 

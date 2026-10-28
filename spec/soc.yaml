@@ -18,6 +18,8 @@ rx:
   align: comma_per_frame
   clocking: source_sync
   ppm: 0
+  sync_pattern: 0xBC
+  sync_len: 32
 
 tech:
   tx:

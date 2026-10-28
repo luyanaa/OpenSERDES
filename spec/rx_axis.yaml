@@ -31,7 +31,7 @@ interface:
   control: native
   cdc: none
   enable_mode: static
-  user_clock_mhz: 100
+  user_clock_mhz: 25
 
 constraints:
   uncertainty_setup_ns: 0.100

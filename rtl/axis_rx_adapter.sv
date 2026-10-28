@@ -29,6 +29,9 @@ module axis_rx_adapter #(
     logic [WORD_W-1:0] beat_q;
     logic              pending_q;
     logic              overflow_q;
+    logic              accept_new;
+    logic              beat_fire;
+    logic              last_fire;
     logic [WORDS-1:0]  beat_select;
     logic [DATA_WIDTH-1:0] axis_data;
 
@@ -39,12 +42,19 @@ module axis_rx_adapter #(
     endgenerate
 
     always_comb begin
+        accept_new = par_valid && (!pending_q || last_fire);
+    end
+
+    always_comb begin
         axis_data = '0;
         for (int w = 0; w < WORDS; w++) begin
             if (beat_select[w])
                 axis_data = frame_q[w];
         end
     end
+
+    assign beat_fire = m_axis_tvalid && m_axis_tready;
+    assign last_fire = beat_fire && m_axis_tlast;
 
     assign m_axis_tvalid = pending_q;
     assign m_axis_tdata  = axis_data;
@@ -62,25 +72,25 @@ module axis_rx_adapter #(
             pending_q  <= 1'b0;
             overflow_q <= 1'b0;
         end else begin
-            if (par_valid) begin
-                if (!pending_q ||
-                    (m_axis_tvalid && m_axis_tready && m_axis_tlast)) begin
-                    frame_q   <= par_data;
-                    beat_q    <= '0;
-                    pending_q <= 1'b1;
-                end else begin
-                    overflow_q <= 1'b1;
-                end
+            // A frame may be accepted in the same cycle that the previous
+            // frame's last beat is consumed.  Prioritize the accept so the
+            // later beat-consumption path cannot clear pending_q for the new
+            // frame.  Mid-frame consumption with a new frame is still an
+            // overflow, but the current beat must advance.
+            if (par_valid && !accept_new)
+                overflow_q <= 1'b1;
+
+            if (accept_new) begin
+                frame_q   <= par_data;
+                beat_q    <= '0;
+                pending_q <= 1'b1;
+            end else if (last_fire) begin
+                pending_q <= 1'b0;
+                beat_q    <= '0;
             end
 
-            if (m_axis_tvalid && m_axis_tready) begin
-                if (m_axis_tlast) begin
-                    pending_q <= 1'b0;
-                    beat_q    <= '0;
-                end else begin
-                    beat_q <= beat_q + 1'b1;
-                end
-            end
+            if (beat_fire && !last_fire)
+                beat_q <= beat_q + 1'b1;
         end
     end
 

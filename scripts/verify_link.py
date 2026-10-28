@@ -86,6 +86,9 @@ def rtl_point(
     sj_peak_ui: float,
     sj_freq_hz: float,
     ppm: float,
+    data_width: int = 8,
+    words: int = 4,
+    sync_len: int | None = None,
     allow_long: bool = True,
 ) -> dict[str, Any]:
     if shutil.which("iverilog") is None or shutil.which("vvp") is None:
@@ -101,6 +104,9 @@ def rtl_point(
         prbs_width=profile["prbs_width"],
         seed=profile["seed"],
         chain=chain,
+        data_width=data_width,
+        words=words,
+        sync_len=sync_len,
         noise_rms_v=profile["noise_rms_v"],
         channel_tau_ui=profile["channel"]["tau_ui"],
         threshold_v=profile["threshold_v"],
@@ -118,6 +124,9 @@ def jtol_sweep(
     ppm: float,
     ber_target: float,
     min_amp_ui: float,
+    data_width: int = 8,
+    words: int = 4,
+    sync_len: int | None = None,
 ) -> tuple[bool, list[dict[str, Any]], dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     per_freq: dict[str, Any] = {}
@@ -131,6 +140,9 @@ def jtol_sweep(
                 sj_peak_ui=amp,
                 sj_freq_hz=freq,
                 ppm=ppm,
+                data_width=data_width,
+                words=words,
+                sync_len=sync_len,
             )
             row = {
                 "sj_freq_hz": float(freq),
@@ -160,8 +172,58 @@ def jtol_sweep(
     return ok, rows, per_freq
 
 
+def load_package_binding(package: str | None, profile: dict[str, Any]) -> dict[str, Any]:
+    if not package:
+        return {
+            "bound": False,
+            "errors": ["no --package given; capability is unbound"],
+        }
+    pkg = Path(package).resolve()
+    manifest_path = pkg / "manifest.json"
+    if not manifest_path.is_file():
+        raise RuntimeError(f"package manifest not found: {manifest_path}")
+    manifest = json.loads(manifest_path.read_text())
+    params = manifest.get("params", {}) or {}
+    data_width = int(params.get("DATA_WIDTH", 8))
+    words = int(params.get("WORDS", 4))
+    sync_len = int(params.get("SYNC_LEN", data_width))
+    line_rate = manifest.get("line_rate_mbps")
+    design = manifest.get("design")
+    errors: list[str] = []
+    if line_rate is None:
+        errors.append("manifest has no line_rate_mbps")
+    elif abs(float(line_rate) - float(profile["rate_mbps"])) > max(
+        1e-6, 1e-6 * float(line_rate)
+    ):
+        errors.append(
+            f"profile rate {profile['rate_mbps']:g} Mb/s != manifest "
+            f"{float(line_rate):g} Mb/s"
+        )
+    if design not in ("serdes_soc_wrapper", "serdes_soc_cdc_wrapper"):
+        errors.append(f"design {design!r} is not a link wrapper")
+    return {
+        "bound": not errors,
+        "errors": errors,
+        "package": str(pkg),
+        "manifest": str(manifest_path),
+        "manifest_sha256": hashlib.sha256(manifest_path.read_bytes()).hexdigest(),
+        "spec_sha256": manifest.get("spec_sha256"),
+        "design": design,
+        "data_width": data_width,
+        "words": words,
+        "sync_len": sync_len,
+        "line_rate_mbps": line_rate,
+        "interface": manifest.get("interface"),
+        "params": params,
+    }
+
+
 def build_report(args: argparse.Namespace) -> dict[str, Any]:
     profile = load_profile(args.profile)
+    binding = load_package_binding(args.package, profile)
+    data_width = int(binding.get("data_width", 8))
+    words = int(binding.get("words", 4))
+    sync_len = int(binding.get("sync_len", data_width))
     lut_info = None
     if args.analog_lut:
         lut = load_lut(args.analog_lut)
@@ -207,6 +269,9 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
             sj_peak_ui=profile["sj_peak_ui"],
             sj_freq_hz=profile["sj_freq_hz"],
             ppm=args.ppm,
+            data_width=data_width,
+            words=words,
+            sync_len=sync_len,
         )
         if nominal["compared"] == 0:
             ber_value = 1.0
@@ -225,11 +290,15 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
             ppm=args.ppm,
             ber_target=args.ber_target,
             min_amp_ui=args.jtol_min_amp_ui,
+            data_width=data_width,
+            words=words,
+            sync_len=sync_len,
         )
 
     ber_ok = ber_value <= args.ber_target
     nom_lock_ok = int(nominal["lock_losses"]) == 0
-    supported = bool(ber_ok and jtol_ok and eye_ok and nom_lock_ok)
+    binding_ok = bool(binding.get("bound"))
+    supported = bool(ber_ok and jtol_ok and eye_ok and nom_lock_ok and binding_ok)
     if not ber_ok:
         capability_reasons.append(f"BER {ber_value:.3e} > {args.ber_target:.1e}")
     if not jtol_ok:
@@ -238,6 +307,8 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
         capability_reasons.append(f"eye width {eye['eye_width_ui']:.4f} UI < {args.min_eye_ui}")
     if not nom_lock_ok:
         capability_reasons.append("nominal run lost lock")
+    if not binding_ok:
+        capability_reasons += list(binding.get("errors", []))
 
     profile_path = Path(args.profile).resolve()
     checked_utc = datetime.now(timezone.utc).isoformat()
@@ -247,6 +318,7 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
         "profile": str(profile_path),
         "profile_sha256": _sha256(profile_path),
         "chain": args.chain,
+        "binding": binding,
         "ber_target": args.ber_target,
         "ppm": args.ppm,
         "pvt_validated": False,
@@ -275,6 +347,7 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
         "capability": capability,
         "profile": str(profile_path),
         "profile_sha256": capability["profile_sha256"],
+        "binding": binding,
         "evidence": {
             "eye": {**eye, "min_eye_ui": args.min_eye_ui},
             "nominal": nominal,
@@ -309,9 +382,9 @@ def main() -> int:
     ap.add_argument("--out", default=str(ROOT / "build/verify/ber.json"))
     ap.add_argument("--package", default=None,
                     help="optional generated package; writes reports/ber.json and updates manifest")
-    ap.add_argument("--chain", choices=("rx", "cdr", "frame"), default="rx")
-    ap.add_argument("--bits", type=int, default=4000, help="RTL bits for the nominal BER point")
-    ap.add_argument("--jtol-bits", type=int, default=1200, help="RTL bits per JTOL point")
+    ap.add_argument("--chain", choices=("rx", "cdr", "frame"), default="frame")
+    ap.add_argument("--bits", type=int, default=8000, help="RTL bits for the nominal BER point")
+    ap.add_argument("--jtol-bits", type=int, default=4000, help="RTL bits per JTOL point")
     ap.add_argument("--eye-bits", type=int, default=8000)
     ap.add_argument("--ber-target", type=float, default=1e-3)
     ap.add_argument("--min-eye-ui", type=float, default=0.10)

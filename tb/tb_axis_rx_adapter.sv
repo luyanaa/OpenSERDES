@@ -71,6 +71,35 @@ module tb_axis_rx_adapter;
         end
     endtask
 
+    task automatic drain_frame_bp(input logic [WORDS-1:0][DW-1:0] expected);
+        logic [DW-1:0] data;
+        logic last;
+        int got;
+        begin
+            got = 0;
+            while (got < WORDS) begin
+                @(negedge clk);
+                m_axis_tready = $urandom_range(0, 1);
+                if (m_axis_tvalid && m_axis_tready) begin
+                    data = m_axis_tdata;
+                    last = m_axis_tlast;
+                    if (data !== expected[got]) begin
+                        $display("ERROR: bp word %0d got %h expected %h",
+                                 got, data, expected[got]);
+                        errors++;
+                    end
+                    if (last !== (got == WORDS-1)) begin
+                        $display("ERROR: bp tlast wrong at word %0d", got);
+                        errors++;
+                    end
+                    got++;
+                end
+            end
+            @(negedge clk);
+            m_axis_tready = 1'b0;
+        end
+    endtask
+
     initial begin
         logic [WORDS-1:0][DW-1:0] frame;
         clk           = 1'b0;
@@ -112,7 +141,66 @@ module tb_axis_rx_adapter;
             errors++;
         end
         drain_frame(frame);
-        @(negedge clk); clear = 1'b1; @(posedge clk); #1; clear = 1'b0;
+
+        // Same-cycle handoff: accept a new frame while consuming the last
+        // beat of the previous one.  The new frame must not be dropped.
+        @(negedge clk); clear = 1'b1; @(posedge clk); #1;
+        @(negedge clk); clear = 1'b0;
+        for (int i = 0; i < WORDS; i++)
+            frame[i] = 16'h3000 + i;
+        send_frame(frame);
+        for (int i = 0; i < WORDS - 1; i++) begin
+            logic [DW-1:0] old_data;
+            logic old_last;
+            read_beat(old_data, old_last);
+            if (old_data !== frame[i]) begin
+                $display("ERROR: handoff pre-beat %0d got %h expected %h",
+                         i, old_data, frame[i]);
+                errors++;
+            end
+            if (old_last !== 1'b0) begin
+                $display("ERROR: handoff pre-beat tlast wrong at %0d", i);
+                errors++;
+            end
+        end
+        for (int i = 0; i < WORDS; i++)
+            frame[i] = 16'h4000 + i;
+        @(negedge clk);
+        par_data      = frame;
+        par_valid     = 1'b1;
+        m_axis_tready = 1'b1;
+        @(posedge clk);
+        #1;
+        par_valid     = 1'b0;
+        m_axis_tready = 1'b0;
+        if (frame_overflow) begin
+            $display("ERROR: same-cycle handoff flagged overflow");
+            errors++;
+        end
+        drain_frame(frame);
+        // Randomized backpressure over a sequence of frames.
+        for (int f = 0; f < 10; f++) begin
+            for (int i = 0; i < WORDS; i++)
+                frame[i] = 16'h5000 + f * 16'h100 + i;
+            send_frame(frame);
+            drain_frame_bp(frame);
+            if (frame_overflow) begin
+                $display("ERROR: overflow under random backpressure frame %0d", f);
+                errors++;
+            end
+        end
+
+        // Clear while a frame is pending: no beats may leak afterwards.
+        for (int i = 0; i < WORDS; i++)
+            frame[i] = 16'h6000 + i;
+        send_frame(frame);
+        @(negedge clk); clear = 1'b1;
+        @(posedge clk); #1;
+        @(negedge clk); clear = 1'b0;
+        if (m_axis_tvalid) begin
+            $display("ERROR: clear left a pending frame visible");
+            errors++;
+        end
         if (frame_overflow) begin
             $display("ERROR: clear did not clear overflow");
             errors++;

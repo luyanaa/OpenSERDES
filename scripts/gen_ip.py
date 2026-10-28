@@ -347,6 +347,12 @@ def validate(spec: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
     coding = str(link.get("coding", "raw")).lower()
     if coding not in CODING_FACTOR:
         fail(f"link.coding must be one of {sorted(CODING_FACTOR)}")
+    if coding != "raw":
+        fail(
+            f"link.coding={coding!r} is not implemented: no encoder/decoder, "
+            "training or framing exists for it. Only coding: raw is allowed "
+            "until those blocks are implemented and verified."
+        )
     factor = CODING_FACTOR[coding]
     payload_rate = link.get("payload_rate_mbps")
     line_rate = link.get("line_rate_mbps")
@@ -485,17 +491,49 @@ def validate(spec: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
         if features:
             fail("preset minimal cannot include optional features")
     user_clock = interface.get("user_clock_mhz")
+    tx_user_clock = interface.get("tx_user_clock_mhz")
+    rx_user_clock = interface.get("rx_user_clock_mhz")
     if user_clock is not None:
         user_clock = as_float(user_clock, "interface.user_clock_mhz")
-        phy_clock = (1000.0 / rx_period_ns) if target == "rx" else line_rate
-        differs = abs(user_clock - phy_clock) > max(0.001, phy_clock * 1e-6)
-        if cdc == "auto":
+    if tx_user_clock is not None:
+        tx_user_clock = as_float(tx_user_clock, "interface.tx_user_clock_mhz")
+    if rx_user_clock is not None:
+        rx_user_clock = as_float(rx_user_clock, "interface.rx_user_clock_mhz")
+    proven_sync = bool(interface.get("cdc_proven_synchronous", False))
+    tx_phy_clock = line_rate
+    rx_phy_clock = 1000.0 / rx_period_ns
+    if proven_sync and (tx_user_clock is None or rx_user_clock is None):
+        fail("interface.cdc_proven_synchronous requires both "
+             "tx_user_clock_mhz and rx_user_clock_mhz")
+
+    def _same_clock(a: float, b: float) -> bool:
+        return abs(a - b) <= max(0.001, b * 1e-6)
+
+    if cdc == "auto":
+        # Rate equality alone is not proof that two user clocks are synchronous.
+        # The SoC wrapper therefore defaults to an async FIFO unless the spec
+        # explicitly supplies both user clocks and declares them proven.
+        if preset == "soc":
+            if proven_sync and _same_clock(tx_user_clock, tx_phy_clock) and \
+                    _same_clock(rx_user_clock, rx_phy_clock):
+                cdc = "none"
+            else:
+                cdc = "async_fifo"
+                spec.setdefault("_warnings", []).append(
+                    "interface.cdc=auto resolved to async_fifo: rate equality "
+                    "does not prove synchronous user clocks")
+        elif user_clock is not None:
+            differs = not _same_clock(user_clock, tx_phy_clock)
             cdc = "async_fifo" if differs else "none"
-        elif cdc == "none" and differs:
-            fail("interface.user_clock_mhz differs from the PHY clock; "
-                 "interface.cdc must be async_fifo")
-    elif cdc == "auto":
-        cdc = "none"
+        else:
+            cdc = "none"
+    elif cdc == "none":
+        for name, value, phy in (("user_clock_mhz", user_clock, tx_phy_clock),
+                                 ("tx_user_clock_mhz", tx_user_clock, tx_phy_clock),
+                                 ("rx_user_clock_mhz", rx_user_clock, rx_phy_clock)):
+            if value is not None and not _same_clock(value, phy):
+                fail(f"interface.{name} differs from its PHY clock; "
+                     "interface.cdc must be async_fifo")
 
     soc_single = (target == "link" and preset == "soc" and
                   data_mode == "axi4_stream" and control == "apb" and
@@ -547,6 +585,12 @@ def validate(spec: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
         fail("rx.sync_len must be in [2, 64]")
     if sync_pattern_int < 0 or sync_pattern_int >= (1 << sync_len):
         fail("rx.sync_pattern does not fit rx.sync_len")
+    if align in ("comma", "comma_per_frame") and sync_len != width:
+        fail(
+            "comma alignment requires rx.sync_len == link.payload_width "
+            f"({sync_len} != {width}); the comma is a full word, not a byte "
+            "inside a wider word"
+        )
 
     return {
         "name": name,
@@ -565,6 +609,9 @@ def validate(spec: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
         "clocking": clocking,
         "ppm": ppm,
         "user_clock_mhz": user_clock if user_clock is not None else line_rate,
+        "tx_user_clock_mhz": tx_user_clock,
+        "rx_user_clock_mhz": rx_user_clock,
+        "cdc_proven_synchronous": proven_sync,
         "objectives": objectives,
         "tech": tech,
         "tx_tech": tx_tech,
@@ -947,7 +994,9 @@ def make_readme(cfg: dict[str, Any], plan: dict[str, Any], manifest: dict[str, A
         ") u_dut ( ... );",
         "~~~",
         "",
-        "The generated RTL is in rtl/; rtl/filelist.f lists compile order.",
+        "The generated RTL is in rtl/; rtl/filelist.f lists compilation order. "
+        "rtl/sv2v/ and rtl/filelist_sv2v.f are the sv2v-converted sources used by "
+        "the LibreLane/Yosys flow.",
         ("Optional primitives: " + ", ".join(plan["optional_blocks"])
          if plan["optional_blocks"] else "No optional preset blocks included."),
         "",
@@ -993,6 +1042,54 @@ def git_commit() -> str:
         return "unknown"
 
 
+def find_sv2v() -> str | None:
+    return shutil.which(os.environ.get("SV2V", "sv2v"))
+
+
+def convert_package_rtl(out: Path, files: list[str], allow_native: bool) -> dict[str, Any]:
+    """Convert the generated SV sources for the Yosys/LibreLane frontend.
+
+    Native SystemVerilog remains in rtl/ for simulation and lint.  The PnR
+    flow uses rtl/sv2v/*.v and filelist_sv2v.f so LibreLane's Yosys version is
+    not exposed to newer SV constructs (packed arrays, always_comb, ...).
+    """
+    if allow_native:
+        return {"used": False, "reason": "--allow-native-sv"}
+    exe = find_sv2v()
+    if exe is None:
+        raise RuntimeError(
+            "sv2v is required for the LibreLane/Yosys package flow; install "
+            "sv2v v0.0.12 or set SV2V=/path/to/sv2v, or pass --allow-native-sv "
+            "to emit native SystemVerilog (not a stable PnR path)"
+        )
+    converted: list[str] = []
+    dest_dir = out / "rtl" / "sv2v"
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    for filename in files:
+        src = out / "rtl" / filename
+        dst = dest_dir / (Path(filename).stem + ".v")
+        proc = subprocess.run(
+            [exe, str(src), "-w", str(dst)],
+            text=True, capture_output=True, timeout=120,
+        )
+        if proc.returncode != 0:
+            raise RuntimeError(
+                f"sv2v failed for {filename}:\n{proc.stdout}\n{proc.stderr}"
+            )
+        converted.append(f"sv2v/{dst.name}")
+    (out / "rtl" / "filelist_sv2v.f").write_text("\n".join(converted) + "\n")
+    version = subprocess.run([exe, "--version"], text=True, capture_output=True,
+                             timeout=30).stdout.strip()
+    return {
+        "used": True,
+        "tool": exe,
+        "version": version,
+        "native_files": list(files),
+        "pnr_files": converted,
+        "filelist": "rtl/filelist_sv2v.f",
+    }
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="Generate a spec-driven OpenSERDES digital IP package")
     ap.add_argument("--spec", required=True)
@@ -1004,6 +1101,8 @@ def main() -> int:
     ap.add_argument("--check", action="store_true", help="validate and print, do not write")
     ap.add_argument("--force", action="store_true", help="replace an existing output directory")
     ap.add_argument("--relax-limits", action="store_true", help="warn instead of failing capability gates")
+    ap.add_argument("--allow-native-sv", action="store_true",
+                    help="emit native SystemVerilog for PnR (not the stable sv2v path)")
     ap.add_argument("--allow-incomplete", action="store_true",
                     help="emit a scaffold package for presets whose optional blocks are not implemented")
     ap.add_argument("--list-arch", action="store_true")
@@ -1076,6 +1175,13 @@ def main() -> int:
     (out / "rtl" / "filelist.f").write_text(
         "\n".join(plan["files"]) + "\n")
 
+    try:
+        sv2v_meta = convert_package_rtl(out, plan["files"], args.allow_native_sv)
+    except RuntimeError as exc:
+        print(f"generation error: {exc}", file=sys.stderr)
+        shutil.rmtree(out, ignore_errors=True)
+        return 2
+
     params_json = json.dumps(plan["params"], indent=2) + "\n"
     (out / "rtl" / "params.json").write_text(params_json)
     svh = ["// Generated by OpenSERDES gen_ip.py", ""]
@@ -1090,9 +1196,11 @@ def main() -> int:
     tech = cfg["tech"]
     corners = expand({k: list(v) for k, v in tech.corners.items()})
     pdk_paths_resolved = not unresolved(corners)
+    pnr_files = (plan["files"] if not sv2v_meta.get("used")
+                 else sv2v_meta["pnr_files"])
     pnr = {
         "DESIGN_NAME": plan["design"],
-        "VERILOG_FILES": [str(out / "rtl" / f) for f in plan["files"]],
+        "VERILOG_FILES": [str(out / "rtl" / f) for f in pnr_files],
         "CLOCK_PORT": plan["clock_port"],
         "CLOCK_PERIOD": round(plan["clock_period_ns"], 6),
         "PDK": tech.pdk,
@@ -1138,6 +1246,9 @@ def main() -> int:
         "spec_sha256": hashlib.sha256(spec_text.encode()).hexdigest(),
         "target": cfg["target"],
         "design": plan["design"],
+        "line_rate_mbps": cfg["line_rate"],
+        "data_width": cfg["width"],
+        "words": cfg["words"],
         "tech": {"name": tech.name, "scl": tech.scl, "pdk": tech.pdk,
                  "native_dff": tech.native_dff,
                  "pdk_paths_resolved": pdk_paths_resolved},
@@ -1155,9 +1266,12 @@ def main() -> int:
         "ppa_db": plan["ppa_db"],
         "ppa_entries": plan["ppa_entries"],
         "interface": {k: cfg[k] for k in ("preset", "data_mode", "control", "cdc",
-                                          "features", "enable_mode")},
+                                          "features", "enable_mode",
+                                          "tx_user_clock_mhz", "rx_user_clock_mhz",
+                                          "cdc_proven_synchronous")},
         "tx_capture_semantics": plan["capture_semantics"],
         "optional_blocks": plan["optional_blocks"],
+        "sv2v": sv2v_meta,
         "clocking": {
             "ports": plan["clock_ports"],
             "tx_period_ns": cfg["tx_period_ns"],

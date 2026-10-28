@@ -19,7 +19,7 @@ rx:
   clocking: independent
   ppm: 0
   sync_pattern: 0xBC
-  sync_len: 8
+  sync_len: 32
 
 tech:
   tx:

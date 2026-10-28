@@ -13,10 +13,14 @@
 // Output format: one line per recovered frame, four hex words.
 // Plusargs: +STIM=<path> +OUT=<path> +NFRAMES=<n> +HALF_NS=<ns>
 // -----------------------------------------------------------------------------
-module tb_rx_frame_jtol;
-
-    parameter int OS        = 8;
-    parameter int MAX_FRAMES = 4096;
+module tb_rx_frame_jtol #(
+    parameter int OS         = 8,
+    parameter int DATA_WIDTH = 8,
+    parameter int WORDS      = 4,
+    parameter int SYNC_LEN   = DATA_WIDTH,
+    parameter logic [SYNC_LEN-1:0] SYNC_PATTERN = 'hBC,
+    parameter int MAX_FRAMES = 4096
+);
 
     logic clk;
     logic rst_n;
@@ -28,14 +32,14 @@ module tb_rx_frame_jtol;
     logic serial_data;
     logic serial_valid;
     logic clk_out;
-    logic [3:0][7:0] par_data;
+    logic [WORDS-1:0][DATA_WIDTH-1:0] par_data;
     logic par_valid;
     logic busy;
     logic frame_locked;
     logic frame_valid;
     logic signed [12:0] freq_trim;
 
-    logic [3:0][7:0] frames [0:MAX_FRAMES-1];
+    logic [WORDS-1:0][DATA_WIDTH-1:0] frames [0:MAX_FRAMES-1];
 
     int fd_stim;
     int fd_out;
@@ -60,8 +64,8 @@ module tb_rx_frame_jtol;
     end
 
     serdes_rx_digital #(
-        .DATA_WIDTH(8),
-        .WORDS(4),
+        .DATA_WIDTH(DATA_WIDTH),
+        .WORDS(WORDS),
         .LSB_FIRST(1'b1),
         .OVERSAMPLE(OS),
         .SYNC_STAGES(3),
@@ -70,8 +74,8 @@ module tb_rx_frame_jtol;
         .CDR_MODE(1),
         .CDR_BYPASS(1'b0),
         .ALIGN_MODE(2),
-        .SYNC_LEN(8),
-        .SYNC_PATTERN(8'hBC),
+        .SYNC_LEN(SYNC_LEN),
+        .SYNC_PATTERN(SYNC_PATTERN),
         .ADAPT_FRAC_BITS(12),
         .ADAPT_LOOP_GAIN(8)
     ) dut (
@@ -165,11 +169,12 @@ module tb_rx_frame_jtol;
         end
 
         repeat (32) @(posedge clk);
-        for (int cyc = 0; cyc < n_target * 5 * OS * 2 + 20000; cyc++) begin
+        for (int cyc = 0;
+             cyc < n_target * (WORDS + 1) * DATA_WIDTH * OS + 20000; cyc++) begin
             @(posedge clk);
             #1;
             if (frames_seen >= n_target)
-                cyc = n_target * 5 * OS * 2 + 20000;
+                cyc = n_target * (WORDS + 1) * DATA_WIDTH * OS + 20000;
         end
 
         fd_out = $fopen(out_path, "w");
@@ -177,9 +182,14 @@ module tb_rx_frame_jtol;
             $display("ERROR: cannot open output %s", out_path);
             $finish;
         end
-        for (int f = 0; f < frames_seen; f++)
-            $fwrite(fd_out, "%02x %02x %02x %02x\n",
-                    frames[f][0], frames[f][1], frames[f][2], frames[f][3]);
+        for (int f = 0; f < frames_seen; f++) begin
+            for (int w = 0; w < WORDS; w++) begin
+                if (w != 0)
+                    $fwrite(fd_out, " ");
+                $fwrite(fd_out, "%0d", frames[f][w]);
+            end
+            $fwrite(fd_out, "\n");
+        end
         $fclose(fd_out);
 
         $display("META frames=%0d lock_wait=%0d lock_losses=%0d frame_locked=%0d freq_trim=%0d",

@@ -13,6 +13,7 @@ ROOT = Path(__file__).resolve().parent.parent
 BUILD = ROOT / "build" / "regress"
 IVERILOG = shutil.which("iverilog")
 VVP = shutil.which("vvp")
+YOSYS = shutil.which("yosys")
 
 # (name, top, rtl, params)
 # params are iverilog -P overrides on the testbench top module.
@@ -167,6 +168,8 @@ def run_generator_checks() -> tuple[int, int]:
         if ok:
             manifest = json.loads((out / "manifest.json").read_text())
             required = [out / "rtl" / "filelist.f",
+                        out / "rtl" / "filelist_sv2v.f",
+                        out / "rtl" / "sv2v",
                         out / "constraints" / "pre_pnr.sdc",
                         out / "constraints" / "post_cts.sdc",
                         out / "constraints" / "signoff.sdc",
@@ -182,6 +185,19 @@ def run_generator_checks() -> tuple[int, int]:
                                               capture_output=True, timeout=120)
                 ok = compile_proc.returncode == 0
                 detail += f" compile={'ok' if ok else 'fail'}"
+            if ok and YOSYS is not None:
+                sv_files = (out / "rtl" / "filelist_sv2v.f").read_text().split()
+                yosys_cmd = [
+                    YOSYS, "-q", "-p",
+                    "read_verilog " + " ".join(sv_files) +
+                    f"; synth -top {expected_design}; stat",
+                ]
+                yosys_proc = subprocess.run(
+                    yosys_cmd, cwd=out / "rtl", text=True,
+                    capture_output=True, timeout=300,
+                )
+                ok = yosys_proc.returncode == 0
+                detail += f" sv2v_yosys={'ok' if ok else 'fail'}"
         print(f"{'PASS' if ok else 'FAIL'} generator_package_{spec_name}: {detail}")
         if not ok:
             failed += 1

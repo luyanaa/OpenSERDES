@@ -12,10 +12,12 @@
 //
 // Plusargs: +STIM=<path> +OUT=<path> +NBITS=<n>
 // -----------------------------------------------------------------------------
-module tb_rx_jtol;
-
-    parameter int OS       = 8;
-    parameter int MAX_BITS = 20000;
+module tb_rx_jtol #(
+    parameter int OS         = 8,
+    parameter int DATA_WIDTH = 8,
+    parameter int WORDS      = 4,
+    parameter int MAX_BITS   = 20000
+);
 
     logic clk;
     logic rst_n;
@@ -27,7 +29,7 @@ module tb_rx_jtol;
     logic serial_data;
     logic serial_valid;
     logic clk_out;
-    logic [3:0][7:0] par_data;
+    logic [WORDS-1:0][DATA_WIDTH-1:0] par_data;
     logic par_valid;
     logic busy;
     logic frame_locked;
@@ -60,8 +62,8 @@ module tb_rx_jtol;
     always #(half_ns) clk = ~clk;
 
     serdes_rx_digital #(
-        .DATA_WIDTH(8),
-        .WORDS(4),
+        .DATA_WIDTH(DATA_WIDTH),
+        .WORDS(WORDS),
         .LSB_FIRST(1'b1),
         .OVERSAMPLE(OS),
         .SYNC_STAGES(3),

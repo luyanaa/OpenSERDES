@@ -16,6 +16,15 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y iverilog verilator yosys ngspice python3-pip
 
+      - name: Install sv2v (pinned, used for the Yosys/LibreLane path)
+        run: |
+          curl -sL --fail --max-time 120 \
+            https://github.com/zachjs/sv2v/releases/download/v0.0.12/sv2v-Linux.zip \
+            -o /tmp/sv2v.zip
+          unzip -q /tmp/sv2v.zip -d /tmp/sv2v
+          sudo install -m755 /tmp/sv2v/sv2v-Linux/sv2v /usr/local/bin/sv2v
+          sv2v --version
+
       - name: Install Python dependencies
         run: |
           python3 -m pip install --upgrade pip
@@ -36,8 +45,11 @@ jobs:
       - name: SI/BER framework tests (includes RTL CDR/RX JTOL)
         run: python3 -m unittest discover -s verification/tests -v
 
-      - name: Link capability gate
-        run: make verify-link PYTHON=python3
+      - name: Generate CI package for the bound capability gate
+        run: make gen SPEC=spec/soc.yaml OUT=out/ci-soc PYTHON=python3
+
+      - name: Link capability gate (bound to generated package)
+        run: make verify-link PYTHON=python3 VERIFY_PACKAGE=out/ci-soc
 
       - name: Analog LUT smoke test (generic demo; no PDK claim)
         run: make analog-lut-demo PYTHON=python3

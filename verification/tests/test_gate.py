@@ -64,12 +64,22 @@ class TestGateBehavioral(unittest.TestCase):
 class TestGateRtl(unittest.TestCase):
     def test_quick_gate_passes_and_writes_checks(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
+            pkg = Path(tmp) / "pkg"
+            pkg.mkdir()
+            (pkg / "manifest.json").write_text(json.dumps({
+                "design": "serdes_soc_wrapper",
+                "line_rate_mbps": 100.0,
+                "spec_sha256": "test",
+                "params": {"DATA_WIDTH": 8, "WORDS": 4, "SYNC_LEN": 8},
+                "interface": {"preset": "soc"},
+            }))
             out = Path(tmp) / "ber.json"
             proc = subprocess.run(
                 [sys.executable, str(SCRIPT), "--profile", str(PROFILE),
                  "--out", str(out), "--bits", "4000", "--jtol-bits", "300",
                  "--jtol-freqs", "200000", "--jtol-amps", "0.05", "0.1",
-                 "--jtol-min-amp-ui", "0.05", "--eye-bits", "2000"],
+                 "--jtol-min-amp-ui", "0.05", "--eye-bits", "2000",
+                 "--package", str(pkg)],
                 cwd=ROOT, text=True, capture_output=True,
             )
             self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
@@ -79,6 +89,8 @@ class TestGateRtl(unittest.TestCase):
             self.assertTrue(report["checks"]["jtol_pass"])
             self.assertGreater(report["checks"]["eye_margin_ui"], 0.0)
             self.assertFalse(report["capability"]["pvt_validated"])
+            self.assertTrue(report["capability"]["binding"]["bound"])
+            self.assertTrue((pkg / "reports" / "ber.json").is_file())
 
 
 if __name__ == "__main__":  # pragma: no cover

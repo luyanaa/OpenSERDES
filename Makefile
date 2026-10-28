@@ -2,6 +2,7 @@ IVERILOG ?= iverilog
 VVP      ?= vvp
 VERILATOR?= verilator
 YOSYS    ?= yosys
+SV2V     ?= sv2v
 PYTHON   ?= python3
 SPEC     ?= spec/default.yaml
 OUT      ?= out/default
@@ -30,6 +31,8 @@ SKY130_RX_SLEWS ?= 20 50 100 200
 
 BUILD := build
 RTL   := $(wildcard rtl/*.sv)
+SV2V_DIR := $(BUILD)/sv2v
+SV2V_RTL := $(SV2V_DIR)/rtl.v
 
 .PHONY: all sim lint synth regress gen qualify signoff ppa-import clean si-eye si-bathtub si-jtol si-rtl-jtol verify-link analog-lut sky130-lut analog-lut-demo analog-tech-check
 
@@ -37,6 +40,14 @@ all: sim
 
 $(BUILD):
 	mkdir -p $(BUILD)
+
+$(SV2V_RTL): $(RTL) | $(BUILD)
+	@command -v $(SV2V) >/dev/null 2>&1 || { \
+		echo "error: sv2v not found (install v0.0.12 or set SV2V=/path/to/sv2v)"; \
+		echo "  CI installs it; native SystemVerilog is kept for simulation/lint"; \
+		exit 1; }
+	@mkdir -p $(SV2V_DIR)
+	$(SV2V) $(RTL) > $@
 
 $(BUILD)/tb_serializer_lsb: tb/tb_serializer.sv rtl/serializer.sv | $(BUILD)
 	$(IVERILOG) -g2012 -Wall -DTB_LSB_FIRST=1 -o $@ $^
@@ -209,25 +220,25 @@ lint:
 	$(VERILATOR) --lint-only -Wall --top-module serializer_unit_cell_1 rtl/serializer.sv rtl/compat/serializer_unit_cell_1.v
 	$(VERILATOR) --lint-only -Wall --top-module deserialiser_unit_cell_1 rtl/deserializer_word.sv rtl/deserializer.sv rtl/compat/deserialiser_unit_cell_1.v
 
-synth:
-	$(YOSYS) -q -p "read_verilog -sv rtl/serializer.sv; synth -top serializer; stat"
-	$(YOSYS) -q -p "read_verilog -sv rtl/serializer_stream.sv; synth -top serializer_stream; stat"
-	$(YOSYS) -q -p "read_verilog -sv rtl/deserializer_word.sv rtl/deserializer.sv; synth -top deserializer; stat"
-	$(YOSYS) -q -p "read_verilog -sv rtl/cdr_sync.sv rtl/cdr_oversampling.sv; synth -top cdr_oversampling; stat"
-	$(YOSYS) -q -p "read_verilog -sv rtl/cdr_sync.sv rtl/cdr_adaptive.sv; synth -top cdr_adaptive; stat"
-	$(YOSYS) -q -p "read_verilog -sv rtl/apb_csr.sv; synth -top apb_csr; stat"
-	$(YOSYS) -q -p "read_verilog -sv rtl/async_fifo.sv; synth -top async_fifo; stat"
-	$(YOSYS) -q -p "read_verilog -sv rtl/axis_tx_adapter.sv; synth -top axis_tx_adapter; stat"
-	$(YOSYS) -q -p "read_verilog -sv rtl/axis_rx_adapter.sv; synth -top axis_rx_adapter; stat"
-	$(YOSYS) -q -p "read_verilog -sv rtl/serdes_tx_axis_digital.sv rtl/axis_tx_adapter.sv rtl/serializer_stream.sv rtl/reset_sync.sv; synth -top serdes_tx_axis_digital; stat"
-	$(YOSYS) -q -p "read_verilog -sv $(RTL); synth -top serdes_rx_axis_digital; stat"
-	$(YOSYS) -q -p "read_verilog -sv rtl/prbs_gen.sv rtl/prbs_check.sv; synth -top prbs_check; stat"
-	$(YOSYS) -q -p "read_verilog -sv $(RTL); synth -top serdes_soc_wrapper; stat"
-	$(YOSYS) -q -p "read_verilog -sv $(RTL); synth -top serdes_soc_cdc_wrapper; stat"
-	$(YOSYS) -q -p "read_verilog -sv rtl/serdes_bist.sv rtl/prbs_gen.sv rtl/prbs_check.sv; synth -top serdes_bist; stat"
-	$(YOSYS) -q -p "read_verilog -sv rtl/bist_snapshot.sv rtl/cdc_sync.sv; synth -top bist_snapshot; stat"
-	$(YOSYS) -q -p "read_verilog -sv rtl/prbs_word_gen.sv rtl/prbs_word_check.sv; synth -top prbs_word_check; stat"
-	$(YOSYS) -q -p "read_verilog -sv $(RTL); synth -top serdes_digital_top; stat"
+synth: $(SV2V_RTL)
+	$(YOSYS) -q -p "read_verilog $(SV2V_RTL); synth -top serializer; stat"
+	$(YOSYS) -q -p "read_verilog $(SV2V_RTL); synth -top serializer_stream; stat"
+	$(YOSYS) -q -p "read_verilog $(SV2V_RTL); synth -top deserializer; stat"
+	$(YOSYS) -q -p "read_verilog $(SV2V_RTL); synth -top cdr_oversampling; stat"
+	$(YOSYS) -q -p "read_verilog $(SV2V_RTL); synth -top cdr_adaptive; stat"
+	$(YOSYS) -q -p "read_verilog $(SV2V_RTL); synth -top apb_csr; stat"
+	$(YOSYS) -q -p "read_verilog $(SV2V_RTL); synth -top async_fifo; stat"
+	$(YOSYS) -q -p "read_verilog $(SV2V_RTL); synth -top axis_tx_adapter; stat"
+	$(YOSYS) -q -p "read_verilog $(SV2V_RTL); synth -top axis_rx_adapter; stat"
+	$(YOSYS) -q -p "read_verilog $(SV2V_RTL); synth -top serdes_tx_axis_digital; stat"
+	$(YOSYS) -q -p "read_verilog $(SV2V_RTL); synth -top serdes_rx_axis_digital; stat"
+	$(YOSYS) -q -p "read_verilog $(SV2V_RTL); synth -top prbs_check; stat"
+	$(YOSYS) -q -p "read_verilog $(SV2V_RTL); synth -top serdes_soc_wrapper; stat"
+	$(YOSYS) -q -p "read_verilog $(SV2V_RTL); synth -top serdes_soc_cdc_wrapper; stat"
+	$(YOSYS) -q -p "read_verilog $(SV2V_RTL); synth -top serdes_bist; stat"
+	$(YOSYS) -q -p "read_verilog $(SV2V_RTL); synth -top bist_snapshot; stat"
+	$(YOSYS) -q -p "read_verilog $(SV2V_RTL); synth -top prbs_word_check; stat"
+	$(YOSYS) -q -p "read_verilog $(SV2V_RTL); synth -top serdes_digital_top; stat"
 
 analog-lut:
 	$(PYTHON) verification/analog/extract_lut.py --tech $(ANALOG_TECH) \
@@ -246,6 +257,10 @@ analog-tech-check:
 	$(PYTHON) verification/analog/extract_lut.py --tech $(ANALOG_TECH) --check-tools --out $(BUILD)/verify/$(ANALOG_TECH)_tech_check.json
 
 verify-link:
+	@test -n "$(VERIFY_PACKAGE)" || { \
+		echo "error: verify-link requires VERIFY_PACKAGE=<generated-package>"; \
+		echo "  unbound reports cannot declare link capability"; \
+		exit 1; }
 	$(PYTHON) scripts/verify_link.py --profile $(VERIFY_PROFILE) --out $(VERIFY_OUT) \
 		$(if $(VERIFY_PACKAGE),--package $(VERIFY_PACKAGE),) \
 		$(if $(VERIFY_ANALOG_LUT),--analog-lut $(VERIFY_ANALOG_LUT) --tx-load-ff $(VERIFY_TX_LOAD_FF),)
@@ -271,7 +286,7 @@ regress:
 	$(PYTHON) scripts/regress.py
 
 gen:
-	$(PYTHON) scripts/gen_ip.py --spec $(SPEC) --out $(OUT) --force --ppa-db $(PPA_DB)
+	SV2V=$(SV2V) $(PYTHON) scripts/gen_ip.py --spec $(SPEC) --out $(OUT) --force --ppa-db $(PPA_DB)
 
 qualify:
 	$(PYTHON) scripts/qualify.py --report $(REPORT) --level $(LEVEL)
