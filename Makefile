@@ -17,8 +17,13 @@ VERIFY_PROFILE ?= verification/profiles/stressed.yaml
 VERIFY_OUT     ?= $(BUILD)/verify/ber.json
 VERIFY_PACKAGE ?=
 VERIFY_ANALOG_LUT ?=
-VERIFY_TX_LOAD_FF ?= 50
+ANALOG_TECH ?= sky130
+ANALOG_LUT ?= $(BUILD)/verify/$(ANALOG_TECH)_lut.json
 SKY130_MODEL ?=
+ANALOG_MODEL ?= $(SKY130_MODEL)
+ANALOG_TX_LOADS ?= 10 50 100 200
+ANALOG_RX_SLEWS ?= 20 50 100 200
+VERIFY_TX_LOAD_FF ?= 50
 SKY130_LUT ?= $(BUILD)/verify/sky130_lut.json
 SKY130_TX_LOADS ?= 10 50 100 200
 SKY130_RX_SLEWS ?= 20 50 100 200
@@ -26,7 +31,7 @@ SKY130_RX_SLEWS ?= 20 50 100 200
 BUILD := build
 RTL   := $(wildcard rtl/*.sv)
 
-.PHONY: all sim lint synth regress gen qualify signoff ppa-import clean si-eye si-bathtub si-jtol si-rtl-jtol verify-link sky130-lut analog-lut-demo
+.PHONY: all sim lint synth regress gen qualify signoff ppa-import clean si-eye si-bathtub si-jtol si-rtl-jtol verify-link analog-lut sky130-lut analog-lut-demo analog-tech-check
 
 all: sim
 
@@ -224,12 +229,21 @@ synth:
 	$(YOSYS) -q -p "read_verilog -sv rtl/prbs_word_gen.sv rtl/prbs_word_check.sv; synth -top prbs_word_check; stat"
 	$(YOSYS) -q -p "read_verilog -sv $(RTL); synth -top serdes_digital_top; stat"
 
+analog-lut:
+	$(PYTHON) verification/analog/extract_lut.py --tech $(ANALOG_TECH) \
+		$(if $(ANALOG_MODEL),--model $(ANALOG_MODEL),) \
+		--tx-loads-ff $(ANALOG_TX_LOADS) --rx-slews-ps $(ANALOG_RX_SLEWS) --out $(ANALOG_LUT)
+
 sky130-lut:
-	$(PYTHON) verification/analog/extract_lut.py $(if $(SKY130_MODEL),--model $(SKY130_MODEL),) \
+	$(PYTHON) verification/analog/extract_lut.py --tech sky130 \
+		$(if $(ANALOG_MODEL),--model $(ANALOG_MODEL),) \
 		--tx-loads-ff $(SKY130_TX_LOADS) --rx-slews-ps $(SKY130_RX_SLEWS) --out $(SKY130_LUT)
 
 analog-lut-demo:
-	$(PYTHON) verification/analog/extract_lut.py --demo --out $(BUILD)/verify/analog_lut_demo.json
+	$(PYTHON) verification/analog/extract_lut.py --tech generic_demo --out $(BUILD)/verify/analog_lut_demo.json
+
+analog-tech-check:
+	$(PYTHON) verification/analog/extract_lut.py --tech $(ANALOG_TECH) --check-tools --out $(BUILD)/verify/$(ANALOG_TECH)_tech_check.json
 
 verify-link:
 	$(PYTHON) scripts/verify_link.py --profile $(VERIFY_PROFILE) --out $(VERIFY_OUT) \

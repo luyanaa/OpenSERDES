@@ -61,6 +61,35 @@ class TestAnalogLut(unittest.TestCase):
             self.assertTrue(data["model_kind"].startswith("sky130-schematic"))
             self.assertGreater(data["tx"]["rows"][0]["rise_ns"], 0.0)
 
+    def test_tech_configs_are_listed(self) -> None:
+        proc = subprocess.run(
+            [sys.executable, str(SCRIPT), "--list-tech"],
+            cwd=ROOT, text=True, capture_output=True,
+        )
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        for name in ("sky130", "gf180mcu", "ihp_sg13g2", "generic_demo"):
+            self.assertIn(name, proc.stdout)
+
+    @unittest.skipUnless(
+        shutil.which("magic") and list(Path.home().glob(
+            ".ciel/ciel/sky130/versions/*/skywater-pdk/libraries/sky130_fd_pr/latest")),
+        "sky130 PM3 tree or magic not available",
+    )
+    def test_sky130_tech_check_resolves_magic(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "check.json"
+            proc = subprocess.run(
+                [sys.executable, str(SCRIPT), "--tech", "sky130",
+                 "--check-tools", "--out", str(out)],
+                cwd=ROOT, text=True, capture_output=True, timeout=120,
+            )
+            self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+            data = json.loads(out.read_text())
+            self.assertEqual(data["tech"], "sky130")
+            self.assertTrue(data["pex"]["magic"]["available"])
+            self.assertEqual(data["magic_tech"], "sky130A")
+            self.assertTrue(Path(data["pex"]["magic"]["rcfile"]).is_file())
+
     def test_placeholder_models_are_rejected(self) -> None:
         placeholder = Path("/opt/ALIGN-pdk-sky130/SKY130_PDK/models.sp")
         if not placeholder.is_file():

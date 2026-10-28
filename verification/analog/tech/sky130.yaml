@@ -1,0 +1,47 @@
+# sky130 schematic-level analog LUT configuration.
+name: sky130
+status: supported
+pdk: sky130
+vdd_v: 1.8
+default_corner: tt
+
+devices:
+  style: subckt
+  nmos: sky130_fd_pr__nfet_01v8
+  pmos: sky130_fd_pr__pfet_01v8
+
+sizing_um:
+  wn: 0.65
+  wp: 1.40
+  l: 0.15
+
+model:
+  # PM3 flow: parameters + device subckt files from sky130_fd_pr/latest.
+  mode: pm3
+  root_search:
+    - ${SKY130_ROOT}
+    - ~/.ciel/ciel/sky130/versions/*/skywater-pdk/libraries/sky130_fd_pr/latest
+    - ${PDK_ROOT}/../skywater-pdk/libraries/sky130_fd_pr/latest
+  includes:
+    - models/parameters/invariant.spice
+    - models/parameters/typical.spice
+    - cells/nfet_01v8/sky130_fd_pr__nfet_01v8__tt.pm3.spice
+    - cells/pfet_01v8/sky130_fd_pr__pfet_01v8__tt.pm3.spice
+
+# PEX is not run by extract_lut.py yet.  These paths let the next phase find
+# the PDK's extraction tech without hard-coding a version hash.
+pex:
+  status: available
+  magic:
+    tech: sky130A
+    rcfile_rel: sky130A/libs.tech/magic/sky130A.magicrc
+    tech_file_rel: sky130A/libs.tech/magic/sky130A.tech
+    pdk_root_rel: .          # relative to the version directory
+    extractor: extresist
+  klayout:
+    tech_rel: sky130A/libs.tech/klayout/tech/sky130A.lyt
+    lyp_rel: sky130A/libs.tech/klayout/tech/sky130A.lyp
+  note: >-
+    Magic/KLayout are installed; the schematic LUT flow does not consume PEX
+    yet.  A PEX netlist must be extracted explicitly and then passed to the
+    LUT flow before any post-layout claim is made.

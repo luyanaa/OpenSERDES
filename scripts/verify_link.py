@@ -174,6 +174,8 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
             "path": str(Path(args.analog_lut).resolve()),
             "model_kind": lut.get("model_kind"),
             "pdk": lut.get("pdk"),
+            "tech": lut.get("tech"),
+            "tech_sha256": lut.get("tech_sha256"),
             "load_ff": args.tx_load_ff,
             "tau_ns": tau_ns,
             "tau_ui": tau_ui,

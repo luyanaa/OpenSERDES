@@ -1,0 +1,27 @@
+# Generic level-1 demo configuration.  This is NOT a PDK and must never be
+# reported as sky130/GF180/IHP data.  It exists so the extraction and gate
+# plumbing can run on machines without PDK model cards.
+name: generic_demo
+status: demo
+pdk: generic
+vdd_v: 1.8
+default_corner: demo
+
+devices:
+  style: mos
+  nmos: DEMO_NMOS
+  pmos: DEMO_PMOS
+
+sizing_um:
+  wn: 0.65
+  wp: 1.40
+  l: 0.15
+
+model:
+  mode: demo
+  root_search: []
+  includes: []
+
+pex:
+  status: none
+  note: "No PDK, no PEX. Demo only."

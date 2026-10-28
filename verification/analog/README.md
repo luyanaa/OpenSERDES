@@ -1,7 +1,10 @@
-# sky130 schematic-level LUT extraction
+# Tech-configurable schematic-level LUT extraction
 
-This directory extracts a small **schematic-level** LUT from the sky130 PDK with
-ngspice.  It is deliberately not a PEX or silicon flow: the netlists use the
+This directory extracts a small **schematic-level** LUT with ngspice.  The
+technology is selected by a YAML config under `verification/analog/tech/`; the
+extractor has no PDK-specific branches.  The shipped `sky130` config is the
+supported analog target; `gf180mcu` and `ihp_sg13g2` are explicit scaffolds
+because their analog migration is not done.  It is deliberately not a PEX or silicon flow: the netlists use the
 PDK device models with ideal voltage sources and an ideal load capacitor.  The
 result is suitable for seeding the behavioral channel (driver rise time -> RC
 tau) and for a sampling-delay budget, not for a PDK signoff claim.
@@ -17,16 +20,36 @@ Netlists use a 1.8 V inverter with default sky130 sizing
 (`WN=0.65 µm`, `WP=1.40 µm`, `L=0.15 µm`); override with `--wn-um`, `--wp-um`,
 `--l-um`.
 
-## Real sky130 model card
+## Tech configs
 
-`extract_lut.py` refuses to call an alias-only/placeholder file sky130.  It
-auto-detects the sky130 PM3 tree under `~/.ciel/ciel/sky130/versions/*/
-skywater-pdk/libraries/sky130_fd_pr/latest` (or `SKY130_ROOT=/path/to/latest`):
+| Config | Status | Notes |
+|---|---|---|
+| `tech/sky130.yaml` | supported | PM3 params + nfet/pfet `__tt.pm3.spice`; Magic/KLayout PEX paths |
+| `tech/gf180mcu.yaml` | scaffold | analog device/model migration not done; refused unless `--allow-scaffold` |
+| `tech/ihp_sg13g2.yaml` | scaffold | same |
+| `tech/generic_demo.yaml` | demo | ngspice level-1 MOSFETs; never PDK evidence |
+
+Inspect and check the resolved paths/tools:
+
+```bash
+python3 verification/analog/extract_lut.py --list-tech
+make analog-tech-check ANALOG_TECH=sky130 PYTHON=/usr/bin/python3
+python3 verification/analog/extract_lut.py --tech sky130 --check-tools --out /tmp/sky_check.json
+```
+
+The sky130 config auto-detects the PM3 tree under
+`~/.ciel/ciel/sky130/versions/*/skywater-pdk/libraries/sky130_fd_pr/latest`
+(or `SKY130_ROOT`).  Magic is invoked with the config's `sky130A.magicrc` and
+`PDK_ROOT` pointing at the version directory; KLayout's `.lyt`/`.lyp` paths are
+resolved from the same tree.  This is path discovery only: the LUT flow does
+not consume PEX yet.
 
 ```bash
 make sky130-lut PYTHON=/usr/bin/python3
+make analog-lut ANALOG_TECH=sky130 PYTHON=/usr/bin/python3
 # trim the sweep:
-make sky130-lut PYTHON=/usr/bin/python3 SKY130_TX_LOADS="10 50" SKY130_RX_SLEWS="20 50"
+make analog-lut ANALOG_TECH=sky130 PYTHON=/usr/bin/python3 \
+  ANALOG_TX_LOADS="10 50" ANALOG_RX_SLEWS="20 50"
 ```
 
 A single self-contained model-card file can be used instead:
@@ -44,17 +67,29 @@ Alias-only files such as `SKY130_PDK/models.sp` are rejected with an explicit
 error.  The auto-detected PM3 flow includes `models/parameters/invariant.spice`,
 `typical.spice`, and the nfet/pfet `__tt.pm3.spice` device subckts.
 
-## Generic demo mode (not sky130)
+## Adding a PDK
 
-`--demo` uses ngspice built-in level-1 MOSFETs so the flow is runnable without
-a PDK install:
+1. Copy an existing tech YAML.
+2. Set `pdk`, `status`, `vdd_v`, device style/names, sizing and the model
+   include list/root search patterns.
+3. Fill the `pex.magic`/`pex.klayout` relative paths.
+4. Run `--check-tools` first, then a tiny `--tx-loads-ff 50 --rx-slews-ps 20`
+   sweep; only mark `status: supported` after the model tree resolves.
+5. Update `scripts/verify_link.py` handling only if a new model kind is needed;
+   the gate already accepts any `model_kind` starting with `sky130-schematic`
+   for the `analog_model_validated` flag (extend that list for new PDKs).
+
+## Generic demo mode (not a PDK)
+
+`--tech generic_demo` (or legacy `--demo`) uses ngspice built-in level-1
+MOSFETs so the flow is runnable without a PDK install:
 
 ```bash
 make analog-lut-demo PYTHON=/usr/bin/python3
 ```
 
 The JSON is marked `"pdk": "generic", "model_kind": "generic-demo"` and must
-not be reported as sky130 data.
+not be reported as PDK data.
 
 ## Consuming the LUT
 

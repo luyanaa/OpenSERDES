@@ -1,0 +1,39 @@
+# GF180MCU analog LUT configuration scaffold.
+#
+# The digital tech profile exists (tech/gf180mcuD), but the analog TX/RX
+# migration has not been done.  This file records the intended structure and
+# must not be used for a capability claim until the model paths, device names
+# and a real sweep are verified.
+name: gf180mcu
+status: scaffold
+pdk: gf180mcuD
+vdd_v: 3.3
+default_corner: tt
+
+devices:
+  style: subckt
+  nmos: TBD_gf180_nmos
+  pmos: TBD_gf180_pmos
+
+sizing_um:
+  wn: 1.0
+  wp: 2.0
+  l: 0.28
+
+model:
+  mode: pm3
+  root_search:
+    - ${GF180_ROOT}
+    - ~/.ciel/ciel/gf180mcu/versions/*/gf180mcuD/libs.ref/gf180mcu_fd_pr
+  includes: []
+
+pex:
+  status: scaffold
+  magic:
+    tech: gf180mcuD
+    rcfile_rel: TBD
+    tech_file_rel: TBD
+  klayout:
+    tech_rel: TBD
+    lyp_rel: TBD
+  note: "Analog device migration and model-card verification are not done."
