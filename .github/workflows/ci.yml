@@ -14,7 +14,7 @@ jobs:
       - name: Install EDA tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y iverilog verilator yosys python3-pip
+          sudo apt-get install -y iverilog verilator yosys ngspice python3-pip
 
       - name: Install Python dependencies
         run: |
@@ -38,6 +38,9 @@ jobs:
 
       - name: Link capability gate
         run: make verify-link PYTHON=python3
+
+      - name: Analog LUT smoke test (generic demo; no PDK claim)
+        run: make analog-lut-demo PYTHON=python3
 
       - name: Upload gate report
         uses: actions/upload-artifact@v4
