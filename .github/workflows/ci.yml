@@ -53,6 +53,9 @@ jobs:
           VERIFY_PROFILE=verification/profiles/clean.yaml \
           VERIFY_JTOL_MIN_AMP_UI=0.05
 
+      - name: Analog macro contracts
+        run: make analog-contracts PYTHON=python3
+
       - name: Generated-top SoC E2E smoke
         run: make soc-e2e PYTHON=python3 SOC_E2E_PACKAGE=out/ci-soc
 

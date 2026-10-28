@@ -1,0 +1,6 @@
+* Canonical-name wrapper for the legacy three-stage inverter TX.
+* The wrapper is the only file downstream tools should instantiate.
+.include "../../../Inverter_Based_Tx/Full_TX/Inv_Transmitter.sp"
+.subckt tx_inv_chain_1_3_9 VDD VSS IN OUT
+Xcore VSS VDD IN OUT Inv_Transmitter
+.ends

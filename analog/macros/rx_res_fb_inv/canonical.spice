@@ -1,0 +1,6 @@
+* Canonical-name wrapper for the resistive-feedback RX front end.
+* The feedback is two series diode-connected long-channel PMOS devices.
+.include "../../../Resistive_FB_inverter/Resist_FB_INV.sp"
+.subckt rx_res_fb_inv VDD VSS IN OUT
+Xcore VSS VDD IN OUT Resist_FB_INV
+.ends

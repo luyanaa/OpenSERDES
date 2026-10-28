@@ -1,0 +1,153 @@
+{
+  "schema": 1,
+  "name": "tx_inv_chain_1_3_9",
+  "aliases": {
+    "VDD": [
+      "VDD",
+      "VCC"
+    ],
+    "VSS": [
+      "VSS",
+      "GND"
+    ],
+    "IN": [
+      "IN",
+      "VIN",
+      "INP"
+    ],
+    "OUT": [
+      "OUT",
+      "VOUT"
+    ]
+  },
+  "kind": "analog_macro",
+  "topology": "cmos_inverter_chain",
+  "polarity": "inverting",
+  "polarity_verified": true,
+  "polarity_evidence": {
+    "method": "DC transfer sweep",
+    "condition": "sky130A tt, VDD=1.8 V, IN=0.9 V, 50 fF load",
+    "observed": "VOUT is low when VIN is high; odd-stage inverting chain"
+  },
+  "supply_v": 1.8,
+  "canonical_ports": [
+    {
+      "name": "VDD",
+      "direction": "power",
+      "index": 0
+    },
+    {
+      "name": "VSS",
+      "direction": "ground",
+      "index": 1
+    },
+    {
+      "name": "IN",
+      "direction": "input",
+      "index": 2
+    },
+    {
+      "name": "OUT",
+      "direction": "output",
+      "index": 3
+    }
+  ],
+  "stages": [
+    {
+      "name": "Inverter0",
+      "n_parallel": 1,
+      "p_parallel": 2,
+      "n_total_um": 5.0,
+      "p_total_um": 10.0
+    },
+    {
+      "name": "Inverter1",
+      "n_parallel": 3,
+      "p_parallel": 6,
+      "n_total_um": 15.0,
+      "p_total_um": 30.0
+    },
+    {
+      "name": "Inverter2",
+      "n_parallel": 9,
+      "p_parallel": 18,
+      "n_total_um": 45.0,
+      "p_total_um": 90.0
+    }
+  ],
+  "device": {
+    "nmos": "nshort/sky130 nfet",
+    "pmos": "pshort/sky130 pfet",
+    "l_um": 0.15,
+    "w_finger_um": 5.0
+  },
+  "views": {
+    "schematic": {
+      "path": "Inverter_Based_Tx/Full_TX/Inv_Transmitter.sp",
+      "top": "Inv_Transmitter",
+      "port_order": [
+        "GND",
+        "VDD",
+        "VIN",
+        "VOUT"
+      ],
+      "format": "spice",
+      "status": "available"
+    },
+    "layout": {
+      "path": "Inverter_Based_Tx/Inv_Transmitter.gds",
+      "top": "Inv_Transmitter",
+      "port_order": [
+        "GND",
+        "VDD",
+        "VIN",
+        "VOUT"
+      ],
+      "format": "gds",
+      "status": "available"
+    },
+    "canonical_spice": {
+      "path": "analog/macros/tx_inv_chain_1_3_9/canonical.spice",
+      "top": "tx_inv_chain_1_3_9",
+      "format": "spice",
+      "status": "available"
+    },
+    "magic_pex": {
+      "path": "build/verify/magic_pex/Inv_Transmitter.pex.spice",
+      "top": "Inv_Transmitter",
+      "format": "magic-rc-spice",
+      "status": "generated-by-flow",
+      "command": "make magic-pex"
+    },
+    "pex": {
+      "path": "Inverter_Based_Tx/Full_TX/Inv_Transmitter.pex.netlist",
+      "top": "Inv_Transmitter",
+      "format": "calibre-rve",
+      "status": "unusable",
+      "reason": "Calibre RVE is not ngspice-readable; use the Magic RC flow."
+    },
+    "lvs": {
+      "path": "Inverter_Based_Tx/Full_TX/Inv_Transmitter.lvs.report.ext",
+      "status": "extraction-only",
+      "reason": "Only Calibre extraction report is present; no comparable LVS match report."
+    },
+    "lef": {
+      "status": "missing"
+    },
+    "liberty": {
+      "status": "missing"
+    },
+    "macro_v": {
+      "path": "analog/macros/tx_inv_chain_1_3_9/macro.v",
+      "status": "available"
+    },
+    "drc": {
+      "status": "clean",
+      "tool": "Magic 8.3",
+      "errors": 0,
+      "command": "make analog-drc",
+      "note": "DRC only; not LVS/PEX signoff."
+    }
+  },
+  "legacy_names": []
+}

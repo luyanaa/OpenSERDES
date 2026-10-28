@@ -354,7 +354,7 @@ limits:
 - Scan/DFT、clock gating、BIST/calibration、DFT signoff。
 - 模拟 TX/RX 的 Verilog-A/RNM wrapper、PEX、SI/PI、jitter/BER、silicon correlation。
 - 目标 PDK 的 cellmap/floorplan/post-route signoff adapter；当前 `native_dff` 仍是文档字段，尚无自动 `dfflibmap` runner。
-- 标准单元目录/可用性见 [`docs/library_catalog.md`](docs/library_catalog.md)，结构优化路线见 [`docs/timing_optimization.md`](docs/timing_optimization.md)，sky130 PVT 证据见 [`docs/pvt_sky130.md`](docs/pvt_sky130.md)，PEX 状态见 [`docs/pex_status.md`](docs/pex_status.md)，PDK MC（ngspice 局部失配 / Xyce 全局 process）见 [`docs/mc_pdk.md`](docs/mc_pdk.md)，generated-top SoC E2E 见 [`docs/soc_e2e.md`](docs/soc_e2e.md)。
+- 标准单元目录/可用性见 [`docs/library_catalog.md`](docs/library_catalog.md)，结构优化路线见 [`docs/timing_optimization.md`](docs/timing_optimization.md)，sky130 PVT 证据见 [`docs/pvt_sky130.md`](docs/pvt_sky130.md)，PEX 状态见 [`docs/pex_status.md`](docs/pex_status.md)，PDK MC（ngspice 局部失配 / Xyce 全局 process）见 [`docs/mc_pdk.md`](docs/mc_pdk.md)，generated-top SoC E2E 见 [`docs/soc_e2e.md`](docs/soc_e2e.md)，模拟宏契约见 [`docs/analog_contracts.md`](docs/analog_contracts.md)。
 
 ## 7. 原生 DFF 映射策略
 

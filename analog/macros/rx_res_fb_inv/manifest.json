@@ -1,0 +1,142 @@
+{
+  "schema": 1,
+  "name": "rx_res_fb_inv",
+  "aliases": {
+    "VDD": [
+      "VDD",
+      "VCC"
+    ],
+    "VSS": [
+      "VSS",
+      "GND"
+    ],
+    "IN": [
+      "IN",
+      "INP"
+    ],
+    "OUT": [
+      "OUT"
+    ]
+  },
+  "kind": "analog_macro",
+  "topology": "cmos_inverter_with_nonlinear_pmos_feedback",
+  "polarity": "inverting",
+  "polarity_verified": true,
+  "polarity_evidence": {
+    "method": "DC transfer sweep",
+    "condition": "sky130A tt, VDD=1.8 V, 20 fF load; feedback is two series diode-connected W=0.55/L=8 um PMOS",
+    "observed": "VOUT falls when INP rises; threshold near the inverter trip point"
+  },
+  "supply_v": 1.8,
+  "canonical_ports": [
+    {
+      "name": "VDD",
+      "direction": "power",
+      "index": 0
+    },
+    {
+      "name": "VSS",
+      "direction": "ground",
+      "index": 1
+    },
+    {
+      "name": "IN",
+      "direction": "input",
+      "index": 2
+    },
+    {
+      "name": "OUT",
+      "direction": "output",
+      "index": 3
+    }
+  ],
+  "feedback": {
+    "kind": "nonlinear_pmos",
+    "series_devices": 2,
+    "w_um": 0.55,
+    "l_um": 8.0,
+    "body": "VDD",
+    "not_a_linear_resistor": true
+  },
+  "views": {
+    "schematic": {
+      "path": "Resistive_FB_inverter/Resist_FB_INV.src.net",
+      "top": "Resist_FB_INV",
+      "port_order": [
+        "GND",
+        "INP",
+        "OUT",
+        "VDD"
+      ],
+      "format": "spice",
+      "status": "available"
+    },
+    "layout_spice": {
+      "path": "Resistive_FB_inverter/Resist_FB_INV.sp",
+      "top": "Resist_FB_INV",
+      "port_order": [
+        "GND",
+        "VDD",
+        "INP",
+        "OUT"
+      ],
+      "format": "spice",
+      "status": "available"
+    },
+    "layout": {
+      "path": "Resistive_FB_inverter/Res_FB_Inv.gds",
+      "top": "Resist_FB_INV",
+      "port_order": [
+        "GND",
+        "VDD",
+        "INP",
+        "OUT"
+      ],
+      "format": "gds",
+      "status": "available"
+    },
+    "canonical_spice": {
+      "path": "analog/macros/rx_res_fb_inv/canonical.spice",
+      "top": "rx_res_fb_inv",
+      "format": "spice",
+      "status": "available"
+    },
+    "magic_pex": {
+      "path": "build/verify/magic_pex/Resist_FB_INV.pex.spice",
+      "top": "Resist_FB_INV",
+      "format": "magic-rc-spice",
+      "status": "generated-by-flow",
+      "command": "python3 verification/analog/magic_pex.py --gds Resistive_FB_inverter/Res_FB_Inv.gds --cell Resist_FB_INV --ports GND,VDD,INP,OUT --out build/verify/magic_pex/Resist_FB_INV.pex.spice"
+    },
+    "pex": {
+      "path": "Resistive_FB_inverter/Resist_FB_INV.pex.netlist",
+      "top": "Resist_FB_INV",
+      "format": "calibre-rve",
+      "status": "unusable",
+      "reason": "Calibre RVE is not ngspice-readable; use the Magic RC flow."
+    },
+    "lvs": {
+      "path": "Resistive_FB_inverter/Resist_FB_INV.lvs.report",
+      "status": "correct",
+      "result": "CORRECT"
+    },
+    "lef": {
+      "status": "missing"
+    },
+    "liberty": {
+      "status": "missing"
+    },
+    "macro_v": {
+      "path": "analog/macros/rx_res_fb_inv/macro.v",
+      "status": "available"
+    },
+    "drc": {
+      "status": "clean",
+      "tool": "Magic 8.3",
+      "errors": 0,
+      "command": "make analog-drc",
+      "note": "DRC only; not LVS/PEX signoff."
+    }
+  },
+  "legacy_names": []
+}
