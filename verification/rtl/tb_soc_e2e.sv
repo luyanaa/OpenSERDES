@@ -6,7 +6,11 @@ module tb_soc_e2e #(
     parameter logic [SYNC_LEN-1:0] SYNC_PATTERN = 'hBC,
     parameter int N_FRAMES = 4,
     parameter int BIST_PRBS_WIDTH = 7,
-    parameter int RX_DELAY_PS = 5000
+    parameter int RX_DELAY_PS = 5000,
+    parameter int RX_FREQ_OFFSET_PPM = 0,
+    parameter int TX_JITTER_PS = 0,
+    parameter int RX_JITTER_PS = 0,
+    parameter int JITTER_FREQ_HZ = 1000000
 );
     logic pclk, presetn;
     logic s_axis_aclk, s_axis_aresetn;
@@ -59,11 +63,32 @@ module tb_soc_e2e #(
         .rx_clk_out(rx_clk_out), .csr_regs(csr_regs)
     );
 
-    initial begin tx_clk = 0; forever #5 tx_clk = ~tx_clk; end       // 100 MHz
-    // Forwarded-clock model: fixed phase offset relative to the TX bit clock.
-    // 5 ns places the sampling edge at the center of the 10 ns bit.
-    initial begin rx_clk = 0; #(RX_DELAY_PS / 1000.0);
-        forever #5 rx_clk = ~rx_clk; end
+    function automatic real jitter_wave(input real t);
+        return $sin(2.0 * 3.141592653589793 * JITTER_FREQ_HZ * t);
+    endfunction
+
+    // TX bit clock, optionally with deterministic common-mode phase jitter.
+    initial begin
+        tx_clk = 0;
+        forever begin
+            #(5.0 + (TX_JITTER_PS / 1000.0) * jitter_wave($realtime));
+            tx_clk = ~tx_clk;
+        end
+    end
+
+    // Forwarded RX clock: fixed skew + optional frequency offset and jitter.
+    // At 100 Mb/s the bit period is 10 ns; the default 5 ns skew samples near
+    // the center of the eye.
+    initial begin
+        real rx_half;
+        rx_half = 5.0 * (1.0 + RX_FREQ_OFFSET_PPM / 1000000.0);
+        rx_clk = 0;
+        #(RX_DELAY_PS / 1000.0);
+        forever begin
+            #(rx_half + (RX_JITTER_PS / 1000.0) * jitter_wave($realtime));
+            rx_clk = ~rx_clk;
+        end
+    end
     initial begin s_axis_aclk = 0; forever #10 s_axis_aclk = ~s_axis_aclk; end // 50 MHz
     initial begin m_axis_aclk = 0; forever #12.5 m_axis_aclk = ~m_axis_aclk; end // 40 MHz
     initial begin pclk = 0; forever #10 pclk = ~pclk; end             // 50 MHz

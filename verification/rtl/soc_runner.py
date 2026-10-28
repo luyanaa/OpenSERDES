@@ -56,11 +56,13 @@ def _sources(rtl_dir: Path) -> list[Path]:
 
 def _compile(rtl_dir: Path, data_width: int, words: int, sync_len: int,
              sync_pattern: int, n_frames: int, rx_delay_ps: int,
-             keep: bool) -> Path:
+             rx_freq_offset_ppm: int, tx_jitter_ps: int, rx_jitter_ps: int,
+             jitter_freq_hz: int, keep: bool) -> Path:
     BUILD.mkdir(parents=True, exist_ok=True)
     sources = [TB, *_sources(rtl_dir)]
     binary = BUILD / (f"tb_soc_e2e_dw{data_width}_w{words}_s{sync_len}"
-                      f"_n{n_frames}_p{rx_delay_ps}.vvp")
+                      f"_n{n_frames}_p{rx_delay_ps}_f{rx_freq_offset_ppm}"
+                      f"_tj{tx_jitter_ps}_rj{rx_jitter_ps}.vvp")
     if binary.is_file() and all(
         s.stat().st_mtime <= binary.stat().st_mtime for s in sources
     ):
@@ -75,6 +77,10 @@ def _compile(rtl_dir: Path, data_width: int, words: int, sync_len: int,
         f"-Ptb_soc_e2e.SYNC_PATTERN={sync_len}'h{sync_pattern:x}",
         f"-Ptb_soc_e2e.N_FRAMES={n_frames}",
         f"-Ptb_soc_e2e.RX_DELAY_PS={rx_delay_ps}",
+        f"-Ptb_soc_e2e.RX_FREQ_OFFSET_PPM={rx_freq_offset_ppm}",
+        f"-Ptb_soc_e2e.TX_JITTER_PS={tx_jitter_ps}",
+        f"-Ptb_soc_e2e.RX_JITTER_PS={rx_jitter_ps}",
+        f"-Ptb_soc_e2e.JITTER_FREQ_HZ={jitter_freq_hz}",
         *map(str, sources),
     ]
     proc = subprocess.run(cmd, text=True, capture_output=True)
@@ -86,7 +92,9 @@ def _compile(rtl_dir: Path, data_width: int, words: int, sync_len: int,
 def run_soc_e2e(package: str | Path, *, data_width: int | None = None,
                 words: int | None = None, sync_len: int | None = None,
                 sync_pattern: int | None = None, n_frames: int = 4,
-                rx_delay_ps: int = 5000,
+                rx_delay_ps: int = 5000, rx_freq_offset_ppm: int = 0,
+                tx_jitter_ps: int = 0, rx_jitter_ps: int = 0,
+                jitter_freq_hz: int = 1_000_000,
                 rtl_dir: str | Path | None = None,
                 keep: bool = False) -> dict[str, Any]:
     pkg = Path(package).resolve()
@@ -98,7 +106,9 @@ def run_soc_e2e(package: str | Path, *, data_width: int | None = None,
     sl = int(sync_len if sync_len is not None else params.get("SYNC_LEN", dw))
     sp = int(sync_pattern if sync_pattern is not None else params.get("SYNC_PATTERN", 0xBC))
     rdir = Path(rtl_dir).resolve() if rtl_dir else pkg / "rtl"
-    binary = _compile(rdir, dw, w, sl, sp, n_frames, int(rx_delay_ps), keep)
+    binary = _compile(rdir, dw, w, sl, sp, n_frames, int(rx_delay_ps),
+                      int(rx_freq_offset_ppm), int(tx_jitter_ps),
+                      int(rx_jitter_ps), int(jitter_freq_hz), keep)
     proc = subprocess.run(["vvp", str(binary)], text=True, capture_output=True,
                           timeout=120, cwd=ROOT)
     text = proc.stdout + proc.stderr
@@ -124,7 +134,11 @@ def run_soc_e2e(package: str | Path, *, data_width: int | None = None,
         "filelist_sha256": _sha(rdir / "filelist_sv2v.f") or _sha(rdir / "filelist.f"),
         "parameters": {"DATA_WIDTH": dw, "WORDS": w, "SYNC_LEN": sl,
                        "SYNC_PATTERN": sp, "N_FRAMES": n_frames,
-                       "RX_DELAY_PS": int(rx_delay_ps)},
+                       "RX_DELAY_PS": int(rx_delay_ps),
+                       "RX_FREQ_OFFSET_PPM": int(rx_freq_offset_ppm),
+                       "TX_JITTER_PS": int(tx_jitter_ps),
+                       "RX_JITTER_PS": int(rx_jitter_ps),
+                       "JITTER_FREQ_HZ": int(jitter_freq_hz)},
         "compile": {"binary": str(binary)},
         "returncode": proc.returncode,
         "pass": bool(passed),
@@ -145,6 +159,10 @@ def main() -> int:
     ap.add_argument("--sync-pattern", type=lambda x: int(x, 0), default=None)
     ap.add_argument("--n-frames", type=int, default=4)
     ap.add_argument("--rx-delay-ps", type=int, default=5000)
+    ap.add_argument("--rx-freq-offset-ppm", type=int, default=0)
+    ap.add_argument("--tx-jitter-ps", type=int, default=0)
+    ap.add_argument("--rx-jitter-ps", type=int, default=0)
+    ap.add_argument("--jitter-freq-hz", type=int, default=1000000)
     ap.add_argument("--rtl-dir", default=None)
     ap.add_argument("--out", default=str(BUILD / "soc_e2e.json"))
     ap.add_argument("--keep", action="store_true")
@@ -154,6 +172,9 @@ def main() -> int:
             args.package, data_width=args.data_width, words=args.words,
             sync_len=args.sync_len, sync_pattern=args.sync_pattern,
             n_frames=args.n_frames, rx_delay_ps=args.rx_delay_ps,
+            rx_freq_offset_ppm=args.rx_freq_offset_ppm,
+            tx_jitter_ps=args.tx_jitter_ps, rx_jitter_ps=args.rx_jitter_ps,
+            jitter_freq_hz=args.jitter_freq_hz,
             rtl_dir=args.rtl_dir, keep=args.keep,
         )
     except Exception as exc:  # noqa: BLE001

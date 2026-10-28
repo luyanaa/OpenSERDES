@@ -6,7 +6,11 @@ top.
 
 ```bash
 make soc-e2e PYTHON=/usr/bin/python3 SOC_E2E_PACKAGE=out/ci-soc
+make soc-e2e-stress PYTHON=/usr/bin/python3 SOC_E2E_PACKAGE=out/ci-soc
 ```
+
+The stress run adds a 100 ppm RX clock frequency offset and 100 ps common-mode
+TX/RX phase jitter on top of the 5 ns forwarded-clock skew.
 
 The runner reads `manifest.json` for `DATA_WIDTH`, `WORDS`, `SYNC_LEN` and
 `SYNC_PATTERN`, resolves `rtl/filelist_sv2v.f` (or `filelist.f`), and records
@@ -19,8 +23,9 @@ the manifest/filelist hashes and parameters in `build/verify/soc_e2e.json`.
 - APB scratch write/read and CONTROL enable programming.
 - TX AXI4-Stream frame: comma + `WORDS` payload words, through the TX async
   FIFO and serializer.
-- Fixed-skew forwarded RX clock (`RX_DELAY_PS=5000`, 5 ns at 100 Mb/s) and
-  source-synchronous serial loopback.
+- Forwarded RX clock with configurable fixed skew (`RX_DELAY_PS=5000`),
+  frequency offset and deterministic common-mode jitter; source-synchronous
+  serial loopback.
 - RX core -> RX FIFO -> RX AXI4-Stream, with intermittent `m_axis_tready`
   backpressure.
 - Frame scoreboard against the transmitted payload words.
@@ -33,6 +38,9 @@ Current result on the 32-bit x 8-word generated package:
 ```text
 SOC_E2E PASS frames=4 expected=4 errors=0 apb_errors=0
 status=0x000007d7 bist_errors=0 bist_bits=1006
+
+With `--rx-freq-offset-ppm 100 --tx-jitter-ps 100 --rx-jitter-ps 100`
+the same 4-frame smoke still passes; this is the `make soc-e2e-stress` case.
 ```
 
 ## Limits

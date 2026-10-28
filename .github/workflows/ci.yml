@@ -56,6 +56,9 @@ jobs:
       - name: Generated-top SoC E2E smoke
         run: make soc-e2e PYTHON=python3 SOC_E2E_PACKAGE=out/ci-soc
 
+      - name: Source-synchronous SoC E2E stress
+        run: make soc-e2e-stress PYTHON=python3 SOC_E2E_PACKAGE=out/ci-soc
+
       - name: Analog LUT smoke test (generic demo; no PDK claim)
         run: make analog-lut-demo PYTHON=python3
 
@@ -66,3 +69,4 @@ jobs:
           path: |
             build/verify/ber.json
             build/verify/soc_e2e.json
+            build/verify/soc_e2e_stress.json
