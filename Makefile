@@ -16,8 +16,12 @@ PPA_OUT  ?= tech/ppa_measured.yaml
 VERIFY_PROFILE ?= verification/profiles/stressed.yaml
 VERIFY_OUT     ?= $(BUILD)/verify/ber.json
 VERIFY_PACKAGE ?=
+VERIFY_ANALOG_LUT ?=
+VERIFY_TX_LOAD_FF ?= 50
 SKY130_MODEL ?=
 SKY130_LUT ?= $(BUILD)/verify/sky130_lut.json
+SKY130_TX_LOADS ?= 10 50 100 200
+SKY130_RX_SLEWS ?= 20 50 100 200
 
 BUILD := build
 RTL   := $(wildcard rtl/*.sv)
@@ -221,14 +225,16 @@ synth:
 	$(YOSYS) -q -p "read_verilog -sv $(RTL); synth -top serdes_digital_top; stat"
 
 sky130-lut:
-	$(PYTHON) verification/analog/extract_lut.py $(if $(SKY130_MODEL),--model $(SKY130_MODEL),) --out $(SKY130_LUT)
+	$(PYTHON) verification/analog/extract_lut.py $(if $(SKY130_MODEL),--model $(SKY130_MODEL),) \
+		--tx-loads-ff $(SKY130_TX_LOADS) --rx-slews-ps $(SKY130_RX_SLEWS) --out $(SKY130_LUT)
 
 analog-lut-demo:
 	$(PYTHON) verification/analog/extract_lut.py --demo --out $(BUILD)/verify/analog_lut_demo.json
 
 verify-link:
 	$(PYTHON) scripts/verify_link.py --profile $(VERIFY_PROFILE) --out $(VERIFY_OUT) \
-		$(if $(VERIFY_PACKAGE),--package $(VERIFY_PACKAGE),)
+		$(if $(VERIFY_PACKAGE),--package $(VERIFY_PACKAGE),) \
+		$(if $(VERIFY_ANALOG_LUT),--analog-lut $(VERIFY_ANALOG_LUT) --tx-load-ff $(VERIFY_TX_LOAD_FF),)
 
 si-eye:
 	$(PYTHON) -m verification.cli eye --profile verification/profiles/stressed.yaml --out $(BUILD)/verify/eye.png

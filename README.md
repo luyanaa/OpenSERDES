@@ -248,7 +248,8 @@ python -m verification.cli jtol    --profile verification/profiles/stressed.yaml
 python -m verification.rtl.runner  --nbits 800 --sj-peak-ui 0.2 --sj-freq-hz 500000   # 真实 cdr_adaptive
 python -m verification.rtl.runner  --nbits 600 --chain rx --noise-rms-v 0.12      # 完整 serdes_rx_digital + 模拟信道切片
 make verify-link VERIFY_PACKAGE=out/soc PYTHON=/usr/bin/python3                            # capability gate -> reports/ber.json
-make sky130-lut PYTHON=/usr/bin/python3 SKY130_MODEL=/path/to/sky130_fd_pr__models.spice     # 原理图级 TX/RX LUT
+make verify-link VERIFY_ANALOG_LUT=build/verify/sky130_lut.json                            # 用 sky130 原理图 LUT 替换 profile tau
+make sky130-lut PYTHON=/usr/bin/python3                                                      # 自动发现 ~/.ciel/ciel 的 sky130 PM3 模型
 make analog-lut-demo PYTHON=/usr/bin/python3                                                # 无 PDK 时的 generic 自检（非 sky130）
 ```
 

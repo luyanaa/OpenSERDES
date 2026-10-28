@@ -250,7 +250,8 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
         "pvt_validated": False,
         "pvt_note": "No PVT or transistor-level model is bundled; PVT is not claimed.",
         "analog_model_validated": bool(
-            lut_info is not None and lut_info.get("model_kind") == "sky130-schematic"
+            lut_info is not None
+            and str(lut_info.get("model_kind", "")).startswith("sky130-schematic")
         ),
         "analog_lut": lut_info,
         "reasons": capability_reasons,

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import shutil
 import subprocess
 import sys
@@ -42,6 +43,23 @@ class TestAnalogLut(unittest.TestCase):
             self.assertAlmostEqual(tau, rises[1] / math.log(4.0), places=12)
             delays = [rx_delay_ns(data, s) for s in (20, 50, 100)]
             self.assertTrue(all(d is not None and d > 0 for d in delays))
+
+    @unittest.skipUnless(os.environ.get("RUN_SKY130_LUT"),
+                         "set RUN_SKY130_LUT=1 to run the real sky130 sweep")
+    def test_real_sky130_lut(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "sky130.json"
+            proc = subprocess.run(
+                [sys.executable, str(SCRIPT), "--tx-loads-ff", "50",
+                 "--rx-slews-ps", "20", "--out", str(out),
+                 "--workdir", str(Path(tmp) / "work")],
+                cwd=ROOT, text=True, capture_output=True, timeout=300,
+            )
+            self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+            data = load_lut(out)
+            self.assertEqual(data["pdk"], "sky130")
+            self.assertTrue(data["model_kind"].startswith("sky130-schematic"))
+            self.assertGreater(data["tx"]["rows"][0]["rise_ns"], 0.0)
 
     def test_placeholder_models_are_rejected(self) -> None:
         placeholder = Path("/opt/ALIGN-pdk-sky130/SKY130_PDK/models.sp")

@@ -19,24 +19,30 @@ Netlists use a 1.8 V inverter with default sky130 sizing
 
 ## Real sky130 model card
 
-`extract_lut.py` refuses to call an alias-only/placeholder file sky130.  Point
-it at a real model file:
+`extract_lut.py` refuses to call an alias-only/placeholder file sky130.  It
+auto-detects the sky130 PM3 tree under `~/.ciel/ciel/sky130/versions/*/
+skywater-pdk/libraries/sky130_fd_pr/latest` (or `SKY130_ROOT=/path/to/latest`):
 
 ```bash
-export SKY130_MODEL=/path/to/sky130A/libs.ref/sky130_fd_pr/spice/sky130_fd_pr__models.spice
 make sky130-lut PYTHON=/usr/bin/python3
-# or
+# trim the sweep:
+make sky130-lut PYTHON=/usr/bin/python3 SKY130_TX_LOADS="10 50" SKY130_RX_SLEWS="20 50"
+```
+
+A single self-contained model-card file can be used instead:
+
+```bash
 python3 verification/analog/extract_lut.py \
-  --model "$SKY130_MODEL" \
+  --model /path/to/model_cards.spice \
   --nmos-model sky130_fd_pr__nfet_01v8 \
   --pmos-model sky130_fd_pr__pfet_01v8 \
   --out build/verify/sky130_lut.json
 ```
 
-The model file must define the device names above (or pass real names with
-`--nmos-model`/`--pmos-model`).  The script checks for `level=`, `vto=` or
-`kp=` in the `.model` cards; the alias file sometimes shipped as
-`SKY130_PDK/models.sp` is rejected with an explicit error.
+The single file must define the device names above or contain real model cards.
+Alias-only files such as `SKY130_PDK/models.sp` are rejected with an explicit
+error.  The auto-detected PM3 flow includes `models/parameters/invariant.spice`,
+`typical.spice`, and the nfet/pfet `__tt.pm3.spice` device subckts.
 
 ## Generic demo mode (not sky130)
 
@@ -58,8 +64,10 @@ lut = load_lut("build/verify/sky130_lut.json")
 tau_ns = tx_tau_ns(lut, load_ff=50)
 ```
 
-`tau_ns = rise_ns / ln(4)` is the equivalent first-order RC tau for the
-20–80 % rise time.  `scripts/verify_link.py --analog-lut <json> --tx-load-ff 50`
+Measured with the CIEL sky130 PM3 tree (tt, 1.8 V, 50 fF, 0.65/1.40 µm
+devices): rise ≈ 0.263 ns, fall ≈ 0.187 ns; at 20 ps input slew the inverter
+delay is ≈ 0.068/0.082 ns (tPHL/tPLH).  `tau_ns = rise_ns / ln(4)` is the
+equivalent first-order RC tau for the 20–80 % rise time.  `scripts/verify_link.py --analog-lut <json> --tx-load-ff 50`
 replaces the profile channel tau with this value and records the LUT metadata
 in the capability report.
 
