@@ -16,6 +16,8 @@ module tb_rx_jtol #(
     parameter int OS         = 8,
     parameter int DATA_WIDTH = 8,
     parameter int WORDS      = 4,
+    parameter int CDR_MODE   = 1,
+    parameter int ALIGN_MODE = 0,
     parameter int MAX_BITS   = 20000
 );
 
@@ -69,9 +71,9 @@ module tb_rx_jtol #(
         .SYNC_STAGES(3),
         .LOCK_THRESH(8),
         .LOCK_STALE_BITS(32),
-        .CDR_MODE(1),
+        .CDR_MODE(CDR_MODE),
         .CDR_BYPASS(1'b0),
-        .ALIGN_MODE(0),
+        .ALIGN_MODE(ALIGN_MODE),
         .SYNC_LEN(8),
         .SYNC_PATTERN(8'hBC),
         .ADAPT_FRAC_BITS(12),

@@ -141,9 +141,11 @@ def main() -> int:
                 "rx_tphl_ns": rx.get("tphl_ns"),
                 "rx_tplh_ns": rx.get("tplh_ns"),
                 "model_kind": report.get("model_kind"),
+                "model_files": report.get("model_files", []),
             })
-            if not model_files:
-                model_files = report.get("model_files", [])
+            for path in report.get("model_files", []):
+                if path not in model_files:
+                    model_files.append(path)
             print(f"  {corner:3s} {vdd:5.2f} V {temp:7.1f} C: "
                   f"rise={tx.get('rise_ns')} ns "
                   f"tphl={rx.get('tphl_ns')} ns")

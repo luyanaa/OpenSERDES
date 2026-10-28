@@ -1273,6 +1273,25 @@ def main() -> int:
         "tx_capture_semantics": plan["capture_semantics"],
         "optional_blocks": plan["optional_blocks"],
         "sv2v": sv2v_meta,
+        "verification_config": {
+            "cdr_mode": int(plan["params"].get(
+                "CDR_MODE",
+                2 if plan["rx_arch"]["name"] == "source_sync"
+                else 1 if plan["rx_arch"]["name"] == "adaptive_oversampling"
+                else 0)),
+            "oversample": int(plan["params"].get("OVERSAMPLE", cfg["oversample"])),
+            "align_mode": int(plan["params"].get("ALIGN_MODE", cfg["align_mode"])),
+            "framing": "comma_per_frame"
+                       if int(plan["params"].get("ALIGN_MODE", cfg["align_mode"])) == 2
+                       else "external",
+            "clock_ports": plan["clock_ports"],
+            "clock_periods_ns": {
+                "tx_clk": cfg["tx_period_ns"],
+                "rx_clk": cfg["rx_period_ns"],
+            },
+            "top": plan["design"],
+            "rtl_source": "sv2v" if sv2v_meta.get("used") else "native",
+        },
         "clocking": {
             "ports": plan["clock_ports"],
             "tx_period_ns": cfg["tx_period_ns"],

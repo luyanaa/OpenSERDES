@@ -63,15 +63,55 @@ class TouchstoneResponse:
     warnings: list[str] = field(default_factory=list)
     dc_extrapolated: bool = False
     format: str = "RI"
+    max_single_ended: float = 0.0
+    reciprocity_error: float = 0.0
 
     def insertion_loss_db(self) -> np.ndarray:
         return 20.0 * np.log10(np.maximum(np.abs(self.sdd21), 1e-30))
 
     def group_delay_s(self) -> np.ndarray:
-        phase = np.unwrap(np.angle(self.sdd21))
-        if self.freq_hz.size < 2:
-            return np.zeros_like(phase)
-        return -np.gradient(phase, self.freq_hz)
+        """Group delay on a uniform frequency grid.
+
+        The measured points are interpolated (real/imag) to a uniform grid with
+        DC included, then the unwrapped phase is differentiated.  This avoids
+        using an irregular VNA spacing directly as an IFFT/bin grid.
+        """
+        f = np.asarray(self.freq_hz, dtype=np.float64)
+        if f.size < 2:
+            return np.zeros_like(f)
+        # Uniform grid from 0 to the highest measured frequency.
+        n = max(4096, int(2 ** np.ceil(np.log2(f.size * 8))))
+        fu = np.linspace(0.0, float(f[-1]), n)
+        re = np.interp(fu, f, self.sdd21.real)
+        im = np.interp(fu, f, self.sdd21.imag)
+        phase = np.unwrap(np.angle(re + 1j * im))
+        return -np.gradient(phase, fu) / (2.0 * np.pi)
+
+    def physical_checks(self, tolerance: float = 1e-6) -> dict[str, Any]:
+        """Frequency-domain physical consistency checks (not a full causal fit)."""
+        gd = self.group_delay_s()
+        checks = {
+            "frequency_monotonic": bool(np.all(np.diff(self.freq_hz) > 0)),
+            "dc_present": not self.dc_extrapolated,
+            "reference_ohm": float(self.reference_ohm),
+            "max_single_ended": float(self.max_single_ended),
+            "passive": bool(self.max_single_ended <= 1.0 + tolerance),
+            "reciprocity_error": float(self.reciprocity_error),
+            "reciprocal": bool(self.reciprocity_error <= tolerance),
+            "group_delay_median_s": float(np.median(gd)) if gd.size else 0.0,
+            "group_delay_min_s": float(np.min(gd)) if gd.size else 0.0,
+            "group_delay_negative": bool(gd.size and np.min(gd) < -tolerance),
+            "dc_real_only": bool(abs(self.sdd21[0].imag) <= tolerance),
+        }
+        if not checks["passive"]:
+            self.warnings.append("passivity check failed: |S| > 1")
+        if not checks["reciprocal"]:
+            self.warnings.append("reciprocity check failed")
+        if checks["group_delay_negative"]:
+            self.warnings.append(
+                "group delay is negative somewhere; check causality/phase reference"
+            )
+        return checks
 
 
 def _parse_header(line: str) -> tuple[str, str, float]:
@@ -250,6 +290,8 @@ def load_touchstone(
         warnings=warnings,
         dc_extrapolated=dc_extrapolated,
         format=fmt,
+        max_single_ended=max_mag,
+        reciprocity_error=reciprocity,
     )
 
 

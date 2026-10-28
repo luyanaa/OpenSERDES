@@ -35,6 +35,9 @@ TIMING_OUT ?= $(BUILD)/timing_compare.json
 MC_SAMPLES ?= 20
 MC_OUT ?= $(BUILD)/verify/sky130_mc.json
 VERIFY_TX_LOAD_FF ?= 50
+VERIFY_JTOL_MIN_AMP_UI ?= 0.10
+VERIFY_JTOL_AMPS ?= 0.05 0.10 0.20 0.40
+VERIFY_BER_TARGET ?= 1e-3
 SKY130_LUT ?= $(BUILD)/verify/sky130_lut.json
 SKY130_TX_LOADS ?= 10 50 100 200
 SKY130_RX_SLEWS ?= 20 50 100 200
@@ -334,7 +337,9 @@ verify-link:
 		exit 1; }
 	$(PYTHON) scripts/verify_link.py --profile $(VERIFY_PROFILE) --out $(VERIFY_OUT) \
 		$(if $(VERIFY_PACKAGE),--package $(VERIFY_PACKAGE),) \
-		$(if $(VERIFY_ANALOG_LUT),--analog-lut $(VERIFY_ANALOG_LUT) --tx-load-ff $(VERIFY_TX_LOAD_FF),)
+		$(if $(VERIFY_ANALOG_LUT),--analog-lut $(VERIFY_ANALOG_LUT) --tx-load-ff $(VERIFY_TX_LOAD_FF),) \
+		--jtol-min-amp-ui $(VERIFY_JTOL_MIN_AMP_UI) --jtol-amps $(VERIFY_JTOL_AMPS) \
+		--ber-target $(VERIFY_BER_TARGET)
 
 si-eye:
 	$(PYTHON) -m verification.cli eye --profile verification/profiles/stressed.yaml --out $(BUILD)/verify/eye.png

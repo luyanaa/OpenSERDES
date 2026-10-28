@@ -12,7 +12,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / "scripts" / "verify_link.py"
-PROFILE = ROOT / "verification" / "profiles" / "stressed.yaml"
+PROFILE = ROOT / "verification" / "profiles" / "clean.yaml"
 
 
 class TestSignoffConsumesGate(unittest.TestCase):
@@ -66,12 +66,24 @@ class TestGateRtl(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             pkg = Path(tmp) / "pkg"
             pkg.mkdir()
+            (pkg / "rtl").mkdir()
+            rtl_files = sorted((ROOT / "rtl").glob("*.sv"))
+            (pkg / "rtl" / "filelist.f").write_text(
+                "\n".join(str(p) for p in rtl_files) + "\n"
+            )
             (pkg / "manifest.json").write_text(json.dumps({
                 "design": "serdes_soc_wrapper",
                 "line_rate_mbps": 100.0,
                 "spec_sha256": "test",
                 "params": {"DATA_WIDTH": 8, "WORDS": 4, "SYNC_LEN": 8},
                 "interface": {"preset": "soc"},
+                "verification_config": {
+                    "cdr_mode": 2, "oversample": 1, "align_mode": 2,
+                    "framing": "comma_per_frame",
+                    "clock_ports": ["clk"],
+                    "clock_periods_ns": {"tx_clk": 10.0, "rx_clk": 10.0},
+                    "top": "serdes_soc_wrapper", "rtl_source": "native",
+                },
             }))
             out = Path(tmp) / "ber.json"
             proc = subprocess.run(

@@ -102,11 +102,15 @@ The gate's checks are deliberately explicit:
 | `ber` | 95 % upper bound at the nominal RTL stress: `3/N` for zero errors, Wilson upper bound otherwise. The empirical error count is retained separately. |
 | `jtol_pass` | Every swept SJ frequency reaches at least `--jtol-min-amp-ui` peak SJ with `ber_upper95 <= --ber-target`, `bit_slips == 0`, `lock_losses == 0`, and a locked run. |
 | `eye_margin_ui` | 0.5/99.5 threshold-crossing eye width from the 2-UI behavioral fold; not a BER contour. |
-| `capability.rtl_link_smoke_pass` | Short-run RTL smoke evidence: the upper-bound checks above plus the eye and binding checks pass. |
+| `capability.rtl_link_smoke_pass` | Short-run RTL smoke evidence: the upper-bound checks above plus the eye and binding checks pass.  The gate requires the package manifest's `verification_config` (CDR mode, oversample, align/frame mode, clock periods, RTL source) and compiles the package's own `filelist_sv2v.f`/`filelist.f`, not a private RTL copy. |
 | `capability.evidence_level` | `RTL_LINK_SMOKE` when the smoke gate passes; `NONE` otherwise. It is not a low-BER guarantee. |
 | `capability.statistical_link_model` | `available: false` unless a separate Gaussian-tail run is produced; never merged into the smoke result. |
 | `capability.measured_link` | Always unavailable: no silicon/measured-link evidence is bundled. |
 | `capability.pvt_validated` | Always `false`: no PVT/transistor/PEX evidence is bundled. |
+
+The gate's `verification_config` is generated into the manifest by
+`gen_ip.py`; a missing field, a differing line rate/clock period, or a
+`chain=frame` run against a non-frame-aligned package fails closed.
 
 The short-run numbers are smoke evidence, not a claim that BER < 1e-12.  A
 zero-error observation at N bits only bounds BER by 3/N at 95 %; use

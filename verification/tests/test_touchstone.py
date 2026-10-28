@@ -76,6 +76,43 @@ class TestTouchstone(unittest.TestCase):
             with self.assertRaises(TouchstoneError):
                 load_touchstone(p, port_map={"tx": 0})
 
+    def test_group_delay_and_physical_checks(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            p = Path(tmp) / "delay.s2p"
+            delay_ns = 0.5
+            rows = []
+            for k in range(401):
+                f = k * 0.1e9
+                s21 = 0.8 * np.exp(-2j * np.pi * f * delay_ns * 1e-9)
+                rows.append((f, 0.0 + 0j, s21, s21, 0.0 + 0j))
+            _write_s2p(p, rows)
+            r = load_touchstone(p)
+            checks = r.physical_checks()
+            self.assertTrue(checks["passive"])
+            self.assertTrue(checks["reciprocal"])
+            self.assertTrue(checks["dc_present"])
+            gd = r.group_delay_s()
+            self.assertAlmostEqual(float(np.median(gd)), delay_ns * 1e-9, delta=1e-12)
+            ch = load_touchstone_channel(p, sps=80, ui_s=1e-9)
+            self.assertAlmostEqual(ch.delay_s, delay_ns * 1e-9, delta=1e-11)
+
+    def test_s4p_differential_group_delay(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            p = Path(tmp) / "diff_delay.s4p"
+            delay_ns = 0.5
+            freq = [k * 0.1e9 for k in range(401)]
+            s = np.zeros((len(freq), 4, 4), dtype=complex)
+            for k, f in enumerate(freq):
+                s[k, 2, 0] = 0.8 * np.exp(-2j * np.pi * f * delay_ns * 1e-9)
+                s[k, 3, 1] = 0.8 * np.exp(-2j * np.pi * f * delay_ns * 1e-9)
+            _write_s4p(p, freq, s)
+            r = load_touchstone(p)
+            gd = r.group_delay_s()
+            self.assertAlmostEqual(float(np.median(gd)), delay_ns * 1e-9, delta=1e-12)
+            ch = load_touchstone_channel(p, sps=80, ui_s=1e-9)
+            self.assertAlmostEqual(ch.delay_s, delay_ns * 1e-9, delta=1e-11)
+            self.assertTrue(r.physical_checks()["passive"])
+
     def test_impulse_channel_preserves_dc_gain(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             p = Path(tmp) / "flat.s4p"

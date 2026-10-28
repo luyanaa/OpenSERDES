@@ -48,6 +48,11 @@ Run from the repository root:
 The default profile is `verification/profiles/stressed.yaml`.
 `--bits N` overrides the profile's `n_bits` for a faster or longer run.
 
+The Touchstone response exposes `group_delay_s()` (uniform-grid phase
+derivative, `-dphi/df/2pi`) and `physical_checks()` (frequency monotonicity,
+DC, passivity, reciprocity, negative group-delay warning).  The time-domain
+channel's impulse delay is checked against a pure-delay golden S2P/S4P.
+
 `jtol --model rtl` runs iverilog with the real RTL.  ``--chain cdr`` drives
 ``rtl/cdr_adaptive.sv`` directly with a jittered edge schedule; ``--chain rx``
 drives the full ``rtl/serdes_rx_digital.sv`` chain (CDR + sampler +

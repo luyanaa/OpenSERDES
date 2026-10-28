@@ -59,17 +59,29 @@ class JtolResult:
 
 
 def _compile_tb(chain: str = "cdr", data_width: int = 8,
-                words: int = 4, sync_len: int | None = None) -> Path:
+                words: int = 4, sync_len: int | None = None,
+                oversample: int = 8, cdr_mode: int | None = None,
+                align_mode: int | None = None,
+                rtl_sources: list[Path] | None = None) -> Path:
     BUILD_DIR.mkdir(parents=True, exist_ok=True)
+    extra = f"_os{oversample}"
     if chain == "rx":
-        binary = BUILD_DIR / f"tb_rx_jtol_dw{data_width}_w{words}"
-        sources = [TB_RX, *sorted((ROOT / "rtl").glob("*.sv"))]
+        binary = BUILD_DIR / (f"tb_rx_jtol_dw{data_width}_w{words}{extra}"
+                             f"_c{cdr_mode if cdr_mode is not None else 1}"
+                             f"_a{align_mode if align_mode is not None else 0}")
+        sources = ([TB_RX, *rtl_sources] if rtl_sources else
+                   [TB_RX, *sorted((ROOT / "rtl").glob("*.sv"))])
     elif chain == "frame":
-        binary = BUILD_DIR / f"tb_rx_frame_jtol_dw{data_width}_w{words}_s{sync_len or data_width}"
-        sources = [TB_FRAME, *sorted((ROOT / "rtl").glob("*.sv"))]
+        binary = BUILD_DIR / (f"tb_rx_frame_jtol_dw{data_width}_w{words}"
+                              f"_s{sync_len or data_width}{extra}"
+                              f"_c{cdr_mode if cdr_mode is not None else 1}"
+                              f"_a{align_mode if align_mode is not None else 2}")
+        sources = ([TB_FRAME, *rtl_sources] if rtl_sources else
+                   [TB_FRAME, *sorted((ROOT / "rtl").glob("*.sv"))])
     else:
-        binary = BUILD_DIR / "tb_cdr_jtol"
-        sources = [TB_CDR, *CDR_SOURCES]
+        binary = BUILD_DIR / f"tb_cdr_jtol{extra}"
+        sources = ([TB_CDR, *rtl_sources] if rtl_sources else
+                   [TB_CDR, *CDR_SOURCES])
     if binary.exists() and all(
         src.stat().st_mtime <= binary.stat().st_mtime for src in sources
     ):
@@ -79,11 +91,19 @@ def _compile_tb(chain: str = "cdr", data_width: int = 8,
     cmd = ["iverilog", "-g2012", "-Wall", "-o", str(binary), *map(str, sources)]
     if chain == "rx":
         cmd[1:1] = ["-Ptb_rx_jtol.DATA_WIDTH=" + str(data_width),
-                    "-Ptb_rx_jtol.WORDS=" + str(words)]
+                    "-Ptb_rx_jtol.WORDS=" + str(words),
+                    "-Ptb_rx_jtol.OS=" + str(oversample),
+                    "-Ptb_rx_jtol.CDR_MODE=" + str(cdr_mode if cdr_mode is not None else 1),
+                    "-Ptb_rx_jtol.ALIGN_MODE=" + str(align_mode if align_mode is not None else 0)]
     elif chain == "frame":
         cmd[1:1] = ["-Ptb_rx_frame_jtol.DATA_WIDTH=" + str(data_width),
                     "-Ptb_rx_frame_jtol.WORDS=" + str(words),
-                    "-Ptb_rx_frame_jtol.SYNC_LEN=" + str(sync_len or data_width)]
+                    "-Ptb_rx_frame_jtol.SYNC_LEN=" + str(sync_len or data_width),
+                    "-Ptb_rx_frame_jtol.OS=" + str(oversample),
+                    "-Ptb_rx_frame_jtol.CDR_MODE=" + str(cdr_mode if cdr_mode is not None else 1),
+                    "-Ptb_rx_frame_jtol.ALIGN_MODE=" + str(align_mode if align_mode is not None else 2)]
+    elif chain == "cdr":
+        cmd[1:1] = ["-Ptb_cdr_jtol.OS=" + str(oversample)]
     proc = subprocess.run(cmd, text=True, capture_output=True)
     if proc.returncode != 0:
         raise RuntimeError(f"iverilog failed:\n{proc.stdout}\n{proc.stderr}")
@@ -377,6 +397,10 @@ def run_rtl_jtol(
     data_width: int = 8,
     words: int = 4,
     sync_len: int | None = None,
+    oversample: int = 8,
+    cdr_mode: int | None = None,
+    align_mode: int | None = None,
+    package_rtl_dir: str | Path | None = None,
     noise_rms_v: float = 0.0,
     channel_tau_ui: float = 0.16,
     channel_file: str | None = None,
@@ -402,7 +426,20 @@ def run_rtl_jtol(
         )
     else:
         expected_serial = expected
-    binary = _compile_tb(chain, data_width, words, sync_len)
+    rtl_sources = None
+    if package_rtl_dir is not None:
+        rtl_dir = Path(package_rtl_dir)
+        filelist = rtl_dir / "filelist_sv2v.f"
+        if not filelist.is_file():
+            filelist = rtl_dir / "filelist.f"
+        if not filelist.is_file():
+            raise RuntimeError(f"no package filelist under {rtl_dir}")
+        rtl_sources = [
+            (rtl_dir / line.strip()) for line in filelist.read_text().splitlines()
+            if line.strip() and not line.strip().startswith("#")
+        ]
+    binary = _compile_tb(chain, data_width, words, sync_len, oversample,
+                         cdr_mode, align_mode, rtl_sources)
 
     tmp = Path(tempfile.mkdtemp(prefix="serdes_jtol_", dir=str(ROOT / "build" / "verify")))
     stim = tmp / "stim.txt"
@@ -440,7 +477,10 @@ def run_rtl_jtol(
         )
         _write_stimulus(stim, expected, times)
 
-    half_ns = ui_s * 1e9 / 2.0 / 8.0  # OVERSAMPLE=8 in both harnesses
+    # Source-sync RX (CDR_MODE=2) uses the external bit clock directly;
+    # fixed/adaptive modes oversample by OVERSAMPLE.
+    clocks_per_ui = 1 if (chain in ("rx", "frame") and cdr_mode == 2) else oversample
+    half_ns = ui_s * 1e9 / 2.0 / max(1, clocks_per_ui)
     cmd = [
         "vvp",
         str(binary),
@@ -530,6 +570,11 @@ def _main() -> int:
                     help="RX WORDS for rx/frame chains")
     ap.add_argument("--sync-len", type=int, default=None,
                     help="RX SYNC_LEN (default: DATA_WIDTH for the frame chain)")
+    ap.add_argument("--oversample", type=int, default=8)
+    ap.add_argument("--cdr-mode", type=int, default=None)
+    ap.add_argument("--align-mode", type=int, default=None)
+    ap.add_argument("--package-rtl", default=None,
+                    help="package rtl directory; compile its filelist instead of repo RTL")
     ap.add_argument("--chain", choices=("cdr", "rx", "frame"), default="cdr",
                     help="cdr = cdr_adaptive only; rx = full serdes_rx_digital; "
                          "frame = comma-framed RX with rx_par_data scoreboard")
@@ -557,6 +602,10 @@ def _main() -> int:
         data_width=args.data_width,
         words=args.words,
         sync_len=args.sync_len,
+        oversample=args.oversample,
+        cdr_mode=args.cdr_mode,
+        align_mode=args.align_mode,
+        package_rtl_dir=args.package_rtl,
         noise_rms_v=args.noise_rms_v,
         channel_tau_ui=args.channel_tau_ui,
         channel_file=args.channel_file,

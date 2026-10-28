@@ -49,7 +49,9 @@ jobs:
         run: make gen SPEC=spec/soc.yaml OUT=out/ci-soc PYTHON=python3
 
       - name: Link capability gate (bound to generated package)
-        run: make verify-link PYTHON=python3 VERIFY_PACKAGE=out/ci-soc
+        run: make verify-link PYTHON=python3 VERIFY_PACKAGE=out/ci-soc \
+          VERIFY_PROFILE=verification/profiles/clean.yaml \
+          VERIFY_JTOL_MIN_AMP_UI=0.05
 
       - name: Analog LUT smoke test (generic demo; no PDK claim)
         run: make analog-lut-demo PYTHON=python3

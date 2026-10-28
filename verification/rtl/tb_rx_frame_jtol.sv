@@ -19,6 +19,8 @@ module tb_rx_frame_jtol #(
     parameter int WORDS      = 4,
     parameter int SYNC_LEN   = DATA_WIDTH,
     parameter logic [SYNC_LEN-1:0] SYNC_PATTERN = 'hBC,
+    parameter int CDR_MODE   = 2,
+    parameter int ALIGN_MODE = 2,
     parameter int MAX_FRAMES = 4096
 );
 
@@ -71,9 +73,9 @@ module tb_rx_frame_jtol #(
         .SYNC_STAGES(3),
         .LOCK_THRESH(8),
         .LOCK_STALE_BITS(32),
-        .CDR_MODE(1),
+        .CDR_MODE(CDR_MODE),
         .CDR_BYPASS(1'b0),
-        .ALIGN_MODE(2),
+        .ALIGN_MODE(ALIGN_MODE),
         .SYNC_LEN(SYNC_LEN),
         .SYNC_PATTERN(SYNC_PATTERN),
         .ADAPT_FRAC_BITS(12),

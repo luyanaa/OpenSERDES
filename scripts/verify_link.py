@@ -101,6 +101,10 @@ def rtl_point(
     data_width: int = 8,
     words: int = 4,
     sync_len: int | None = None,
+    oversample: int = 8,
+    cdr_mode: int | None = None,
+    align_mode: int | None = None,
+    package_rtl_dir: str | None = None,
     channel_file: str | None = None,
     channel_port_map: dict[str, int] | None = None,
     allow_long: bool = True,
@@ -121,8 +125,14 @@ def rtl_point(
         data_width=data_width,
         words=words,
         sync_len=sync_len,
+        oversample=oversample,
+        cdr_mode=cdr_mode,
+        align_mode=align_mode,
+        package_rtl_dir=package_rtl_dir,
         noise_rms_v=profile["noise_rms_v"],
         channel_tau_ui=profile["channel"]["tau_ui"],
+        channel_file=channel_file,
+        channel_port_map=channel_port_map,
         threshold_v=profile["threshold_v"],
     )
     return result.to_dict()
@@ -141,6 +151,10 @@ def jtol_sweep(
     data_width: int = 8,
     words: int = 4,
     sync_len: int | None = None,
+    oversample: int = 8,
+    cdr_mode: int | None = None,
+    align_mode: int | None = None,
+    package_rtl_dir: str | None = None,
     channel_file: str | None = None,
     channel_port_map: dict[str, int] | None = None,
 ) -> tuple[bool, list[dict[str, Any]], dict[str, Any]]:
@@ -159,6 +173,10 @@ def jtol_sweep(
                 data_width=data_width,
                 words=words,
                 sync_len=sync_len,
+                oversample=oversample,
+                cdr_mode=cdr_mode,
+                align_mode=align_mode,
+                package_rtl_dir=package_rtl_dir,
                 channel_file=channel_file,
                 channel_port_map=channel_port_map,
             )
@@ -225,6 +243,7 @@ def load_package_binding(package: str | None, profile: dict[str, Any]) -> dict[s
     sync_len = int(params.get("SYNC_LEN", data_width))
     line_rate = manifest.get("line_rate_mbps")
     design = manifest.get("design")
+    vc = manifest.get("verification_config", {}) or {}
     errors: list[str] = []
     if line_rate is None:
         errors.append("manifest has no line_rate_mbps")
@@ -237,6 +256,28 @@ def load_package_binding(package: str | None, profile: dict[str, Any]) -> dict[s
         )
     if design not in ("serdes_soc_wrapper", "serdes_soc_cdc_wrapper"):
         errors.append(f"design {design!r} is not a link wrapper")
+    for key in ("cdr_mode", "oversample", "align_mode", "framing", "top",
+                "rtl_source", "clock_ports"):
+        if key not in vc:
+            errors.append(f"manifest verification_config missing {key}")
+    if vc.get("top") not in (None, design):
+        errors.append(f"verification_config.top {vc.get('top')!r} != design {design!r}")
+    if vc.get("align_mode") == 2 and vc.get("framing") != "comma_per_frame":
+        errors.append("verification_config align_mode=2 requires comma_per_frame")
+    if vc.get("rtl_source") not in (None, "sv2v", "native"):
+        errors.append(f"unknown rtl_source {vc.get('rtl_source')!r}")
+    periods = vc.get("clock_periods_ns", {}) or {}
+    for clock in ("tx_clk", "rx_clk"):
+        period = periods.get(clock)
+        if period is None:
+            errors.append(f"verification_config.clock_periods_ns missing {clock}")
+        elif abs(float(period) - 1e3 / float(profile["rate_mbps"])) > max(
+            1e-6, 1e-6 * float(period)
+        ):
+            errors.append(
+                f"{clock} period {period:g} ns != profile UI "
+                f"{1e9 / float(profile['rate_mbps']):g} ns"
+            )
     return {
         "bound": not errors,
         "errors": errors,
@@ -249,6 +290,8 @@ def load_package_binding(package: str | None, profile: dict[str, Any]) -> dict[s
         "words": words,
         "sync_len": sync_len,
         "line_rate_mbps": line_rate,
+        "verification_config": vc,
+        "package_rtl_dir": str(pkg / "rtl"),
         "interface": manifest.get("interface"),
         "params": params,
     }
@@ -265,6 +308,16 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
     data_width = int(binding.get("data_width", 8))
     words = int(binding.get("words", 4))
     sync_len = int(binding.get("sync_len", data_width))
+    vc = binding.get("verification_config", {}) or {}
+    oversample = int(vc.get("oversample", 8))
+    cdr_mode = int(vc.get("cdr_mode", 2))
+    align_mode = int(vc.get("align_mode", 2))
+    package_rtl_dir = binding.get("package_rtl_dir")
+    if args.chain == "frame" and align_mode != 2:
+        # The frame scoreboard needs per-frame comma re-alignment.
+        binding["bound"] = False
+        binding.setdefault("errors", []).append(
+            f"chain=frame requires align_mode=2; manifest has {align_mode}")
     lut_info = None
     if args.analog_lut:
         lut = load_lut(args.analog_lut)
@@ -317,6 +370,10 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
             data_width=data_width,
             words=words,
             sync_len=sync_len,
+            oversample=oversample,
+            cdr_mode=cdr_mode,
+            align_mode=align_mode,
+            package_rtl_dir=package_rtl_dir,
             channel_file=args.channel_file,
             channel_port_map=args.channel_port_map,
         )
@@ -338,6 +395,10 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
             data_width=data_width,
             words=words,
             sync_len=sync_len,
+            oversample=oversample,
+            cdr_mode=cdr_mode,
+            align_mode=align_mode,
+            package_rtl_dir=package_rtl_dir,
             channel_file=args.channel_file,
             channel_port_map=args.channel_port_map,
         )
@@ -416,6 +477,7 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
         "profile_sha256": capability["profile_sha256"],
         "channel_file": args.channel_file,
         "channel_port_map": args.channel_port_map,
+        "verification_config": vc,
         "binding": binding,
         "evidence": {
             "eye": {**eye, "min_eye_ui": args.min_eye_ui},

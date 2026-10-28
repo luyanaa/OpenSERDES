@@ -167,6 +167,7 @@ link-rate claim.  The generated soc packages include
 out/<name>/
   rtl/                  selected native SV sources + filelist.f + params.svh/json
   rtl/sv2v/             sv2v-converted Verilog used by LibreLane/Yosys
+verification_config   manifest: CDR mode, OS, align/frame, clock periods, source
   rtl/filelist_sv2v.f   converted-source file list
   constraints/
     pre_pnr.sdc         async reset excluded; pre-CTS
