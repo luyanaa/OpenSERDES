@@ -64,6 +64,14 @@ DESIGN_FILES = {
         "receiver_sampler.sv", "reset_sync.sv", "serdes_rx_digital.sv",
         "serdes_rx_axis_digital.sv", "serdes_soc_wrapper.sv",
     ],
+    "serdes_soc_cdc_wrapper": [
+        "apb_csr.sv", "async_fifo.sv", "cdc_sync.sv",
+        "axis_tx_adapter.sv", "serializer_stream.sv", "axis_rx_adapter.sv",
+        "deserializer_word.sv", "deserializer.sv", "cdr_sync.sv",
+        "cdr_oversampling.sv", "cdr_adaptive.sv", "comma_align.sv",
+        "receiver_sampler.sv", "reset_sync.sv", "serdes_rx_digital.sv",
+        "serdes_soc_cdc_wrapper.sv",
+    ],
 }
 
 OPTIONAL_FILES = {
@@ -485,25 +493,31 @@ def validate(spec: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
     elif cdc == "auto":
         cdc = "none"
 
-    soc_wrapper = (target == "link" and preset == "soc" and
-                   data_mode == "axi4_stream" and control == "apb" and
-                   cdc == "none")
-    if preset == "soc" and not soc_wrapper and not args.allow_incomplete:
-        fail("preset soc with CDC/async-FIFO integration is not implemented; "
-             "use cdc: none for the single-clock serdes_soc_wrapper, or "
-             "--allow-incomplete for a scaffold package")
+    soc_single = (target == "link" and preset == "soc" and
+                  data_mode == "axi4_stream" and control == "apb" and
+                  cdc == "none")
+    soc_cdc = (target == "link" and preset == "soc" and
+               data_mode == "axi4_stream" and control == "apb" and
+               cdc == "async_fifo")
+    soc_any = soc_single or soc_cdc
+    if soc_any and (clocking != "source_sync" or oversample != 1):
+        fail("the soc wrapper is currently source-synchronous; set "
+             "rx.clocking: source_sync and rx.oversample: 1")
+    if preset == "soc" and not soc_any and not args.allow_incomplete:
+        fail("preset soc requires axi4_stream + apb + cdc none/async_fifo "
+             "for a real wrapper, or --allow-incomplete for a scaffold package")
     if preset == "phy_ip" and not args.allow_incomplete:
         fail("preset phy_ip requires BIST/calibration/DFT integration that is "
              "not implemented yet; use --allow-incomplete to emit a scaffold package")
 
-    if data_mode == "axi4_stream" and target == "link" and not soc_wrapper:
+    if data_mode == "axi4_stream" and target == "link" and not soc_any:
         if not args.allow_incomplete:
             fail("target link has no general AXIS wrapper; use target: tx or rx, "
-                 "or preset: soc + cdc: none for the single-clock wrapper, or "
+                 "or preset: soc with cdc none/async_fifo, or "
                  "--allow-incomplete for a core scaffold")
         spec.setdefault("_warnings", []).append(
             "target link AXIS/APB/CDC wrapper is not integrated; package is a core scaffold")
-    if (control == "apb" or cdc != "none" or features) and not soc_wrapper:
+    if (control == "apb" or cdc != "none" or features) and not soc_any:
         if not args.allow_incomplete:
             fail("APB/CDC/BIST/calibration/DFT integration is not implemented "
                  "for this target; use --allow-incomplete to emit a scaffold package")
@@ -546,6 +560,7 @@ def validate(spec: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
         "rx_arch_name": rx_arch_name,
         "clocking": clocking,
         "ppm": ppm,
+        "user_clock_mhz": user_clock if user_clock is not None else line_rate,
         "objectives": objectives,
         "tech": tech,
         "tx_tech": tx_tech,
@@ -570,7 +585,11 @@ def build_plan(cfg: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
     soc_single = (cfg["target"] == "link" and cfg["preset"] == "soc" and
                   cfg["data_mode"] == "axi4_stream" and
                   cfg["control"] == "apb" and cfg["cdc"] == "none")
-    tx_target = "tx" if soc_single else cfg["target"]
+    soc_cdc = (cfg["target"] == "link" and cfg["preset"] == "soc" and
+               cfg["data_mode"] == "axi4_stream" and
+               cfg["control"] == "apb" and cfg["cdc"] == "async_fifo")
+    soc_link = soc_single or soc_cdc
+    tx_target = "tx" if soc_link else cfg["target"]
     if cfg["target"] in ("link", "tx"):
         tx_arch = select_arch("tx", cfg["tx_arch_name"], tx_target, cfg["ratio"],
                               cfg["line_rate"], cfg["oversample"], cfg["objectives"],
@@ -589,6 +608,8 @@ def build_plan(cfg: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
     if cfg["target"] == "link":
         if soc_single:
             design = "serdes_soc_wrapper"
+        elif soc_cdc:
+            design = "serdes_soc_cdc_wrapper"
         else:
             design = "serdes_digital_top"
     elif cfg["target"] == "tx":
@@ -608,12 +629,14 @@ def build_plan(cfg: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
     }
     if design in ("serdes_tx_digital", "serdes_digital_top"):
         params["CAPTURE_MODE"] = int(tx_arch.get("capture_mode", 0))
-    if design == "serdes_soc_wrapper":
+    if design in ("serdes_soc_wrapper", "serdes_soc_cdc_wrapper"):
         params.update({
             "SYNC_LEN": cfg["sync_len"],
             "SYNC_PATTERN": cfg["sync_pattern"],
             "ADAPT_FRAC_BITS": 12,
         })
+    if design == "serdes_soc_cdc_wrapper":
+        params["FIFO_DEPTH"] = 16
     if design in ("serdes_rx_digital", "serdes_rx_axis_digital", "serdes_digital_top"):
         params.update({
             "OVERSAMPLE": cfg["oversample"],
@@ -629,7 +652,11 @@ def build_plan(cfg: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
             "ADAPT_LOOP_GAIN": 4,
         })
 
-    if design == "serdes_soc_wrapper":
+    if design == "serdes_soc_cdc_wrapper":
+        clock_port = "pclk"
+        clock_period = 1000.0 / cfg["user_clock_mhz"]
+        clock_ports = ["pclk", "s_axis_aclk", "m_axis_aclk", "tx_clk", "rx_clk"]
+    elif design == "serdes_soc_wrapper":
         clock_port = "clk"
         clock_period = cfg["tx_period_ns"]
         clock_ports = ["clk"]
@@ -652,8 +679,10 @@ def build_plan(cfg: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
         "word_streaming": "word_streaming: per-word in_valid/in_ready; upstream holds one word per accepted cycle",
         "axi4_stream": "axi4_stream: per-word AXIS beats; tlast marks the last word; no full-frame hold",
         "soc_wrapper": "soc_wrapper: TX AXIS frame = comma + payload words; RX AXIS frame = payload words",
+        "soc_cdc_wrapper": "soc_cdc_wrapper: AXIS frames cross async FIFOs; APB control/status synchronized",
         "not_used": "n/a",
-    }.get("soc_wrapper" if design == "serdes_soc_wrapper"
+    }.get("soc_cdc_wrapper" if design == "serdes_soc_cdc_wrapper"
+          else "soc_wrapper" if design == "serdes_soc_wrapper"
           else "axi4_stream" if design == "serdes_tx_axis_digital"
           else tx_arch["name"], "unknown")
 
@@ -683,7 +712,7 @@ def synth_parameters(params: dict[str, Any]) -> list[str]:
     order = ["DATA_WIDTH", "WORDS", "LSB_FIRST", "CAPTURE_MODE", "OVERSAMPLE",
              "SYNC_STAGES", "LOCK_THRESH", "LOCK_STALE_BITS", "CDR_MODE",
              "CDR_BYPASS", "ALIGN_MODE", "SYNC_LEN", "SYNC_PATTERN",
-             "ADAPT_FRAC_BITS", "ADAPT_LOOP_GAIN"]
+             "ADAPT_FRAC_BITS", "ADAPT_LOOP_GAIN", "FIFO_DEPTH"]
     return [f"{k}={params[k]}" for k in order if k in params]
 
 
@@ -724,6 +753,52 @@ def sdc_text(cfg: dict[str, Any], plan: dict[str, Any], stage: str) -> str:
             f"set_clock_uncertainty -hold  {hold:.3f} [get_clocks rx_clk]",
         ]
     lines += [""]
+
+    if plan["design"] == "serdes_soc_cdc_wrapper":
+        soc_period = 1000.0 / cfg["user_clock_mhz"]
+        lines = [
+            f"# Generated by OpenSERDES gen_ip.py ({stage}). Do not edit by hand.",
+            f"# Stage: {stage}",
+            "",
+            f"set PCLK_PERIOD_NS {soc_period:.6f}",
+            "create_clock -name pclk -period $PCLK_PERIOD_NS [get_ports pclk]",
+            "create_clock -name s_axis_aclk -period $PCLK_PERIOD_NS [get_ports s_axis_aclk]",
+            "create_clock -name m_axis_aclk -period $PCLK_PERIOD_NS [get_ports m_axis_aclk]",
+            f"set TX_PERIOD_NS {tx:.6f}",
+            "create_clock -name tx_clk -period $TX_PERIOD_NS [get_ports tx_clk]",
+            f"set RX_PERIOD_NS {rx:.6f}",
+            "create_clock -name rx_clk -period $RX_PERIOD_NS [get_ports rx_clk]",
+            "set_clock_groups -asynchronous -group [get_clocks pclk] -group [get_clocks s_axis_aclk] -group [get_clocks m_axis_aclk] -group [get_clocks tx_clk] -group [get_clocks rx_clk]",
+            "",
+            "set_input_delay  -clock pclk 0.200 [get_ports {paddr* psel penable pwrite pwdata*}]",
+            "set_output_delay -clock pclk 0.200 [get_ports {pready prdata* pslverr csr_regs*}]",
+            "set_input_delay  -clock s_axis_aclk 0.200 [get_ports {s_axis_tvalid s_axis_tdata* s_axis_tlast}]",
+            "set_output_delay -clock s_axis_aclk 0.200 [get_ports s_axis_tready]",
+            "set_output_delay -clock m_axis_aclk 0.200 [get_ports {m_axis_tvalid m_axis_tdata* m_axis_tlast}]",
+            "set_input_delay  -clock m_axis_aclk 0.200 [get_ports m_axis_tready]",
+            "set_output_delay -clock tx_clk 0.200 [get_ports {tx_serial_out tx_serial_valid}]",
+            "set_input_delay  -clock rx_clk 0.200 [get_ports rx_serial_in]",
+            "set_output_delay -clock rx_clk 0.200 [get_ports {rx_sample_strobe rx_serial_data rx_serial_valid rx_freq_trim* rx_clk_out}]",
+            "set_false_path -to [get_ports rx_clk_out]",
+            "set_load 0.010 [get_ports tx_serial_out]",
+            "",
+        ]
+        if stage == "pre_pnr":
+            lines += [
+                "# Pre-CTS: asynchronous reset recovery/removal is not signed off yet.",
+                "set_false_path -from [get_ports {presetn s_axis_aresetn m_axis_aresetn tx_rst_n rx_rst_n}]",
+                "foreach pin [get_pins -hierarchical *RESET_B] { set_false_path -through $pin }",
+                "foreach pin [get_pins -hierarchical *RN]      { set_false_path -through $pin }",
+                "foreach pin [get_pins -hierarchical *SN]      { set_false_path -through $pin }",
+                "foreach pin [get_pins -hierarchical *SETN]    { set_false_path -through $pin }",
+                "foreach pin [get_pins -hierarchical *SET_B]   { set_false_path -through $pin }",
+            ]
+        else:
+            lines += [
+                "# Post-CTS/signoff: reset recovery/removal is enabled.",
+                "set_propagated_clock [all_clocks]",
+            ]
+        return "\n".join(lines) + "\n"
 
     if plan["design"] == "serdes_soc_wrapper":
         lines = [

@@ -94,11 +94,15 @@ deserializer #(
 
 ### `rtl/serdes_soc_wrapper.sv`
 
-单时钟 SoC 参考顶层：APB CSR + TX AXIS + source-sync RX AXIS。APB map：reg0 control、reg1..6 scratch、reg7 status。TX AXIS frame 为 comma + `WORDS` payload words，RX AXIS frame 为 `WORDS` payload words；`ALIGN_MODE=2` 每帧 comma 重对齐。该 wrapper 用于单时钟集成验收；多时钟 `pclk`/`s_axis_aclk`/`m_axis_aclk` + async FIFO 版本仍未实现。`spec/soc_single_clock.yaml` 是示例。
+单时钟 SoC 参考顶层：APB CSR + TX AXIS + source-sync RX AXIS。APB map：reg0 control、reg1..6 scratch、reg7 status。TX AXIS frame 为 comma + `WORDS` payload words，RX AXIS frame 为 `WORDS` payload words；`ALIGN_MODE=2` 每帧 comma 重对齐。该 wrapper 用于单时钟集成验收；`spec/soc_single_clock.yaml` 是示例。
+
+### `rtl/serdes_soc_cdc_wrapper.sv`
+
+多时钟 SoC 参考顶层：`pclk`/`s_axis_aclk`/`m_axis_aclk`/`tx_clk`/`rx_clk` 分离；TX/RX AXIS 各接 `async_fifo`，APB control/status 经 `cdc_sync` 2FF 同步。链路仍是 source-sync（`OVERSAMPLE=1`、comma per-frame），AXIS/APB 时钟可以与 link clock 不同。`spec/soc.yaml` 生成该 wrapper。
 
 ### `rtl/prbs_gen.sv` / `rtl/prbs_check.sv`
 
-PRBS7/15/31 串行 generator/checker，带 sticky `error`、`error_count` 和 `bit_count`。作为 BIST/链路测试原语；`soc`/`phy_ip` scaffold package 会把它列为可选块。
+PRBS7/15/31 串行 generator/checker，带 sticky `error`、`error_count` 和 `bit_count`。作为 BIST/链路测试原语；`soc`/`phy_ip` package 会把它列为可选块。
 
 ### `rtl/axis_tx_adapter.sv` / `rtl/axis_rx_adapter.sv`
 
@@ -192,12 +196,12 @@ cdr_adaptive #(
 | DeSer `INT_PAR_IN` 没有正确传递 | 每个 word 单寄存器组，`par_data` 直连，无影子锁存 |
 | CDR 只有门级网表、22 位 SCAN_IN 语义未文档化 | fixed/adaptive/source-sync 三种可综合模式；明确 `sample_strobe/lock/lock_stale/freq_trim` 契约；`comma_align` 帧同步 |
 | 原 Serializer 只有 13 个 DFF（输入寄存器被删），DeSer 更多 | 抽象后 Serializer 266 FF、DeSer 266 FF、Top 550 FF；单时钟 + `enable`，必须走 CTS；见 `docs/clocking.md` |
-| 无 testbench | 27 个自检 TB（serializer LSB/MSB/capture/stream、deserializer LSB/MSB、loopback LSB/MSB、32×8、link scoreboard、channel、fixed/adaptive CDR、frame sync、CDR bypass、compat legacy/port-order、APB CSR、async FIFO、AXIS TX/RX adapter + endpoint、PRBS7/15/31、SoC wrapper） |
+| 无 testbench | 28 个自检 TB（serializer LSB/MSB/capture/stream、deserializer LSB/MSB、loopback LSB/MSB、32×8、link scoreboard、channel、fixed/adaptive CDR、frame sync、CDR bypass、compat legacy/port-order、APB CSR、async FIFO、AXIS TX/RX adapter + endpoint、PRBS7/15/31、单/多时钟 SoC wrapper） |
 
 ## 4. 验证
 
 ```bash
-make sim      # iverilog：27 个自检 TB
+make sim      # iverilog：28 个自检 TB
 make regress  # 参数矩阵 + link/scoreboard + generator 包检查
 make lint     # Verilator -Wall（0 warning）
 make synth    # Yosys 通用门级检查
@@ -223,7 +227,7 @@ make ppa-import PPA_CSV=measured.csv PPA_OUT=tech/ppa_measured.yaml
 - `tb_compat_legacy` / `tb_compat_port_order`：named 和 positional legacy 兼容：PASS
 - Verilator lint：0 warning
 - Yosys synth：仅通用门/DFF，无 latch、无 memory
-- `scripts/regress.py`：57/57，含参数矩阵、link scoreboard、APB/FIFO、AXIS endpoint、PRBS、SoC wrapper、generator package、signoff collector 和 measured-PPA gate
+- `scripts/regress.py`：59/59，含参数矩阵、link scoreboard、APB/FIFO、AXIS endpoint、PRBS、单/多时钟 SoC wrapper、generator package、signoff collector 和 measured-PPA gate
 
 顶层/信道/SDC：
 
@@ -264,7 +268,7 @@ limits:
 - `RATIO <= 128` 可用 single-cycle `parallel_mux`；更大 RATIO 用 `word_group_capture`。
 - 窄输入 / MPW 小面积目标可用 endpoint-only `word_streaming`。
 - 同源时钟用 `fixed_oversampling`；有 ppm 频偏用 `adaptive_oversampling`（OS ≥ 8）；有 forwarded clock 用 `source_sync`。
-- `apb_csr`、`async_fifo`、`axis_tx_adapter`、`axis_rx_adapter` 和 `serdes_tx_axis_digital`/`serdes_rx_axis_digital` endpoint 已有可验证 RTL；`target=tx/rx` 的 AXIS package 可以直接生成。`soc`/`phy_ip` 仍缺 link 级 APB/AXIS/CDC/BIST 集成 wrapper，因此仍只生成 scaffold，必须显式 `--allow-incomplete`。
+- `apb_csr`、`async_fifo`、`axis_tx_adapter`、`axis_rx_adapter`、AXIS endpoint、PRBS 和单/多时钟 SoC wrapper 均有可验证 RTL；`target=tx/rx` 的 AXIS package 和 source-sync `soc` package 可以直接生成。`phy_ip` 仍缺 BIST/calibration/DFT 集成，必须显式 `--allow-incomplete`。
 
 ## 6. 下一层抽象
 
@@ -278,7 +282,7 @@ limits:
 仍未实现 / 不在本目录承诺：
 
 - 8b10b/64b66b、scrambler、CRC、FEC。
-- 单时钟 `serdes_soc_wrapper`（APB + AXIS + source-sync RX）已实现并做 link loopback 测试；仍缺多时钟 `pclk`/AXIS/CDC wrapper、BIST 自动注入和 calibration。
+- 单时钟 `serdes_soc_wrapper` 和多时钟 `serdes_soc_cdc_wrapper` 已实现并做 link loopback 测试；仍缺 BIST 自动注入、calibration 和 non-source-sync SoC CDR 集成。
 - Scan/DFT、clock gating、BIST/calibration、DFT signoff。
 - 模拟 TX/RX 的 Verilog-A/RNM wrapper、PEX、SI/PI、jitter/BER、silicon correlation。
 - 目标 PDK 的 cellmap/floorplan/post-route signoff adapter；当前 `native_dff` 仍是文档字段，尚无自动 `dfflibmap` runner。
@@ -336,7 +340,7 @@ python3 scripts/gen_ip.py --list-arch
 |---|---|---|---|---|
 | `minimal` | valid/ready parallel | native | none | 可用 |
 | `default` | valid/ready parallel | native | auto | 可用 |
-| `soc` | AXI4-Stream | APB | none（单时钟参考） | `serdes_soc_wrapper` 可用；`cdc: async_fifo` 多时钟版本仍 scaffold |
+| `soc` | AXI4-Stream | APB | none 或 async FIFO | `serdes_soc_wrapper`（单时钟）/ `serdes_soc_cdc_wrapper`（多时钟，source-sync link）可用 |
 | `phy_ip` | valid/ready + BIST/calibration/DFT | APB | async FIFO | APB/FIFO 原语可用；BIST/DFT 集成仍 scaffold |
 
 验证等级由 `scripts/qualify.py` 强制执行：`RTL_FUNCTIONAL`（lint/sim/synth）、`PRE_PNR_TIMING`、`POST_ROUTE_TIMING`、`PHYSICAL_SIGNOFF`、`LINK_VALIDATED`。`scripts/collect_signoff.py` 把 PnR/STA/DRC/LVS/CDC/BER 报告收集成 `signoff.json`；缺失的检查不会被猜测为通过。

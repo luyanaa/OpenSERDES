@@ -13,10 +13,10 @@ tx:
   capture: auto
 
 rx:
-  architecture: auto
-  oversample: auto
+  architecture: source_sync
+  oversample: 1
   align: comma_per_frame
-  clocking: independent
+  clocking: source_sync
   ppm: 0
 
 tech:

@@ -128,17 +128,16 @@ Current candidates:
 |---|---|---|---|---|
 | minimal | valid/ready parallel | native | none | complete |
 | default | valid/ready parallel | native | auto | complete |
-| soc | AXI4-Stream | APB | none (single-clock ref) | serdes_soc_wrapper available; async-FIFO multi-clock variant is scaffold |
+| soc | AXI4-Stream | APB | none or async FIFO | serdes_soc_wrapper / serdes_soc_cdc_wrapper available (source-sync link) |
 | phy_ip | valid/ready + optional blocks | APB | async FIFO + BIST/calibration/DFT | APB/FIFO primitives exist; BIST/DFT/top integration is scaffold |
 
-soc and phy_ip still require the link-level APB/AXIS/CDC/top integration
-wrappers and BIST/DFT blocks that are not in this release.  APB CSR
-(`rtl/apb_csr.sv`), async FIFO (`rtl/async_fifo.sv`), AXIS adapters, the TX/RX
-AXIS endpoint wrappers and PRBS7/15/31 generator/checker are implemented and
-tested.  `target: tx`/`rx` with `interface.data: axi4_stream` generates a real
-endpoint package; `target: link` AXIS is still a scaffold, and the optional
-PRBS/APB/FIFO blocks are copied into soc/phy_ip scaffolds without a link-level
-BIST/control integration.  The presets fail fast unless --allow-incomplete is
+soc now has two real wrappers: `serdes_soc_wrapper` for a single clock and
+`serdes_soc_cdc_wrapper` for separate pclk/AXIS/tx/rx clocks with async FIFOs
+and 2FF control/status synchronization.  Both use a source-synchronous link
+(OVERSAMPLE=1) and comma+payload framing; fixed/adaptive CDR in a SoC wrapper
+is still open.  `phy_ip` remains a scaffold until BIST/calibration/DFT
+integration exists.  `target: tx`/`rx` with `interface.data: axi4_stream`
+generates a real endpoint package.  The presets fail fast unless --allow-incomplete is
 passed, and the generated package explicitly records the missing blocks.
 
 ## 5. Package layout
