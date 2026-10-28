@@ -74,6 +74,14 @@ class TestPRBSBits(unittest.TestCase):
                 break
         self.assertEqual(found, period)
 
+    def test_prbs31_matches_reference_for_a_short_prefix(self) -> None:
+        # A full 2^31-1 period is not enumerated; verify the tap positions
+        # against the independent RTL recurrence over a prefix.
+        self.assertEqual(PRBS_PERIOD[31], 2**31 - 1)
+        np.testing.assert_array_equal(
+            prbs_bits(31, 64), _rtl_reference_bits(31, 64)
+        )
+
     def test_custom_seed_matches_reference(self) -> None:
         for width in (7, 15):
             seed = 0x55 & ((1 << width) - 1)

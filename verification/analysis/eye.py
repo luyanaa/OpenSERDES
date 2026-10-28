@@ -303,6 +303,10 @@ def plot_eye(
     )
     fig.tight_layout()
     if path is not None:
-        fig.savefig(path, dpi=130)
+        from pathlib import Path
+
+        output = Path(path)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        fig.savefig(output, dpi=130)
     plt.close(fig)
     return metrics

@@ -31,6 +31,14 @@ class TestRtlJtol(unittest.TestCase):
         self.assertTrue(result.locked)
         self.assertGreater(result.ber, 0.0)
 
+    def test_full_rx_chain_clean_and_noisy(self) -> None:
+        clean = run_rtl_jtol(nbits=300, chain="rx")
+        self.assertTrue(clean.locked)
+        self.assertEqual(clean.errors, 0)
+        noisy = run_rtl_jtol(nbits=300, chain="rx", noise_rms_v=0.12)
+        self.assertTrue(noisy.locked)
+        self.assertGreaterEqual(noisy.ber, clean.ber)
+
 
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()

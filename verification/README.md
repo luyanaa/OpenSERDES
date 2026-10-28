@@ -1,11 +1,11 @@
 # OpenSERDES SI / BER Verification Framework
 
-This directory is a self-contained Python Signal-Integrity and BER sandbox for
-the OpenSERDES NRZ link.  It is **behavioral and statistical**, not RTL, not a
-PDK/PEX flow and not a CDR.  Its purpose is to make the link conventions
-explicit, provide a reproducible stressed-eye/bathtub/BER baseline, and define
-and it also ships an iverilog-driven harness that drives the real ``cdr_adaptive``
-RTL with a jittered edge schedule (no cocotb dependency).
+This directory is a self-contained Python Signal-Integrity and BER framework for
+the OpenSERDES NRZ link.  The behavioral/statistical layers are not a PDK/PEX
+flow and contain no CDR; a separate iverilog-driven path drives the real
+``cdr_adaptive`` RTL with a jittered edge schedule for phase-2 JTOL.  The
+framework makes the link conventions explicit and provides a reproducible
+stressed-eye/bathtub/BER baseline.
 
 Dependencies are deliberately limited to `numpy`, `scipy`, `matplotlib` and
 `PyYAML`.  `scikit-rf` and `cocotb` are **not** required.  Matplotlib uses the
@@ -48,10 +48,14 @@ Run from the repository root:
 The default profile is `verification/profiles/stressed.yaml`.
 `--bits N` overrides the profile's `n_bits` for a faster or longer run.
 
-`jtol --model rtl` runs ``verification/rtl/tb_cdr_jtol.sv`` with iverilog and
-the real ``cdr_adaptive`` loop.  It reports BER, bit slips and lock losses from
-the recovered RTL bits.  The harness is fixed at a 12.5 Mb/s line rate
-(10 ns clock, OVERSAMPLE=8) and models jitter as edge-time errors only.
+`jtol --model rtl` runs iverilog with the real RTL.  ``--chain cdr`` drives
+``rtl/cdr_adaptive.sv`` directly with a jittered edge schedule; ``--chain rx``
+drives the full ``rtl/serdes_rx_digital.sv`` chain (CDR + sampler +
+deserializer) with the *sliced analog waveform*: the Python channel model adds
+ISI and AWGN at a 1 ns grid, thresholds it, and the RTL recovers bits from that
+binary stream.  Both paths report BER, bit slips and lock losses from recovered
+RTL bits.  The harness is fixed at a 12.5 Mb/s line rate (10 ns clock,
+OVERSAMPLE=8).
 
 ## What each layer does
 
@@ -180,9 +184,9 @@ upper-bound field, because the rule of three does not apply.
 
 ## Phase-2 plan
 
-* **cocotb / full RX chain:** replace the iverilog edge-schedule harness with a
-  cocotb integration of `serdes_rx_digital` (sampler + comma alignment), not
-  only `cdr_adaptive`; add channel waveforms and voltage noise at the slicer.
+* **cocotb + comma-aligned frames:** the full RX chain is exercised, but
+  `ALIGN_MODE=0` so the PRBS stream has no comma framing.  Add a framed PRBS
+  mode and check `rx_par_data`/frame lock in addition to `rx_serial_data`.
 * **Standards-shaped JTOL masks:** compare the measured RTL curve against a
   defined mask, and separate sinusoidal tolerance from ppm tracking and RJ.
 * **Jitter transfer / peaking:** measure CDR phase transfer, not only BER.
@@ -214,7 +218,8 @@ verification/
   analysis/ber.py               Gaussian-tail BER and confidence helpers
   analysis/jtol.py              generic sweep driver + last-passing curve
   rtl/tb_cdr_jtol.sv            iverilog TB: jittered edges -> cdr_adaptive
-  rtl/runner.py                 compile/run/analyse RTL CDR, BER and slips
+  rtl/tb_rx_jtol.sv             iverilog TB: sliced analog -> serdes_rx_digital
+  rtl/runner.py                 compile/run/analyse RTL CDR/RX, BER and slips
   profiles/*.yaml               clean / stressed / worst_case
   cli.py                        eye / bathtub / jtol commands
   tests/                        PRBS, jitter, bathtub, BER and RTL-JTOL tests

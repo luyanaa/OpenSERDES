@@ -7,8 +7,9 @@ Run from the repository root, for example::
 
 All commands use the non-interactive Agg matplotlib backend.  The ``jtol``
 command's analytic mode is explicitly a Gaussian-tail / stressed-eye demo and
-does **not** run RTL or a CDR; ``--model rtl`` exits with an explanation rather
-than fabricating an RTL result.
+does **not** run RTL or a CDR.  ``--model rtl`` is a separate real-RTL path
+(iverilog + ``cdr_adaptive``); the analytic results never claim to include that
+CDR or its lock behavior.
 """
 
 from __future__ import annotations
@@ -401,6 +402,7 @@ def _cmd_jtol_rtl(args: argparse.Namespace) -> int:
     # i.e. a 12.5 Mb/s line rate.  This is fixed by the RTL harness; the
     # profile rate is reported but cannot be used directly here.
     rtl_rate_mbps = 12.5
+    chain = getattr(args, "chain", "cdr")
     n_bits = int(args.bits) if args.bits is not None else 800
     if n_bits < 256:
         raise ValueError("--bits must be >= 256 for the RTL harness")
@@ -413,6 +415,11 @@ def _cmd_jtol_rtl(args: argparse.Namespace) -> int:
     if any(a < 0.0 or not math.isfinite(a) for a in amps):
         raise ValueError("--amps must be finite and >= 0")
 
+    channel_cfg = profile.get("channel", {}) or {}
+    reflections = tuple(
+        (float(pair[0]), float(pair[1])) for pair in channel_cfg.get("reflections", ())
+    ) or ((1.0, 0.20), (2.0, -0.08))
+
     def simulate(stimulus: dict[str, Any]) -> dict[str, Any]:
         result = run_rtl_jtol(
             rate_mbps=rtl_rate_mbps,
@@ -424,6 +431,10 @@ def _cmd_jtol_rtl(args: argparse.Namespace) -> int:
             ppm=args.ppm,
             prbs_width=profile["prbs_width"],
             seed=profile["seed"],
+            chain=chain,
+            noise_rms_v=float(profile.get("noise_rms_v", 0.0)) if chain == "rx" else 0.0,
+            channel_tau_ui=float(channel_cfg.get("tau_ui", 0.16)),
+            threshold_v=float(profile.get("threshold_v", 0.0)),
         )
         return {
             "ber": result.ber,
@@ -433,7 +444,8 @@ def _cmd_jtol_rtl(args: argparse.Namespace) -> int:
 
     base_stress = {
         "model": "rtl-iverilog-cdr-adaptive",
-        "cdr": "cdr_adaptive OVERSAMPLE=8",
+        "cdr": "cdr_adaptive OVERSAMPLE=8" if chain == "cdr" else "serdes_rx_digital (CDR+sampler+deserializer)",
+        "chain": chain,
         "rate_mbps": rtl_rate_mbps,
         "n_bits": n_bits,
         "rj_rms_ui": profile["rj_rms_ui"],
@@ -443,11 +455,18 @@ def _cmd_jtol_rtl(args: argparse.Namespace) -> int:
     rows = run_jtol(simulate, freqs, amps, base_stress)
     curve = jtol_curve(rows, ber_limit=args.ber_limit, lock_loss_limit=0)
 
-    print("MODEL: real RTL cdr_adaptive driven by a jittered edge schedule.")
+    print(f"MODEL: real RTL {base_stress['cdr']} driven by a jittered edge schedule.")
     print(
         "This is the digital CDR state machine, not an analog/PEX model. "
         "The line rate is fixed at 12.5 Mb/s (10 ns clock, OVERSAMPLE=8)."
     )
+    if chain == "rx":
+        print(
+            "RX chain mode: the edge schedule is the sliced analog waveform "
+            f"(channel tau={channel_cfg.get('tau_ui', 0.16)} UI, "
+            f"noise={profile.get('noise_rms_v', 0.0)} V rms, "
+            f"threshold={profile.get('threshold_v', 0.0)} V)."
+        )
     print(
         f"Profile: {profile['path']}; RJ={profile['rj_rms_ui']:.4f} UI rms; "
         f"DCD={profile['dcd_peak_ui']:.4f} UI; ppm={args.ppm:.1f}; "
@@ -478,7 +497,8 @@ def _cmd_jtol_rtl(args: argparse.Namespace) -> int:
     png_path = stem.with_suffix(".png")
     payload = {
         "model": "rtl-iverilog-cdr-adaptive",
-        "cdr": "cdr_adaptive OVERSAMPLE=8",
+        "cdr": "cdr_adaptive OVERSAMPLE=8" if chain == "cdr" else "serdes_rx_digital (CDR+sampler+deserializer)",
+        "chain": chain,
         "disclaimer": (
             "Real digital CDR, but no analog TX/RX, no PEX and no channel "
             "S-parameters. The edge schedule carries RJ/SJ/DCD/ppm only."
@@ -608,7 +628,7 @@ def _cmd_jtol(args: argparse.Namespace) -> int:
     print(
         "WARNING: no RTL, no CDR, no phase tracking and no lock model are used. "
         "lock_losses and bit_slips are zero placeholders; this is not an RTL "
-        "JTOL compliance result. The phase-2 cocotb/RTL hook is --model rtl."
+        "JTOL compliance result. A separate RTL path is available via --model rtl."
     )
     print(
         f"Profile: {profile['path']}; rate = {profile['rate_mbps']:.3f} Mb/s; "
@@ -781,6 +801,16 @@ def build_parser() -> argparse.ArgumentParser:
         choices=("analytic", "rtl"),
         default="analytic",
         help="analytic Gaussian-tail demo (phase 1) or the phase-2 RTL hook",
+    )
+    jtol.add_argument(
+        "--chain",
+        choices=("cdr", "rx"),
+        default="cdr",
+        help=(
+            "RTL path only: cdr = drive cdr_adaptive directly; "
+            "rx = drive the full serdes_rx_digital chain with the sliced "
+            "analog waveform (channel + AWGN) at 1 ns grid"
+        ),
     )
     jtol.add_argument("--bits", type=int, default=None, help="override profile n_bits")
     jtol.add_argument(

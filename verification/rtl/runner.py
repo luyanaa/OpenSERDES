@@ -23,11 +23,13 @@ from typing import Any
 
 import numpy as np
 
+from verification.channel.channel_impulse import RCReflectionChannel, nrz_waveform
 from verification.channel.jitter import build_tie
 from verification.patterns.prbs import prbs_bits
 
 ROOT = Path(__file__).resolve().parents[2]
-TB = Path(__file__).resolve().parent / "tb_cdr_jtol.sv"
+TB_CDR = Path(__file__).resolve().parent / "tb_cdr_jtol.sv"
+TB_RX = Path(__file__).resolve().parent / "tb_rx_jtol.sv"
 CDR_SOURCES = [ROOT / "rtl" / "cdr_adaptive.sv", ROOT / "rtl" / "cdr_sync.sv"]
 BUILD_DIR = ROOT / "build" / "verify"
 
@@ -55,10 +57,14 @@ class JtolResult:
         return asdict(self)
 
 
-def _compile_tb() -> Path:
+def _compile_tb(chain: str = "cdr") -> Path:
     BUILD_DIR.mkdir(parents=True, exist_ok=True)
-    binary = BUILD_DIR / "tb_cdr_jtol"
-    sources = [TB, *CDR_SOURCES]
+    if chain == "rx":
+        binary = BUILD_DIR / "tb_rx_jtol"
+        sources = [TB_RX, *sorted((ROOT / "rtl").glob("*.sv"))]
+    else:
+        binary = BUILD_DIR / "tb_cdr_jtol"
+        sources = [TB_CDR, *CDR_SOURCES]
     if binary.exists() and all(
         src.stat().st_mtime <= binary.stat().st_mtime for src in sources
     ):
@@ -109,6 +115,63 @@ def build_stimulus(
             "reduce stress or model lost bits explicitly"
         )
     return times
+
+
+def build_sliced_stimulus(
+    bits: np.ndarray,
+    ui_s: float,
+    *,
+    rj_rms_ui: float = 0.0,
+    sj_peak_ui: float = 0.0,
+    sj_freq_hz: float = 0.0,
+    dcd_peak_ui: float = 0.0,
+    ppm: float = 0.0,
+    noise_rms_v: float = 0.0,
+    channel_tau_ui: float = 0.16,
+    reflections: tuple[tuple[float, float], ...] = ((1.0, 0.20), (2.0, -0.08)),
+    threshold_v: float = 0.0,
+    seed: int = 2026,
+    grid_ns: float = 1.0,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Return (times_s, sliced_decisions) at a fine grid for the RX chain.
+
+    The analog waveform includes TIE jitter, the RC/reflection channel and
+    AWGN; the returned decisions are the comparator output, which is what the
+    RTL receives.  Sampling is on a ``grid_ns`` grid (default 1 ns) and only
+    transitions are written, keeping the event count manageable.
+    """
+    bits = np.asarray(bits, dtype=np.int8)
+    # The channel builder places boundary n at n + tie_n UI; ppm is added as a
+    # slow frequency offset through the nominal bit period.
+    ui_eff = ui_s * (1.0 + ppm * 1e-6)
+    sps = max(8, int(round(ui_eff * 1e9 / grid_ns)))
+    # Rebuild TIE for the effective UI so the SJ phase is in real time.
+    tie_eff, _ = build_tie(
+        bits, ui_eff,
+        rj_rms_ui=rj_rms_ui,
+        sj_peak_ui=sj_peak_ui,
+        sj_freq_hz=sj_freq_hz,
+        dcd_peak_ui=dcd_peak_ui,
+        rng=np.random.default_rng(seed),
+    )
+    wave = nrz_waveform(bits, sps, tie_ui=tie_eff / ui_eff)
+    channel = RCReflectionChannel(tau_ui=channel_tau_ui, reflections=reflections)
+    wave = channel.apply(wave, sps)
+    if noise_rms_v > 0.0:
+        noise_rng = np.random.default_rng(seed + 1)
+        wave = wave + noise_rng.normal(0.0, noise_rms_v, size=wave.size)
+    decisions = (wave >= threshold_v).astype(np.int8)
+    sample_times = np.arange(decisions.size, dtype=np.float64) * (ui_eff / sps)
+    # Keep only transitions plus the first sample.
+    change = np.empty(decisions.size, dtype=bool)
+    change[0] = True
+    change[1:] = decisions[1:] != decisions[:-1]
+    return sample_times[change], decisions[change]
+
+
+def _write_edges(path: Path, times_s: np.ndarray, bits: np.ndarray) -> None:
+    lines = [f"{int(round(t * 1e12))} {int(b)}" for t, b in zip(times_s, bits)]
+    path.write_text("\n".join(lines) + "\n")
 
 
 def _write_stimulus(path: Path, bits: np.ndarray, times_s: np.ndarray) -> None:
@@ -207,29 +270,54 @@ def run_rtl_jtol(
     ppm: float = 0.0,
     prbs_width: int = 15,
     seed: int = 2026,
+    chain: str = "cdr",
+    noise_rms_v: float = 0.0,
+    channel_tau_ui: float = 0.16,
+    threshold_v: float = 0.0,
     keep: bool = False,
 ) -> JtolResult:
     """Drive the RTL CDR with a jittered PRBS stream and analyse its output."""
     if nbits < 256:
         raise ValueError("nbits must be >= 256")
+    if chain not in ("cdr", "rx"):
+        raise ValueError("chain must be 'cdr' or 'rx'")
     ui_s = 1.0 / (rate_mbps * 1e6)
     expected = prbs_bits(prbs_width, nbits + 4096, seed=None)
-    times = build_stimulus(
-        expected,
-        ui_s,
-        rj_rms_ui=rj_rms_ui,
-        sj_peak_ui=sj_peak_ui,
-        sj_freq_hz=sj_freq_hz,
-        dcd_peak_ui=dcd_peak_ui,
-        ppm=ppm,
-        seed=seed,
-    )
-    binary = _compile_tb()
+    binary = _compile_tb(chain)
 
     tmp = Path(tempfile.mkdtemp(prefix="serdes_jtol_", dir=str(ROOT / "build" / "verify")))
     stim = tmp / "stim.txt"
     out = tmp / "rx_bits.txt"
-    _write_stimulus(stim, expected, times)
+    if chain == "rx":
+        # The analog channel is evaluated at a 1 ns grid; only sliced
+        # transitions are handed to the RTL.  The RX chain then samples and
+        # recovers the stream with its own CDR.
+        times, sliced = build_sliced_stimulus(
+            expected,
+            ui_s,
+            rj_rms_ui=rj_rms_ui,
+            sj_peak_ui=sj_peak_ui,
+            sj_freq_hz=sj_freq_hz,
+            dcd_peak_ui=dcd_peak_ui,
+            ppm=ppm,
+            noise_rms_v=noise_rms_v,
+            channel_tau_ui=channel_tau_ui,
+            threshold_v=threshold_v,
+            seed=seed,
+        )
+        _write_edges(stim, times, sliced)
+    else:
+        times = build_stimulus(
+            expected,
+            ui_s,
+            rj_rms_ui=rj_rms_ui,
+            sj_peak_ui=sj_peak_ui,
+            sj_freq_hz=sj_freq_hz,
+            dcd_peak_ui=dcd_peak_ui,
+            ppm=ppm,
+            seed=seed,
+        )
+        _write_stimulus(stim, expected, times)
 
     cmd = [
         "vvp",
@@ -295,6 +383,12 @@ def _main() -> int:
     ap.add_argument("--sj-freq-hz", type=float, default=0.0)
     ap.add_argument("--dcd-peak-ui", type=float, default=0.0)
     ap.add_argument("--ppm", type=float, default=0.0)
+    ap.add_argument("--chain", choices=("cdr", "rx"), default="cdr",
+                    help="cdr = cdr_adaptive only; rx = full serdes_rx_digital")
+    ap.add_argument("--noise-rms-v", type=float, default=0.0,
+                    help="AWGN at the slicer input for --chain rx")
+    ap.add_argument("--channel-tau-ui", type=float, default=0.16)
+    ap.add_argument("--threshold-v", type=float, default=0.0)
     ap.add_argument("--seed", type=int, default=2026)
     ap.add_argument("--keep", action="store_true")
     args = ap.parse_args()
@@ -307,6 +401,10 @@ def _main() -> int:
         dcd_peak_ui=args.dcd_peak_ui,
         ppm=args.ppm,
         seed=args.seed,
+        chain=args.chain,
+        noise_rms_v=args.noise_rms_v,
+        channel_tau_ui=args.channel_tau_ui,
+        threshold_v=args.threshold_v,
         keep=args.keep,
     )
     print(json.dumps(result.to_dict(), indent=2))
