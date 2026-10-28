@@ -100,7 +100,12 @@ clean short run can never claim BER=0.  `eye_margin_ui` is the 2-UI
 threshold-crossing width, not a BER contour.  `jtol_pass` requires every swept
 frequency to reach the configured peak amplitude with no lock losses.  The
 capability block records the profile SHA-256, chain, rate, ppm and git commit;
-`pvt_validated` is always false because no PVT/PEX model is bundled.
+The report separates `RTL_LINK_SMOKE` (short-run upper-bound evidence),
+`STATISTICAL_LINK_MODEL` and `MEASURED_LINK`; only the first is produced here.
+`pvt_validated` is always false.  The `ber` check is a 95 % upper bound
+(`3/N` for zero errors, Wilson otherwise), and JTOL points require both
+`bit_slips == 0` and `lock_losses == 0`; no short run is presented as a
+1e-12 guarantee.
 
 ## Conventions (read this before comparing numbers)
 

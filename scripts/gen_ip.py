@@ -1233,8 +1233,9 @@ def main() -> int:
         "required": ["lint", "sim", "synth"],
         "note": "Run make regress and scripts/qualify.py to record evidence.",
         "link_capability": {
-            "supported": False,
-            "reason": "no verification report; run make verify-link PACKAGE=<out>",
+            "evidence_level": "NONE",
+            "rtl_link_smoke_pass": False,
+            "reason": "no verification report; run make verify-link VERIFY_PACKAGE=<out>",
         },
     }
     manifest = {
@@ -1280,8 +1281,9 @@ def main() -> int:
             "note": "CLOCK_PORT is scalar; verify rx_clk enters the CTS clock set for target link.",
         },
         "link_capability": {
-            "supported": False,
-            "reason": "no verification report; run make verify-link PACKAGE=<out>",
+            "evidence_level": "NONE",
+            "rtl_link_smoke_pass": False,
+            "reason": "no verification report; run make verify-link VERIFY_PACKAGE=<out>",
         },
         "qualification": qualification,
         "files": sorted(str(p.relative_to(out)) for p in out.rglob("*") if p.is_file()),

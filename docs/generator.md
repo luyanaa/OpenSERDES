@@ -154,9 +154,11 @@ calibration/DFT integration exists.  `target: tx`/`rx` with
 `interface.data: axi4_stream` generates a real endpoint package.  The presets
 fail fast unless --allow-incomplete is passed, and the generated package
 explicitly records the missing blocks.  The generated manifest starts with
-`link_capability.supported = false`; `make verify-link VERIFY_PACKAGE=<out>` runs the
-SI/BER gate and only then records a validated rate and profile hash.  The
-generator itself never invents a link-rate claim.  The generated soc packages include
+`link_capability.evidence_level = NONE` and
+`rtl_link_smoke_pass = false`; `make verify-link VERIFY_PACKAGE=<out>` runs the
+bound SI/BER gate and only then records a validated rate, profile hash and the
+`RTL_LINK_SMOKE` evidence block.  The generator itself never invents a
+link-rate claim.  The generated soc packages include
 `serdes_bist.sv`, `bist_snapshot.sv` and the word BIST primitives.
 
 ## 5. Package layout

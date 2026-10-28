@@ -53,7 +53,7 @@ class TestGateBehavioral(unittest.TestCase):
             )
             self.assertEqual(proc.returncode, 1, proc.stdout + proc.stderr)
             report = json.loads(out.read_text())
-            self.assertFalse(report["capability"]["supported"])
+            self.assertFalse(report["capability"]["rtl_link_smoke_pass"])
             self.assertIn("ber", report["checks"])
             self.assertIn("jtol_pass", report["checks"])
             self.assertIn("eye_margin_ui", report["checks"])
@@ -76,15 +76,15 @@ class TestGateRtl(unittest.TestCase):
             out = Path(tmp) / "ber.json"
             proc = subprocess.run(
                 [sys.executable, str(SCRIPT), "--profile", str(PROFILE),
-                 "--out", str(out), "--bits", "4000", "--jtol-bits", "300",
+                 "--out", str(out), "--bits", "4000", "--jtol-bits", "1000",
                  "--jtol-freqs", "200000", "--jtol-amps", "0.05", "0.1",
                  "--jtol-min-amp-ui", "0.05", "--eye-bits", "2000",
-                 "--package", str(pkg)],
+                 "--ber-target", "5e-3", "--package", str(pkg)],
                 cwd=ROOT, text=True, capture_output=True,
             )
             self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
             report = json.loads(out.read_text())
-            self.assertTrue(report["capability"]["supported"])
+            self.assertTrue(report["capability"]["rtl_link_smoke_pass"])
             self.assertLessEqual(report["checks"]["ber"], report["ber_target"])
             self.assertTrue(report["checks"]["jtol_pass"])
             self.assertGreater(report["checks"]["eye_margin_ui"], 0.0)

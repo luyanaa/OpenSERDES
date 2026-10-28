@@ -38,6 +38,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from verification.analog.lut import load_lut, tx_tau_ns  # noqa: E402
+from verification.analysis.ber import confidence_interval  # noqa: E402
 from verification.analysis.eye import eye_metrics, fold_eye  # noqa: E402
 from verification.channel.channel_impulse import RCReflectionChannel, nrz_waveform  # noqa: E402
 from verification.channel.jitter import build_tie  # noqa: E402
@@ -144,19 +145,28 @@ def jtol_sweep(
                 words=words,
                 sync_len=sync_len,
             )
+            ber_upper = _upper95(int(point["errors"]), int(point["compared"]))
             row = {
                 "sj_freq_hz": float(freq),
                 "sj_amplitude_ui": float(amp),
                 "sj_peak_to_peak_ui": 2.0 * float(amp),
                 "ber": float(point["ber"]),
+                "ber_upper95": ber_upper,
                 "errors": int(point["errors"]),
                 "compared": int(point["compared"]),
                 "lock_losses": int(point["lock_losses"]),
                 "bit_slips": int(point["bit_slips"]),
                 "locked": bool(point["locked"]),
+                "confidence": 0.95,
+                "pass": bool(
+                    ber_upper <= ber_target
+                    and int(point["lock_losses"]) == 0
+                    and int(point["bit_slips"]) == 0
+                    and bool(point["locked"])
+                ),
             }
             rows.append(row)
-            if row["ber"] <= ber_target and row["lock_losses"] == 0 and row["locked"]:
+            if row["pass"]:
                 passing.append(row)
         best = max(passing, key=lambda r: r["sj_amplitude_ui"]) if passing else None
         per_freq[str(freq)] = {
@@ -167,9 +177,18 @@ def jtol_sweep(
                 best is not None and best["sj_amplitude_ui"] >= min_amp_ui
             ),
             "best_ber": None if best is None else float(best["ber"]),
+            "best_ber_upper95": None if best is None else float(best["ber_upper95"]),
         }
     ok = all(item["passes_min_amplitude"] for item in per_freq.values())
     return ok, rows, per_freq
+
+
+def _upper95(errors: int, n_bits: int) -> float:
+    """95 % binomial upper bound; zero errors use the 3/N rule."""
+    if n_bits <= 0:
+        return 1.0
+    _, upper = confidence_interval(int(errors), int(n_bits), level=0.95)
+    return float(upper)
 
 
 def load_package_binding(package: str | None, profile: dict[str, Any]) -> dict[str, Any]:
@@ -276,10 +295,8 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
         if nominal["compared"] == 0:
             ber_value = 1.0
             capability_reasons.append("no recovered bits")
-        elif nominal["errors"] == 0:
-            ber_value = 3.0 / nominal["compared"]
         else:
-            ber_value = float(nominal["ber"])
+            ber_value = _upper95(int(nominal["errors"]), int(nominal["compared"]))
 
         jtol_ok, jtol_rows, per_freq = jtol_sweep(
             profile,
@@ -298,7 +315,7 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
     ber_ok = ber_value <= args.ber_target
     nom_lock_ok = int(nominal["lock_losses"]) == 0
     binding_ok = bool(binding.get("bound"))
-    supported = bool(ber_ok and jtol_ok and eye_ok and nom_lock_ok and binding_ok)
+    smoke_pass = bool(ber_ok and jtol_ok and eye_ok and nom_lock_ok and binding_ok)
     if not ber_ok:
         capability_reasons.append(f"BER {ber_value:.3e} > {args.ber_target:.1e}")
     if not jtol_ok:
@@ -313,7 +330,8 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
     profile_path = Path(args.profile).resolve()
     checked_utc = datetime.now(timezone.utc).isoformat()
     capability = {
-        "supported": supported,
+        "evidence_level": "RTL_LINK_SMOKE" if smoke_pass else "NONE",
+        "rtl_link_smoke_pass": smoke_pass,
         "validated_rate_mbps": float(profile["rate_mbps"]),
         "profile": str(profile_path),
         "profile_sha256": _sha256(profile_path),
@@ -328,6 +346,25 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
             and str(lut_info.get("model_kind", "")).startswith("sky130-schematic")
         ),
         "analog_lut": lut_info,
+        "rtl_link_smoke": {
+            "available": True,
+            "pass": smoke_pass,
+            "n_bits": int(nominal.get("compared", 0)),
+            "ber_upper95": ber_value,
+            "ber_target": args.ber_target,
+            "confidence": 0.95,
+            "bit_slips": int(nominal.get("bit_slips", 0)),
+            "lock_losses": int(nominal.get("lock_losses", 0)),
+            "note": "Short RTL run; the reported BER is a 3/N or Wilson upper bound, not a low-BER guarantee.",
+        },
+        "statistical_link_model": {
+            "available": False,
+            "note": "Not run by this gate; the behavioral Gaussian-tail model is a separate evidence level.",
+        },
+        "measured_link": {
+            "available": False,
+            "note": "No silicon/measured-link evidence is bundled.",
+        },
         "reasons": capability_reasons,
         "checked_utc": checked_utc,
         "git_commit": _git_commit(),
@@ -412,7 +449,7 @@ def main() -> int:
     print(f"profile: {report['profile']}")
     print(f"checks: {json.dumps(report['checks'], sort_keys=True)}")
     print(f"validated rate: {capability['validated_rate_mbps']:.3f} Mb/s")
-    print(f"capability: {'PASS' if capability['supported'] else 'FAIL'}")
+    print(f"RTL_LINK_SMOKE: {'PASS' if capability['rtl_link_smoke_pass'] else 'FAIL'}")
     for reason in capability["reasons"]:
         print(f"  - {reason}")
     print(f"wrote {out}")
@@ -430,7 +467,7 @@ def main() -> int:
             print(f"updated {manifest_path}")
         print(f"wrote {reports / 'ber.json'}")
 
-    return 0 if capability["supported"] else 1
+    return 0 if capability["rtl_link_smoke_pass"] else 1
 
 
 if __name__ == "__main__":

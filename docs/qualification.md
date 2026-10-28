@@ -91,18 +91,26 @@ python3 scripts/verify_link.py --profile verification/profiles/stressed.yaml \
 
 With `--package` it writes `reports/ber.json` and updates
 `manifest.json`'s `link_capability`.  A package generated without this step
-keeps `link_capability.supported = false`; generation never invents a link
-claim.
+starts at `evidence_level: NONE`; generation never invents a link claim.
+`verify-link` requires `VERIFY_PACKAGE`: an unbound profile cannot raise the
+package's evidence level.
 
 The gate's checks are deliberately explicit:
 
 | Check | Definition |
 |---|---|
-| `ber` | RTL CDR/RX BER at the profile's nominal stress. If zero errors are seen, the value is the 95 % rule-of-three upper bound `3/N`, never 0. |
-| `jtol_pass` | Every swept SJ frequency reaches at least `--jtol-min-amp-ui` peak SJ at `--ber-target` with no lock losses. |
+| `ber` | 95 % upper bound at the nominal RTL stress: `3/N` for zero errors, Wilson upper bound otherwise. The empirical error count is retained separately. |
+| `jtol_pass` | Every swept SJ frequency reaches at least `--jtol-min-amp-ui` peak SJ with `ber_upper95 <= --ber-target`, `bit_slips == 0`, `lock_losses == 0`, and a locked run. |
 | `eye_margin_ui` | 0.5/99.5 threshold-crossing eye width from the 2-UI behavioral fold; not a BER contour. |
-| `capability.supported` | `ber` and `eye` thresholds pass, the JTOL mask passes, and the nominal run never loses lock. |
-| `capability.pvt_validated` | Always `false` in this repository: no PVT/transistor/PEX evidence is bundled. |
+| `capability.rtl_link_smoke_pass` | Short-run RTL smoke evidence: the upper-bound checks above plus the eye and binding checks pass. |
+| `capability.evidence_level` | `RTL_LINK_SMOKE` when the smoke gate passes; `NONE` otherwise. It is not a low-BER guarantee. |
+| `capability.statistical_link_model` | `available: false` unless a separate Gaussian-tail run is produced; never merged into the smoke result. |
+| `capability.measured_link` | Always unavailable: no silicon/measured-link evidence is bundled. |
+| `capability.pvt_validated` | Always `false`: no PVT/transistor/PEX evidence is bundled. |
+
+The short-run numbers are smoke evidence, not a claim that BER < 1e-12.  A
+zero-error observation at N bits only bounds BER by 3/N at 95 %; use
+`verification.analysis.ber.required_bits_for_ber()` to plan longer runs.
 
 `--analog-lut build/verify/sky130_lut.json --tx-load-ff 50` optionally replaces
 the profile channel tau with the TX rise-time tau from a sky130 schematic LUT
