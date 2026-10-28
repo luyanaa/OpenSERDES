@@ -159,6 +159,7 @@ $(BUILD)/tb_serdes_bist_word: tb/tb_serdes_bist_word.sv rtl/prbs_word_gen.sv rtl
 
 SIM_BINS := $(BUILD)/tb_serializer_lsb $(BUILD)/tb_serializer_msb \
             $(BUILD)/tb_serializer_capture $(BUILD)/tb_serializer_stream \
+            $(BUILD)/tb_serializer_hier_2to1 \
             $(BUILD)/tb_deserializer_lsb $(BUILD)/tb_deserializer_msb \
             $(BUILD)/tb_serdes_loopback_lsb $(BUILD)/tb_serdes_loopback_msb \
             $(BUILD)/tb_serdes_default $(BUILD)/tb_serdes_channel $(BUILD)/tb_channel \
