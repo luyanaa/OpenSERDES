@@ -261,6 +261,8 @@ verification/
   channel/channel_impulse.py    RC + reflection channel and NRZ builder
   channel/touchstone.py         S2P/S4P parser, mixed-mode Sdd21, impulse channel
   analog/pvt_runner.py          schematic corner x voltage x temperature LUT
+  analog/mc_runner.py           behavioral local-mismatch MC (not PDK MC)
+  analog/pex_characterize.py    external PEX netlist/LUT comparison
   channel/rx_slicer.py          ideal fixed-phase sampler + Q function
   analysis/eye.py               2-UI folding, eye height/width, plot
   analysis/bathtub.py           empirical phase and threshold scans

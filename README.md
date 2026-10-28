@@ -253,6 +253,8 @@ make verify-link VERIFY_PACKAGE=out/soc VERIFY_ANALOG_LUT=build/verify/sky130_lu
 make analog-lut ANALOG_TECH=sky130 PYTHON=/usr/bin/python3                                  # tech config 驱动，自动发现 ~/.ciel/ciel 的 sky130 PM3 模型
 make analog-tech-check ANALOG_TECH=sky130 PYTHON=/usr/bin/python3                           # 打印模型/Magic/KLayout 解析结果
 make sky130-pvt PYTHON=/usr/bin/python3                                                    # 45 点 corner x V x T LUT
+make sky130-mc PYTHON=/usr/bin/python3 MC_SAMPLES=20                                       # behavioral mismatch MC（非 PDK MC）
+make pex-compare SCHEM_LUT=... PEX_LUT=...                                                # PEX vs schematic LUT delta
 make analog-lut-demo PYTHON=/usr/bin/python3                                                # 无 PDK 时的 generic 自检（非 sky130）
 ```
 

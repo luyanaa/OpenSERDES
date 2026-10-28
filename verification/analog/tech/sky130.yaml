@@ -31,6 +31,18 @@ model:
 
 # PEX is not run by extract_lut.py yet.  These paths let the next phase find
 # the PDK's extraction tech without hard-coding a version hash.
+mc:
+  # This open_pdks tree exposes corner models but no verified statistical
+  # mismatch entry point was found/validated here.  Do not call behavioral
+  # offset injection PDK Monte Carlo.
+  status: unavailable
+  reason: >-
+    No verified PDK statistical/mismatch switch in this install.  Use
+    --mode behavioral for the explicitly-labeled offset-injection study.
+  behavioral:
+    sigma_nmos_v: 0.020
+    sigma_pmos_v: 0.020
+
 pex:
   status: available
   magic:

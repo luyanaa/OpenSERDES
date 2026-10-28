@@ -116,6 +116,43 @@ The output is `build/verify/sky130_pvt_lut.json` with rows such as
 `tx_rise_ns`, `tx_fall_ns`, `tx_swing_v`, `rx_tphl_ns`, `rx_tplh_ns`, plus the
 corner/voltage/temperature labels, ngspice version and git commit.
 
+## Monte Carlo
+
+`mc_runner.py` defaults to a **behavioral** local-mismatch study: independent
+series gate offsets for the NMOS/PMOS are sampled, and each sample records the
+joint offset + TX/RX measurement vector.  This is a screening/sensitivity tool,
+not a PDK statistical model.
+
+```bash
+make sky130-mc PYTHON=/usr/bin/python3 MC_SAMPLES=20
+python3 verification/analog/mc_runner.py --mode pdk --dry-run  # fails closed here
+```
+
+The PM3 tree ships mismatch corner parameters but no verified statistical
+switch was found in this installation, so `--mode pdk` refuses to run rather
+than relabeling behavioral offsets as PDK MC.  A single sample costs the same
+as a PVT point (two ngspice runs), so 20 samples is already a long local run.
+
+## PEX
+
+`pex_characterize.py` has two explicit modes:
+
+```bash
+# Compare an externally extracted PEX LUT against the schematic LUT
+make pex-compare SCHEM_LUT=build/verify/sky130_lut.json \
+  PEX_LUT=build/verify/sky130_pex_lut.json PEX_OUT=build/verify/pex_delta.json
+
+# Run the same TX/RX testbench on an extracted subcircuit netlist
+python3 verification/analog/pex_characterize.py --pex-netlist tx_pex.sp \
+  --top tx_driver --ports in=in,out=out,vdd=vdd,vss=vss \
+  --loads-ff 50 --out build/verify/tx_pex_lut.json
+```
+
+The PEX netlist must already be DRC/LVS-clean generated and carry its own
+models/parasitics.  This repository does not generate a GDS, run Magic
+`extresist` or claim post-layout signoff automatically; the Magic/KLayout paths
+are resolved by `--check-tools` for an explicit next step.
+
 ## Consuming the LUT
 
 ```python

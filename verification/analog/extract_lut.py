@@ -91,13 +91,19 @@ def version_dir(root: Path) -> Path | None:
     return None
 
 
-def _device_block(cfg: dict[str, Any], wn: float, wp: float, l_um: float) -> str:
+def _device_block(cfg: dict[str, Any], wn: float, wp: float, l_um: float,
+                  n_offset_v: float = 0.0, p_offset_v: float = 0.0) -> str:
     dev = cfg["devices"]
+    # Series gate offsets model local Vth mismatch.  Zero by default; the MC
+    # runner samples them explicitly.  This is not a PDK statistical model.
+    bias = f"Voff_n in_n in {n_offset_v}\nVoff_p in_p in {p_offset_v}\n"
     if dev["style"] == "subckt":
-        return (f"XMp out in vdd vdd {dev['pmos']} l={l_um}u w={wp}u nf=1\n"
-                f"XMn out in 0 0 {dev['nmos']} l={l_um}u w={wn}u nf=1")
-    return (f"Mp out in vdd vdd {dev['pmos']} W={wp}u L={l_um}u\n"
-            f"Mn out in 0 0 {dev['nmos']} W={wn}u L={l_um}u")
+        return (bias +
+                f"XMp out in_p vdd vdd {dev['pmos']} l={l_um}u w={wp}u nf=1\n"
+                f"XMn out in_n 0 0 {dev['nmos']} l={l_um}u w={wn}u nf=1")
+    return (bias +
+            f"Mp out in_p vdd vdd {dev['pmos']} W={wp}u L={l_um}u\n"
+            f"Mn out in_n 0 0 {dev['nmos']} W={wn}u L={l_um}u")
 
 
 def _tx_netlist(*, includes: str, devices: str, load_ff: float, edge_ps: float,
@@ -332,7 +338,11 @@ def extract(args: argparse.Namespace) -> dict[str, Any]:
     vdd = float(args.vdd if getattr(args, "vdd", None) is not None
                 else cfg.get("vdd_v", 1.8))
     temp_c = getattr(args, "temp_c", None)
-    devices = _device_block(cfg, wn, wp, l_um)
+    devices = _device_block(
+        cfg, wn, wp, l_um,
+        n_offset_v=float(getattr(args, "nmos_offset_v", 0.0)),
+        p_offset_v=float(getattr(args, "pmos_offset_v", 0.0)),
+    )
 
     tx_rows = []
     for load_ff in args.tx_loads_ff:
@@ -382,6 +392,8 @@ def extract(args: argparse.Namespace) -> dict[str, Any]:
         "vdd_v": vdd,
         "corner": str(getattr(args, "corner", cfg.get("default_corner", "tt"))),
         "temperature_c": temp_c,
+        "nmos_offset_v": float(getattr(args, "nmos_offset_v", 0.0)),
+        "pmos_offset_v": float(getattr(args, "pmos_offset_v", 0.0)),
         "pex": pex,
         "tx": {"loads_ff": [float(x) for x in args.tx_loads_ff], "rows": tx_rows},
         "rx": {"slews_ps": [float(x) for x in args.rx_slews_ps], "rows": rx_rows},
@@ -426,6 +438,10 @@ def main() -> int:
                     help="supply voltage override (default: tech vdd_v)")
     ap.add_argument("--temp-c", type=float, default=None,
                     help="ngspice .temp value in Celsius; omitted by default")
+    ap.add_argument("--nmos-offset-v", type=float, default=0.0,
+                    help="series NMOS gate offset (behavioral MC injection)")
+    ap.add_argument("--pmos-offset-v", type=float, default=0.0,
+                    help="series PMOS gate offset (behavioral MC injection)")
     ap.add_argument("--tx-edge-ps", type=float, default=50.0)
     ap.add_argument("--tx-loads-ff", type=float, nargs="*",
                     default=[10.0, 50.0, 100.0, 200.0])

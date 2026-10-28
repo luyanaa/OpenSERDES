@@ -28,6 +28,8 @@ PVT_CORNERS ?= tt ss ff sf fs
 PVT_VOLTAGES ?= 1.62 1.80 1.98
 PVT_TEMPERATURES ?= -40 25 100
 PVT_OUT ?= $(BUILD)/verify/sky130_pvt_lut.json
+MC_SAMPLES ?= 20
+MC_OUT ?= $(BUILD)/verify/sky130_mc.json
 VERIFY_TX_LOAD_FF ?= 50
 SKY130_LUT ?= $(BUILD)/verify/sky130_lut.json
 SKY130_TX_LOADS ?= 10 50 100 200
@@ -38,7 +40,7 @@ RTL   := $(wildcard rtl/*.sv)
 SV2V_DIR := $(BUILD)/sv2v
 SV2V_RTL := $(SV2V_DIR)/rtl.v
 
-.PHONY: all sim lint synth regress gen qualify signoff ppa-import clean si-eye si-bathtub si-jtol si-rtl-jtol verify-link analog-lut sky130-lut analog-lut-demo analog-tech-check sky130-pvt
+.PHONY: all sim lint synth regress gen qualify signoff ppa-import clean si-eye si-bathtub si-jtol si-rtl-jtol verify-link analog-lut sky130-lut analog-lut-demo analog-tech-check sky130-pvt sky130-mc pex-compare
 
 all: sim
 
@@ -261,6 +263,15 @@ sky130-pvt:
 	$(PYTHON) verification/analog/pvt_runner.py --tech sky130 \
 		--corners $(PVT_CORNERS) --voltages $(PVT_VOLTAGES) \
 		--temperatures $(PVT_TEMPERATURES) --out $(PVT_OUT)
+
+sky130-mc:
+	$(PYTHON) verification/analog/mc_runner.py --tech sky130 --samples $(MC_SAMPLES) --out $(MC_OUT)
+
+pex-compare:
+	@test -n "$(SCHEM_LUT)" -a -n "$(PEX_LUT)" || { \
+		echo "error: set SCHEM_LUT=<lut.json> PEX_LUT=<pex_lut.json>"; exit 1; }
+	$(PYTHON) verification/analog/pex_characterize.py \
+		--schematic-lut $(SCHEM_LUT) --pex-lut $(PEX_LUT) --out $(PEX_OUT)
 
 analog-tech-check:
 	$(PYTHON) verification/analog/extract_lut.py --tech $(ANALOG_TECH) --check-tools --out $(BUILD)/verify/$(ANALOG_TECH)_tech_check.json
