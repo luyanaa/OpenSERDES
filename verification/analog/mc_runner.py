@@ -85,8 +85,13 @@ def main() -> int:
     if args.mode == "pdk":
         mc = cfg.get("mc", {}) or {}
         if mc.get("status") != "available":
-            print(f"error: PDK Monte Carlo is not available for {args.tech}: "
+            print(f"error: global PDK Monte Carlo is not available for {args.tech}: "
                   f"{mc.get('reason', 'no verified statistical model')}", file=sys.stderr)
+            if mc.get("pdk_mismatch") == "available":
+                print("hint: use `python3 verification/analog/pdk_mc.py "
+                      "--mode mismatch` for the verified per-device PDK "
+                      "mismatch path; this runner's --mode pdk intentionally "
+                      "covers global MC only.", file=sys.stderr)
             return 2
         raise SystemExit("PDK MC path is not implemented; refusing to relabel behavioral samples")
     if shutil.which("ngspice") is None and not args.dry_run:

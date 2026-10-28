@@ -29,16 +29,23 @@ model:
     - cells/nfet_01v8/sky130_fd_pr__nfet_01v8__{corner}.pm3.spice
     - cells/pfet_01v8/sky130_fd_pr__pfet_01v8__{corner}.pm3.spice
 
-# PEX is not run by extract_lut.py yet.  These paths let the next phase find
-# the PDK's extraction tech without hard-coding a version hash.
+# Magic RC extraction is the supported PEX flow (see
+# verification/analog/magic_pex.py).  These paths let the extractor find the
+# PDK tech without hard-coding a version hash.
 mc:
-  # This open_pdks tree exposes corner models but no verified statistical
-  # mismatch entry point was found/validated here.  Do not call behavioral
-  # offset injection PDK Monte Carlo.
-  status: unavailable
+  # The sky130 ngspice library wires Spectre mismatch variables through
+  # mc_mm_switch; ngspice evaluates AGAUSS per device and honors `set seed`.
+  # Global process (mc_pr_switch) is not wired in this PDK/library and remains
+  # unavailable.  Do not call behavioral offset injection PDK Monte Carlo.
+  status: partial
+  pdk_mismatch: available
+  pdk_global: unavailable
+  runner: verification/analog/pdk_mc.py
   reason: >-
-    No verified PDK statistical/mismatch switch in this install.  Use
-    --mode behavioral for the explicitly-labeled offset-injection study.
+    True per-device PDK mismatch is available via mc_mm_switch=1 and a seeded
+    ngspice run.  mc_pr_switch=1 produces no variation in this install, so
+    global-process MC is fail-closed.  Behavioral offsets remain a separate,
+    explicitly labeled mode.
   behavioral:
     sigma_nmos_v: 0.020
     sigma_pmos_v: 0.020
@@ -55,6 +62,7 @@ pex:
     tech_rel: sky130A/libs.tech/klayout/tech/sky130A.lyt
     lyp_rel: sky130A/libs.tech/klayout/tech/sky130A.lyp
   note: >-
-    Magic/KLayout are installed; the schematic LUT flow does not consume PEX
-    yet.  A PEX netlist must be extracted explicitly and then passed to the
-    LUT flow before any post-layout claim is made.
+    Magic RC extraction is implemented in verification/analog/magic_pex.py;
+    the legacy Calibre RVE files are not translated.  PEX comparison is
+    explicit (make magic-pex-compare), not part of the schematic LUT flow.
+    No DRC/LVS signoff is implied.

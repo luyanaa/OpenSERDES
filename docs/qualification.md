@@ -106,7 +106,7 @@ The gate's checks are deliberately explicit:
 | `capability.evidence_level` | `RTL_LINK_SMOKE` when the smoke gate passes; `NONE` otherwise. It is not a low-BER guarantee. |
 | `capability.statistical_link_model` | `available: false` unless a separate Gaussian-tail run is produced; never merged into the smoke result. |
 | `capability.measured_link` | Always unavailable: no silicon/measured-link evidence is bundled. |
-| `capability.pvt_validated` | Always `false`: no PVT/transistor/PEX evidence is bundled. |
+| `capability.pvt_validated` | Always `false`: PVT/PEX/MC evidence is kept in separate reports and is not promoted into the RTL link capability. |
 
 The gate's `verification_config` is generated into the manifest by
 `gen_ip.py`; a missing field, a differing line rate/clock period, or a
@@ -124,7 +124,9 @@ drives the full `serdes_rx_digital` chain with the sliced analog waveform;
 `rx_par_data` scoring. The report
 records the profile SHA-256, rate, chain, ppm, BER target and git commit, so a
 claim can be traced to a specific profile and RTL revision. PVT, PEX and
-silicon correlation are still open.
+silicon correlation are still open.  sky130 PVT is in `docs/pvt_sky130.md`;
+the Magic PEX flow is in `docs/pex_status.md`; per-device PDK mismatch is in
+`docs/mc_pdk.md`.  Global-process MC and silicon correlation remain open.
 
 ## 4. Rules
 

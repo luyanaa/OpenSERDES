@@ -15,7 +15,7 @@ tech/           per-PDK profiles, arch_db.yaml and PDK_ROOT/PDK_LIB_ROOT setup
                (see tech/README.md)
 docs/           migration, clocking, pre-PnR STA, CDR/RX study,
                generator, qualification, standard-cell library selection,
-               library catalog, timing architecture, PVT/PEX status
+               library catalog, timing architecture, PVT/PEX/MC status
 legacy/rtl/     original serializer/deserializer sources, read-only
 ```
 
@@ -354,7 +354,7 @@ limits:
 - Scan/DFT、clock gating、BIST/calibration、DFT signoff。
 - 模拟 TX/RX 的 Verilog-A/RNM wrapper、PEX、SI/PI、jitter/BER、silicon correlation。
 - 目标 PDK 的 cellmap/floorplan/post-route signoff adapter；当前 `native_dff` 仍是文档字段，尚无自动 `dfflibmap` runner。
-- 标准单元目录/可用性见 [`docs/library_catalog.md`](docs/library_catalog.md)，结构优化路线见 [`docs/timing_optimization.md`](docs/timing_optimization.md)，sky130 PVT 证据见 [`docs/pvt_sky130.md`](docs/pvt_sky130.md)，PEX 状态见 [`docs/pex_status.md`](docs/pex_status.md)。
+- 标准单元目录/可用性见 [`docs/library_catalog.md`](docs/library_catalog.md)，结构优化路线见 [`docs/timing_optimization.md`](docs/timing_optimization.md)，sky130 PVT 证据见 [`docs/pvt_sky130.md`](docs/pvt_sky130.md)，PEX 状态见 [`docs/pex_status.md`](docs/pex_status.md)，PDK MC 见 [`docs/mc_pdk.md`](docs/mc_pdk.md)。
 
 ## 7. 原生 DFF 映射策略
 

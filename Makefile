@@ -29,6 +29,8 @@ PVT_VOLTAGES ?= 1.62 1.80 1.98
 PVT_TEMPERATURES ?= -40 25 100
 PVT_OUT ?= $(BUILD)/verify/sky130_pvt_lut.json
 PVT_MARGIN_OUT ?= $(BUILD)/verify/pvt_margin.json
+MAGIC_PEX_DIR ?= $(BUILD)/verify/magic_pex
+PDK_MC_OUT ?= $(BUILD)/verify/pdk_mc.json
 TIMING_LIB ?=
 TIMING_PERIOD_NS ?= 5.0
 TIMING_PERIOD2_NS ?= 10.0
@@ -48,7 +50,7 @@ RTL   := $(wildcard rtl/*.sv)
 SV2V_DIR := $(BUILD)/sv2v
 SV2V_RTL := $(SV2V_DIR)/rtl.v
 
-.PHONY: all sim lint synth regress gen qualify signoff ppa-import clean si-eye si-bathtub si-jtol si-rtl-jtol verify-link analog-lut sky130-lut analog-lut-demo analog-tech-check sky130-pvt pvt-margin sky130-mc pex-compare lib-catalog timing-compare
+.PHONY: all sim lint synth regress gen qualify signoff ppa-import clean si-eye si-bathtub si-jtol si-rtl-jtol verify-link analog-lut sky130-lut analog-lut-demo analog-tech-check sky130-pvt pvt-margin pdk-mc magic-pex magic-pex-compare sky130-mc pex-compare lib-catalog timing-compare
 
 all: sim
 
@@ -330,6 +332,29 @@ lib-catalog:
 
 pvt-margin:
 	$(PYTHON) scripts/pvt_margin.py --pvt $(PVT_OUT) --out $(PVT_MARGIN_OUT)
+
+pdk-mc:
+	$(PYTHON) verification/analog/pdk_mc.py --mode mismatch --samples 8 --out $(PDK_MC_OUT)
+
+magic-pex:
+	$(PYTHON) verification/analog/magic_pex.py --gds Inverter_Based_Tx/Inv_Transmitter.gds \
+		--cell Inv_Transmitter --ports GND,VDD,VIN,VOUT \
+		--out $(MAGIC_PEX_DIR)/Inv_Transmitter.pex.spice
+	$(PYTHON) verification/analog/magic_pex.py --gds Receiver_Bypassing_CDR/Receiver.gds \
+		--cell Receiver --ports GND,VDD,INP,CLK,OUT_B,OUT \
+		--out $(MAGIC_PEX_DIR)/Receiver.pex.spice
+
+magic-pex-compare: magic-pex
+	$(PYTHON) verification/analog/magic_pex_compare.py \
+		--pex $(MAGIC_PEX_DIR)/Inv_Transmitter.pex.spice \
+		--schematic Inverter_Based_Tx/Full_TX/Inv_Transmitter.sp \
+		--top Inv_Transmitter --mode tx --ports GND,VDD,VIN,VOUT \
+		--out $(MAGIC_PEX_DIR)/tx_compare.json
+	$(PYTHON) verification/analog/magic_pex_compare.py \
+		--pex $(MAGIC_PEX_DIR)/Receiver.pex.spice \
+		--schematic Receiver_Bypassing_CDR/Receiver.sp \
+		--top Receiver --mode rx --ports GND,VDD,INP,CLK,OUT_B,OUT \
+		--out $(MAGIC_PEX_DIR)/rx_compare.json
 
 analog-tech-check:
 	$(PYTHON) verification/analog/extract_lut.py --tech $(ANALOG_TECH) --check-tools --out $(BUILD)/verify/$(ANALOG_TECH)_tech_check.json
