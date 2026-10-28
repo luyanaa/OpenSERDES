@@ -1,5 +1,9 @@
 # Standard-cell library selection
 
+Generated inventory: [`library_catalog.md`](library_catalog.md) (run
+`make lib-catalog`; artifact presence is not signoff).  Timing architecture:
+[`timing_optimization.md`](timing_optimization.md).
+
 This note records the measured/observed trade-offs for the digital flow.  It is
 not a blanket PDK signoff; every candidate must still pass the project's
 DRC/LVS/STA gates.
@@ -134,6 +138,20 @@ flow-shaped than OCD.  Caveats:
 AS is therefore the best 3.3 V **evaluation** candidate, but not yet a
 production-proven flow library.
 
+## 3.1 GF180 3.3 V 7T/9T/12T availability
+
+The `/grid` inventory in `docs/library_catalog.md` shows the requested GF180
+3.3 V families as follows:
+
+| Requested | Found | Status |
+|---|---|---|
+| 7T 3.3 V | `gf180mcu_as_sc_mcu7t3v3` | evaluation; WiP; DRC/LVS evidence in this note |
+| 9T 3.3 V | no foundry `mcu9t3v3`; only `gf180mcu_osu_sc_gp9t3v3` | OSU LVS blocked |
+| 12T 3.3 V | `gf180mcu_ocd_sc_rt12t3v3`, `gf180mcu_osu_sc_gp12t3v3` | OCD small-cell candidate; OSU LVS blocked |
+
+The catalog counts modules, not characterized cells; do not treat "available"
+as "usable".  The 9T request has no foundry GF180 3.3 V library in `/grid`.
+
 ## 4. Additional Sky130 and IHP libraries
 
 ### Sky130 custom libraries
@@ -188,8 +206,10 @@ before using it for a commit or a tapeout-oriented flow.
 - AS 3.3 V: DRC clean; 102 functional cells LVS-clean, 21 physical-only
   unknowns, 0 failures; WiP and not yet naive-flow compatible — best 3.3 V
   evaluation candidate.
-- Sky130 custom `as_sc_hs`/OSU t12/t15: need DRC/LVS and reset-cell
-  integration; do not replace vendor `hs` yet.
+- Sky130 custom `as_sc_hs`/OSU t12/t15/t18: need DRC/LVS and reset-cell
+  integration; do not replace vendor `hs` yet.  The official `hdll/lp/ls/ms`
+  repos under `/grid` contain tech/model data but no complete
+  Liberty/LEF/GDS/Verilog cell set in this installation.
 - IHP EZ130 8T: measured +2.1 ns serializer advantage over `sg13g2_stdcell`;
   validation is the remaining gate.
 

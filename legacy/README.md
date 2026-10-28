@@ -8,9 +8,10 @@ how they map onto the new `rtl/` tree.
 
 The original layout/SPICE/GDS/PDF artifacts remain in their original folders at
 the repository root (`Serializer/`, `DeSerializer/`, `OverSampling_CDR/`,
-`Receiver_Bypassing_CDR/`, `DFF/`, `NAND/`, `Inverter_Based_Tx/`,
-`Resistive_FB_inverter/`).  They are not moved because they are large and are
-still the only physical evidence for the original Sky130 implementation.
+`Receiver_Bypassing_CDR/`, `Inverter_Based_Tx/`, `Resistive_FB_inverter/`).
+The custom `DFF/` and `NAND/` cells now live under `legacy/DFF/` and
+`legacy/NAND/`: they are provenance only and are no longer at the repository
+root.  The canonical digital flow uses PDK standard-cell flops and NANDs.
 
 ## Use rules
 

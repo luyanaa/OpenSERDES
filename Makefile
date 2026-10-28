@@ -40,7 +40,7 @@ RTL   := $(wildcard rtl/*.sv)
 SV2V_DIR := $(BUILD)/sv2v
 SV2V_RTL := $(SV2V_DIR)/rtl.v
 
-.PHONY: all sim lint synth regress gen qualify signoff ppa-import clean si-eye si-bathtub si-jtol si-rtl-jtol verify-link analog-lut sky130-lut analog-lut-demo analog-tech-check sky130-pvt sky130-mc pex-compare
+.PHONY: all sim lint synth regress gen qualify signoff ppa-import clean si-eye si-bathtub si-jtol si-rtl-jtol verify-link analog-lut sky130-lut analog-lut-demo analog-tech-check sky130-pvt sky130-mc pex-compare lib-catalog
 
 all: sim
 
@@ -272,6 +272,9 @@ pex-compare:
 		echo "error: set SCHEM_LUT=<lut.json> PEX_LUT=<pex_lut.json>"; exit 1; }
 	$(PYTHON) verification/analog/pex_characterize.py \
 		--schematic-lut $(SCHEM_LUT) --pex-lut $(PEX_LUT) --out $(PEX_OUT)
+
+lib-catalog:
+	$(PYTHON) scripts/library_catalog.py --out $(BUILD)/library_catalog.json --markdown $(BUILD)/library_catalog.md
 
 analog-tech-check:
 	$(PYTHON) verification/analog/extract_lut.py --tech $(ANALOG_TECH) --check-tools --out $(BUILD)/verify/$(ANALOG_TECH)_tech_check.json

@@ -14,7 +14,8 @@ scripts/        generator, regression and qualification gates
 tech/           per-PDK profiles, arch_db.yaml and PDK_ROOT/PDK_LIB_ROOT setup
                (see tech/README.md)
 docs/           migration, clocking, pre-PnR STA, CDR/RX study,
-               generator, qualification, standard-cell library selection
+               generator, qualification, standard-cell library selection,
+               library catalog, timing architecture
 legacy/rtl/     original serializer/deserializer sources, read-only
 ```
 
@@ -321,6 +322,7 @@ limits:
 - Scan/DFT、clock gating、BIST/calibration、DFT signoff。
 - 模拟 TX/RX 的 Verilog-A/RNM wrapper、PEX、SI/PI、jitter/BER、silicon correlation。
 - 目标 PDK 的 cellmap/floorplan/post-route signoff adapter；当前 `native_dff` 仍是文档字段，尚无自动 `dfflibmap` runner。
+- 标准单元目录/可用性见 [`docs/library_catalog.md`](docs/library_catalog.md)，结构优化路线见 [`docs/timing_optimization.md`](docs/timing_optimization.md)。
 
 ## 7. 原生 DFF 映射策略
 
@@ -338,6 +340,8 @@ limits:
 | icsprout55 H7CR (RVT) | `DFFRQX2H7R` | 7T；Top 550 个；`unmapped=0` |
 
 不使用 OpenSERDES 的 NAND 主从 DFF / 自定义 DFF 作为数字标准单元。
+原始 `DFF/` 和 `NAND/` 物理单元已移入 `legacy/DFF/`、`legacy/NAND/`，只作
+provenance；默认数字流程使用 PDK 标准单元 DFF/NAND。
 
 icsprout55 的三种库都是 **7-track**（cell height 1.4 µm，M1 pitch 0.2 µm）：
 
