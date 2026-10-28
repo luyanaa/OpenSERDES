@@ -115,6 +115,14 @@ PRBS7/15/31 串行 generator/checker，带 sticky `error`、`error_count` 和 `b
 
 ### `rtl/axis_tx_adapter.sv` / `rtl/axis_rx_adapter.sv`
 
+### `rtl/serializer_half_rate.sv`
+
+Half-rate TX 原型：`clk_word` 负责捕获/握手，`clk_bit = 2*clk_word` 逐 bit 输出；
+request/acknowledge 跨两个时钟域。与 `serializer_stream` 位精确对照（8x4/16x4/
+32x8/5x3、LSB/MSB、40 帧）。sky130 HD TT 5 ns bit clock 下 worst slack
+**0.658 ns**（baseline 0.406 ns，约 +0.25 ns）。仍是原型，未接入 SoC/generator，
+`enable` 和完整 RX half-rate 状态机待补。
+
 ### `rtl/serializer_hier_2to1.sv`
 
 `serializer_stream` 的位精确 2:1 分级 word 选择树原型：接口/握手/输出时序相同，

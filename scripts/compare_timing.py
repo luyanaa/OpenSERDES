@@ -40,14 +40,18 @@ def synthesize(top: str, liberty: Path, rtl: Path, work: Path) -> Path:
 
 
 def worst_slack(top: str, liberty: Path, netlist: Path, period_ns: float,
-                work: Path) -> float | None:
+                work: Path, clock_port: str = "clk",
+                clock_port2: str | None = None,
+                period2_ns: float | None = None) -> float | None:
     tcl = work / f"{top}.tcl"
     tcl.write_text(
         f"read_liberty {liberty}\n"
         f"read_verilog {netlist}\n"
         f"link_design {top}\n"
-        f"create_clock -name clk -period {period_ns} [get_ports clk]\n"
-        "report_checks -path_delay max -format summary -digits 3\n"
+        f"create_clock -name {clock_port} -period {period_ns} [get_ports {clock_port}]\n"
+        + (f"create_clock -name {clock_port2} -period {period2_ns} [get_ports {clock_port2}]\n"
+           if clock_port2 and period2_ns else "")
+        + "report_checks -path_delay max -format summary -digits 3\n"
     )
     out = _run(["sta", "-no_init", "-exit", str(tcl)])
     slacks = []
@@ -64,6 +68,9 @@ def main() -> int:
     ap.add_argument("--rtl", default=str(ROOT / "rtl/serializer_stream.sv"))
     ap.add_argument("--tops", nargs="*", default=["serializer_stream", "serializer_hier_2to1"])
     ap.add_argument("--period-ns", type=float, default=5.0)
+    ap.add_argument("--clock-port", default="clk")
+    ap.add_argument("--clock-port2", default=None)
+    ap.add_argument("--period2-ns", type=float, default=None)
     ap.add_argument("--out", default="build/timing_compare.json")
     args = ap.parse_args()
     for tool in ("yosys", "sta"):
@@ -77,7 +84,8 @@ def main() -> int:
             rtl = (Path(args.rtl) if top == "serializer_stream"
                    else ROOT / "rtl" / f"{top}.sv")
             netlist = synthesize(top, liberty, rtl, work)
-            slack = worst_slack(top, liberty, netlist, args.period_ns, work)
+            slack = worst_slack(top, liberty, netlist, args.period_ns, work,
+                                args.clock_port, args.clock_port2, args.period2_ns)
             rows.append({"top": top, "period_ns": args.period_ns, "worst_slack_ns": slack})
             print(f"{top:28s} period={args.period_ns:g} ns slack={slack}")
     out = Path(args.out)

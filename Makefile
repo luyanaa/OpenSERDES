@@ -30,6 +30,7 @@ PVT_TEMPERATURES ?= -40 25 100
 PVT_OUT ?= $(BUILD)/verify/sky130_pvt_lut.json
 TIMING_LIB ?=
 TIMING_PERIOD_NS ?= 5.0
+TIMING_PERIOD2_NS ?= 10.0
 TIMING_OUT ?= $(BUILD)/timing_compare.json
 MC_SAMPLES ?= 20
 MC_OUT ?= $(BUILD)/verify/sky130_mc.json
@@ -71,6 +72,9 @@ $(BUILD)/tb_serializer_stream: tb/tb_serializer_stream.sv rtl/serializer_stream.
 	$(IVERILOG) -g2012 -Wall -o $@ $^
 
 $(BUILD)/tb_serializer_hier_2to1: tb/tb_serializer_hier_2to1.sv rtl/serializer_stream.sv rtl/serializer_hier_2to1.sv | $(BUILD)
+	$(IVERILOG) -g2012 -Wall -o $@ $^
+
+$(BUILD)/tb_serializer_half_rate: tb/tb_serializer_half_rate.sv rtl/serializer_stream.sv rtl/serializer_half_rate.sv | $(BUILD)
 	$(IVERILOG) -g2012 -Wall -o $@ $^
 
 $(BUILD)/tb_deserializer_lsb: tb/tb_deserializer.sv rtl/deserializer_word.sv rtl/deserializer.sv | $(BUILD)
@@ -159,7 +163,7 @@ $(BUILD)/tb_serdes_bist_word: tb/tb_serdes_bist_word.sv rtl/prbs_word_gen.sv rtl
 
 SIM_BINS := $(BUILD)/tb_serializer_lsb $(BUILD)/tb_serializer_msb \
             $(BUILD)/tb_serializer_capture $(BUILD)/tb_serializer_stream \
-            $(BUILD)/tb_serializer_hier_2to1 \
+            $(BUILD)/tb_serializer_hier_2to1 $(BUILD)/tb_serializer_half_rate \
             $(BUILD)/tb_deserializer_lsb $(BUILD)/tb_deserializer_msb \
             $(BUILD)/tb_serdes_loopback_lsb $(BUILD)/tb_serdes_loopback_msb \
             $(BUILD)/tb_serdes_default $(BUILD)/tb_serdes_channel $(BUILD)/tb_channel \
@@ -179,6 +183,7 @@ sim: $(SIM_BINS)
 	$(VVP) $(BUILD)/tb_serializer_capture
 	$(VVP) $(BUILD)/tb_serializer_stream
 	$(VVP) $(BUILD)/tb_serializer_hier_2to1
+	$(VVP) $(BUILD)/tb_serializer_half_rate
 	$(VVP) $(BUILD)/tb_deserializer_lsb
 	$(VVP) $(BUILD)/tb_deserializer_msb
 	$(VVP) $(BUILD)/tb_serdes_loopback_lsb
@@ -217,6 +222,7 @@ lint:
 	$(VERILATOR) --lint-only -Wall --top-module cdr_adaptive $(RTL)
 	$(VERILATOR) --lint-only -Wall --top-module serializer_stream $(RTL)
 	$(VERILATOR) --lint-only -Wall --top-module serializer_hier_2to1 $(RTL)
+	$(VERILATOR) --lint-only -Wall --top-module serializer_half_rate $(RTL)
 	$(VERILATOR) --lint-only -Wall --top-module comma_align $(RTL)
 	$(VERILATOR) --lint-only -Wall --top-module apb_csr $(RTL)
 	$(VERILATOR) --lint-only -Wall --top-module async_fifo $(RTL)
@@ -239,6 +245,7 @@ synth: $(SV2V_RTL)
 	$(YOSYS) -q -p "read_verilog $(SV2V_RTL); synth -top serializer; stat"
 	$(YOSYS) -q -p "read_verilog $(SV2V_RTL); synth -top serializer_stream; stat"
 	$(YOSYS) -q -p "read_verilog $(SV2V_RTL); synth -top serializer_hier_2to1; stat"
+	$(YOSYS) -q -p "read_verilog $(SV2V_RTL); synth -top serializer_half_rate; stat"
 	$(YOSYS) -q -p "read_verilog $(SV2V_RTL); synth -top deserializer; stat"
 	$(YOSYS) -q -p "read_verilog $(SV2V_RTL); synth -top cdr_oversampling; stat"
 	$(YOSYS) -q -p "read_verilog $(SV2V_RTL); synth -top cdr_adaptive; stat"
@@ -287,7 +294,12 @@ timing-compare:
 	@test -n "$(TIMING_LIB)" || { \
 		echo "error: set TIMING_LIB=<liberty file>"; exit 1; }
 	$(PYTHON) scripts/compare_timing.py --liberty $(TIMING_LIB) \
+		--tops serializer_stream serializer_hier_2to1 \
 		--period-ns $(TIMING_PERIOD_NS) --out $(TIMING_OUT)
+	$(PYTHON) scripts/compare_timing.py --liberty $(TIMING_LIB) \
+		--tops serializer_half_rate --period-ns $(TIMING_PERIOD_NS) \
+		--clock-port clk_bit --clock-port2 clk_word \
+		--period2-ns $(TIMING_PERIOD2_NS) --out $(TIMING_OUT).half
 
 lib-catalog:
 	$(PYTHON) scripts/library_catalog.py --out $(BUILD)/library_catalog.json --markdown $(BUILD)/library_catalog.md

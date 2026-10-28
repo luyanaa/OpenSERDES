@@ -121,12 +121,38 @@ correctness/reference step.  A measurable gain requires one of:
 
 Do not claim a timing optimization from the mux-tree prototype alone.
 
+## 4.2 Half-rate prototype result
+
+`rtl/serializer_half_rate.sv` adds a true two-clock prototype:
+
+- `clk_word` captures `WORDS` words and owns the input handshake;
+- `clk_bit = 2 * clk_word` emits one bit per bit clock;
+- a level request/acknowledge crosses the two domains; `data_q` is stable
+  before the bit domain starts;
+- the serial stream is bit-exact against `serializer_stream` for 8x4, 16x4,
+  32x8 and 5x3, LSB/MSB, 40 frames.
+
+sky130 HD TT mapping at a 5 ns bit clock (10 ns word clock) gives:
+
+| Variant | Worst register-to-register slack |
+|---|---:|
+| `serializer_stream` (full rate) | 0.406 ns |
+| `serializer_hier_2to1` (mux tree only) | 0.406 ns |
+| `serializer_half_rate` (word + 2x bit) | **0.658 ns** |
+
+The half-rate prototype gains about **0.25 ns** at this point.  This is a
+structural gain, not a library swap.  It is still a prototype: the clock-phase
+contract, reset ordering, `enable` semantics, SoC/generator wiring, and the
+full RX half-rate scoreboard remain to be integrated before a rate-mode claim.
+
 ## 5. Recommendation
 
 1. Keep full-rate one-hot as the correctness baseline.
 2. Implement **2:1 hierarchical MUX TX** first, with an optional generator
    field and a bit-exact scoreboard.
-3. Then add half-rate TX/RX; only after that evaluate quarter-rate.
+3. Integrate the half-rate TX prototype into the generator (`rate_mode`),
+   then add the matching RX half-rate sampler/scoreboard; only after that
+   evaluate quarter-rate.
 4. Treat a custom SA-FF/TSPC sampler as a late, separate analog/custom block.
 5. Re-run standard-cell mapping (`dfflibmap`/ABC) and DFF/NAND cell checks on
    every candidate library; structure and library choice must be evaluated
