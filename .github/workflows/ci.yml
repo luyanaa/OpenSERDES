@@ -1,0 +1,46 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  rtl-and-verification:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install EDA tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y iverilog verilator yosys python3-pip
+
+      - name: Install Python dependencies
+        run: |
+          python3 -m pip install --upgrade pip
+          python3 -m pip install -r requirements.txt -r verification/requirements.txt
+
+      - name: RTL simulation (self-checking testbenches)
+        run: make sim PYTHON=python3
+
+      - name: Verilator lint
+        run: make lint
+
+      - name: Yosys generic synthesis
+        run: make synth
+
+      - name: Regression matrix and generator packages
+        run: make regress PYTHON=python3
+
+      - name: SI/BER framework tests (includes RTL CDR/RX JTOL)
+        run: python3 -m unittest discover -s verification/tests -v
+
+      - name: Link capability gate
+        run: make verify-link PYTHON=python3
+
+      - name: Upload gate report
+        uses: actions/upload-artifact@v4
+        with:
+          name: link-verification
+          path: build/verify/ber.json
