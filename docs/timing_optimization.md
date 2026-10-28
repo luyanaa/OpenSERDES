@@ -145,14 +145,37 @@ structural gain, not a library swap.  It is still a prototype: the clock-phase
 contract, reset ordering, `enable` semantics, SoC/generator wiring, and the
 full RX half-rate scoreboard remain to be integrated before a rate-mode claim.
 
+## 4.3 Half-rate RX pair prototype
+
+`rtl/deserializer_half_rate.sv` is the RX counterpart that consumes two serial
+bits per `clk_word` and builds the word bank at the word clock.  The DDR/2-phase
+sampler, CDR and comma alignment are deliberately outside this prototype.
+
+`tb_deserializer_half_rate` feeds the expected serial pairs directly and
+reconstructs 8x4, 16x4 and 32x8 frames (LSB/MSB, 50 randomized frames); the
+word/bit order and `par_valid` pulse match the source frame.  The pair geometry
+requires an even number of serial bits per frame; an odd `DATA_WIDTH*WORDS`
+needs an explicit one-bit-valid contract, which is not yet implemented.
+
+sky130 HD TT mapping:
+
+| Variant | Clock | Worst slack |
+|---|---|---:|
+| `deserializer` (full-rate bank) | 5 ns bit clock | 2.843 ns |
+| `deserializer_half_rate` (pair bank) | 10 ns word clock | 6.866 ns |
+
+The periods differ because the RX prototype only covers the parallel bank; the
+sampler still sees every UI.  Do not compare these as end-to-end RX latency or
+as a complete half-rate RX claim.
+
 ## 5. Recommendation
 
 1. Keep full-rate one-hot as the correctness baseline.
 2. Implement **2:1 hierarchical MUX TX** first, with an optional generator
    field and a bit-exact scoreboard.
 3. Integrate the half-rate TX prototype into the generator (`rate_mode`),
-   then add the matching RX half-rate sampler/scoreboard; only after that
-   evaluate quarter-rate.
+   then add the matching DDR/2-phase RX sampler and scoreboard; only after
+   that evaluate quarter-rate.
 4. Treat a custom SA-FF/TSPC sampler as a late, separate analog/custom block.
 5. Re-run standard-cell mapping (`dfflibmap`/ABC) and DFF/NAND cell checks on
    every candidate library; structure and library choice must be evaluated

@@ -123,6 +123,14 @@ request/acknowledge 跨两个时钟域。与 `serializer_stream` 位精确对照
 **0.658 ns**（baseline 0.406 ns，约 +0.25 ns）。仍是原型，未接入 SoC/generator，
 `enable` 和完整 RX half-rate 状态机待补。
 
+### `rtl/deserializer_half_rate.sv`
+
+Half-rate RX 原型的并行 bank：每个 `clk_word` 接收 2 bit（bit0 先、bit1 后），
+word/bit 计数和 `par_valid` 在 word clock 运行；DDR/2-phase sampler、CDR 和
+comma alignment 不在该原型内。`tb_deserializer_half_rate` 覆盖 8x4/16x4/32x8、
+LSB/MSB、50 帧。sky130 HD TT 10 ns word clock 下 worst slack 6.866 ns
+（full-rate deserializer 5 ns 为 2.843 ns；周期不同，不能当作端到端 RX 结论）。
+
 ### `rtl/serializer_hier_2to1.sv`
 
 `serializer_stream` 的位精确 2:1 分级 word 选择树原型：接口/握手/输出时序相同，

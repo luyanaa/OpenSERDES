@@ -26,10 +26,12 @@ def _run(cmd: list[str], cwd: Path | None = None) -> str:
     return proc.stdout
 
 
-def synthesize(top: str, liberty: Path, rtl: Path, work: Path) -> Path:
+def synthesize(top: str, liberty: Path, rtl: Path, work: Path,
+               extra_rtl: list[str] | None = None) -> Path:
     netlist = work / f"{top}.v"
+    extras = " ".join(extra_rtl or [])
     script = (
-        f"read_verilog -sv {rtl}; "
+        f"read_verilog -sv {rtl} {extras}; "
         f"synth -top {top} -flatten; "
         f"dfflibmap -liberty {liberty}; "
         f"abc -liberty {liberty}; "
@@ -66,6 +68,7 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--liberty", required=True)
     ap.add_argument("--rtl", default=str(ROOT / "rtl/serializer_stream.sv"))
+    ap.add_argument("--extra-rtl", nargs="*", default=[])
     ap.add_argument("--tops", nargs="*", default=["serializer_stream", "serializer_hier_2to1"])
     ap.add_argument("--period-ns", type=float, default=5.0)
     ap.add_argument("--clock-port", default="clk")
@@ -83,7 +86,7 @@ def main() -> int:
         for top in args.tops:
             rtl = (Path(args.rtl) if top == "serializer_stream"
                    else ROOT / "rtl" / f"{top}.sv")
-            netlist = synthesize(top, liberty, rtl, work)
+            netlist = synthesize(top, liberty, rtl, work, args.extra_rtl)
             slack = worst_slack(top, liberty, netlist, args.period_ns, work,
                                 args.clock_port, args.clock_port2, args.period2_ns)
             rows.append({"top": top, "period_ns": args.period_ns, "worst_slack_ns": slack})
