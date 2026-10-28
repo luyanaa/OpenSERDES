@@ -37,6 +37,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from verification.analog.lut import load_lut, tx_tau_ns  # noqa: E402
 from verification.analysis.eye import eye_metrics, fold_eye  # noqa: E402
 from verification.channel.channel_impulse import RCReflectionChannel, nrz_waveform  # noqa: E402
 from verification.channel.jitter import build_tie  # noqa: E402
@@ -161,6 +162,22 @@ def jtol_sweep(
 
 def build_report(args: argparse.Namespace) -> dict[str, Any]:
     profile = load_profile(args.profile)
+    lut_info = None
+    if args.analog_lut:
+        lut = load_lut(args.analog_lut)
+        tau_ns = tx_tau_ns(lut, args.tx_load_ff)
+        if tau_ns is None:
+            raise RuntimeError("analog LUT has no TX rise time for the requested load")
+        tau_ui = tau_ns / (profile["ui_s"] * 1e9)
+        profile["channel"]["tau_ui"] = tau_ui
+        lut_info = {
+            "path": str(Path(args.analog_lut).resolve()),
+            "model_kind": lut.get("model_kind"),
+            "pdk": lut.get("pdk"),
+            "load_ff": args.tx_load_ff,
+            "tau_ns": tau_ns,
+            "tau_ui": tau_ui,
+        }
     if not args.skip_rtl and shutil.which("iverilog") is None:
         raise RuntimeError(
             "iverilog/vvp are required for the RTL gate; install them or pass "
@@ -232,6 +249,10 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
         "ppm": args.ppm,
         "pvt_validated": False,
         "pvt_note": "No PVT or transistor-level model is bundled; PVT is not claimed.",
+        "analog_model_validated": bool(
+            lut_info is not None and lut_info.get("model_kind") == "sky130-schematic"
+        ),
+        "analog_lut": lut_info,
         "reasons": capability_reasons,
         "checked_utc": checked_utc,
         "git_commit": _git_commit(),
@@ -297,6 +318,11 @@ def main() -> int:
     ap.add_argument("--jtol-amps", type=float, nargs="*",
                     default=[0.05, 0.10, 0.20, 0.40])
     ap.add_argument("--ppm", type=float, default=0.0)
+    ap.add_argument("--analog-lut", default=None,
+                    help="optional LUT from verification/analog/extract_lut.py; "
+                         "replaces the profile channel tau with the TX rise-time tau")
+    ap.add_argument("--tx-load-ff", type=float, default=50.0,
+                    help="load used to interpolate the analog LUT (default 50 fF)")
     ap.add_argument("--skip-rtl", action="store_true",
                     help="behavioral-only report; capability is always false")
     args = ap.parse_args()

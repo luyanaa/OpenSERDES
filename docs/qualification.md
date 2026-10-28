@@ -102,8 +102,12 @@ The gate's checks are deliberately explicit:
 | `capability.supported` | `ber` and `eye` thresholds pass, the JTOL mask passes, and the nominal run never loses lock. |
 | `capability.pvt_validated` | Always `false` in this repository: no PVT/transistor/PEX evidence is bundled. |
 
-`--chain rx` (default) drives the full `serdes_rx_digital` chain with the sliced
-analog waveform; `--chain cdr` drives `cdr_adaptive` directly. The report
+`--analog-lut build/verify/sky130_lut.json --tx-load-ff 50` optionally replaces
+the profile channel tau with the TX rise-time tau from a sky130 schematic LUT
+and records the LUT metadata in the capability block.  `--chain rx` (default)
+drives the full `serdes_rx_digital` chain with the sliced analog waveform;
+`--chain cdr` drives `cdr_adaptive` directly; `--chain frame` adds comma-framed
+`rx_par_data` scoring. The report
 records the profile SHA-256, rate, chain, ppm, BER target and git commit, so a
 claim can be traced to a specific profile and RTL revision. PVT, PEX and
 silicon correlation are still open.

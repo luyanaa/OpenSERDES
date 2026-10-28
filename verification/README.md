@@ -75,6 +75,16 @@ profile rate).
 | Does the real CDR track the jitter? | `rtl/runner.py` + `rtl/tb_cdr_jtol.sv` | iverilog drives `rtl/cdr_adaptive.sv` with a jittered PRBS edge schedule; Python computes BER/bit slips from recovered bits |
 | How do I run a standard scenario? | `profiles/*.yaml` + `cli.py` | Stable YAML schema and `eye`/`bathtub`/`jtol` commands |
 
+## sky130 schematic LUT
+
+`verification/analog/extract_lut.py` sweeps a sky130 inverter TX driver over
+load capacitance and an inverter RX slicer over input slew with ngspice.  It
+refuses placeholder model files; set `SKY130_MODEL` to a real
+`sky130_fd_pr` model card.  `--demo` is a generic level-1 smoke test and is
+labelled non-sky130.  `lut.py` maps TX rise time to an RC tau and RX delay to a
+sampling-delay term; `verify_link.py --analog-lut ...` consumes the TX tau.
+No PEX, corners or Monte Carlo are included.
+
 ## Capability gate
 
 `scripts/verify_link.py` combines the behavioral eye with the RTL JTOL sweep and
@@ -241,6 +251,8 @@ verification/
   rtl/tb_rx_jtol.sv             iverilog TB: sliced analog -> serdes_rx_digital
   rtl/tb_rx_frame_jtol.sv       framed PRBS -> rx_par_data/frame_valid scoreboard
   rtl/runner.py                 compile/run/analyse RTL CDR/RX/frame, BER and slips
+  analog/extract_lut.py         sky130 schematic TX/RX LUT via ngspice
+  analog/lut.py                 LUT loader, rise->tau and RX delay helpers
   profiles/*.yaml               clean / stressed / worst_case
   cli.py                        eye / bathtub / jtol commands
   tests/                        PRBS, jitter, bathtub, BER and RTL-JTOL tests

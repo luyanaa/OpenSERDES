@@ -16,11 +16,13 @@ PPA_OUT  ?= tech/ppa_measured.yaml
 VERIFY_PROFILE ?= verification/profiles/stressed.yaml
 VERIFY_OUT     ?= $(BUILD)/verify/ber.json
 VERIFY_PACKAGE ?=
+SKY130_MODEL ?=
+SKY130_LUT ?= $(BUILD)/verify/sky130_lut.json
 
 BUILD := build
 RTL   := $(wildcard rtl/*.sv)
 
-.PHONY: all sim lint synth regress gen qualify signoff ppa-import clean si-eye si-bathtub si-jtol si-rtl-jtol verify-link
+.PHONY: all sim lint synth regress gen qualify signoff ppa-import clean si-eye si-bathtub si-jtol si-rtl-jtol verify-link sky130-lut analog-lut-demo
 
 all: sim
 
@@ -217,6 +219,12 @@ synth:
 	$(YOSYS) -q -p "read_verilog -sv rtl/bist_snapshot.sv rtl/cdc_sync.sv; synth -top bist_snapshot; stat"
 	$(YOSYS) -q -p "read_verilog -sv rtl/prbs_word_gen.sv rtl/prbs_word_check.sv; synth -top prbs_word_check; stat"
 	$(YOSYS) -q -p "read_verilog -sv $(RTL); synth -top serdes_digital_top; stat"
+
+sky130-lut:
+	$(PYTHON) verification/analog/extract_lut.py $(if $(SKY130_MODEL),--model $(SKY130_MODEL),) --out $(SKY130_LUT)
+
+analog-lut-demo:
+	$(PYTHON) verification/analog/extract_lut.py --demo --out $(BUILD)/verify/analog_lut_demo.json
 
 verify-link:
 	$(PYTHON) scripts/verify_link.py --profile $(VERIFY_PROFILE) --out $(VERIFY_OUT) \
