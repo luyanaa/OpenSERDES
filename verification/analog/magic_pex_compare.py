@@ -52,12 +52,12 @@ def convert_schematic(src: Path, out: Path) -> dict[str, Any]:
             w = wm.group(1) if wm else "1"
             body.append(f"X{name} {d} {g} {s} {b} {model} l={l} w={w}")
             mos += 1
-        elif line.startswith("X") and re.search(r"(DFF|Inverter|NAND)", line):
-            # Keep only real macro child instances; drop $[nwdiode] and
-            # other legacy schematic-only helper calls.
-            body.append(line.split("$T=")[0].rstrip())
         elif line.startswith("X"):
-            continue
+            # Keep real child instances, including the pfet_CDNS helper.
+            # Drop only schematic-only parasitic/diode pseudo-instances.
+            if "$[" in line or "nwdiode" in line:
+                continue
+            body.append(line.split("$T=")[0].rstrip())
         elif re.match(r"^\s*\.end\s*$", line, re.I):
             continue
         else:
@@ -96,14 +96,18 @@ Cload out 0 {load_ff}f
                 "RX port order must be GND,VDD,INP,CLK,OUT_B,OUT, "
                 f"got {ports}"
             )
-        drive = f"""Vin in 0 PULSE(0 {{VDD}} 0.1n 20p 20p 2n 4n)
-Vclk clk 0 PULSE(0 {{VDD}} 0 20p 20p 1n 2n)
+        # Clocked receiver: one data-high window and one data-low window so
+        # both the rising and falling clock-to-output paths are exercised.
+        drive = f"""Vin in 0 PWL(0 0 0.1n 0 0.11n {{VDD}} 2.1n {{VDD}} 2.11n 0 4n 0)
+Vclk clk 0 PULSE(0 {{VDD}} 0.5n 20p 20p 1n 2n)
 Xdut {' '.join(order)} {top}
 Cload out 0 {load_ff}f
 Cloadb out_b 0 {load_ff}f
 """
-        meas = f""".meas tran tphl trig v(in) val={VDD*0.5} rise=1 targ v(out) val={VDD*0.5} fall=1
-.meas tran tplh trig v(in) val={VDD*0.5} fall=1 targ v(out) val={VDD*0.5} rise=1
+        meas = f""".meas tran tco_rise trig v(clk) val={VDD*0.5} rise=1 targ v(out) val={VDD*0.5} rise=1
+.meas tran tco_fall trig v(clk) val={VDD*0.5} rise=2 targ v(out) val={VDD*0.5} fall=1
+.meas tran tco_b_rise trig v(clk) val={VDD*0.5} rise=1 targ v(out_b) val={VDD*0.5} rise=1
+.meas tran tco_b_fall trig v(clk) val={VDD*0.5} rise=2 targ v(out_b) val={VDD*0.5} fall=1
 """
         save = "v(out) v(out_b) v(in) v(clk)"
     else:
@@ -133,21 +137,34 @@ def _read_waves(path: Path) -> tuple[np.ndarray, dict[str, np.ndarray]]:
         arr = arr.reshape(1, -1)
     if arr.shape[1] < 2:
         return np.array([]), {}
-    # wr_singlescale gives time followed by vectors, but vector names may be
-    # repeated by ngspice; take the first occurrence of each desired column.
-    time = arr[:, 0]
+    # ngspice wrdata writes (time, value) pairs for every requested vector.
+    # A single vector therefore has 2 columns; four vectors have 8.  Keep the
+    # first time base and align each value to it.
+    if arr.shape[1] == 2:
+        return arr[:, 0], {"out": arr[:, 1]}
+    if arr.shape[1] % 2 != 0:
+        return arr[:, 0], {"out": arr[:, 1]}
     names = ["out", "out_b", "in", "clk"]
+    time = arr[:, 0]
     waves: dict[str, np.ndarray] = {}
     for idx, name in enumerate(names):
-        col = 1 + idx
-        if col < arr.shape[1]:
-            waves[name] = arr[:, col]
+        tcol = 2 * idx
+        vcol = tcol + 1
+        if vcol >= arr.shape[1]:
+            break
+        if tcol != 0 and not np.allclose(arr[:, tcol], time, rtol=0.0, atol=0.0):
+            # Keep a vector only if its time base matches; otherwise the
+            # wrdata layout was different and a silent misalignment would be
+            # worse than omitting it.
+            continue
+        waves[name] = arr[:, vcol]
     return time, waves
 
 
 def _measure(text: str) -> dict[str, float | None]:
     out: dict[str, float | None] = {}
-    for key in ("vmax", "vmin", "trise", "tfall", "tphl", "tplh"):
+    for key in ("vmax", "vmin", "trise", "tfall", "tphl", "tplh",
+                "tco_rise", "tco_fall", "tco_b_rise", "tco_b_fall"):
         m = re.search(rf"^{key}\s*=\s*([-+0-9.eE]+)", text, re.M)
         out[key] = float(m.group(1)) if m else None
     return out

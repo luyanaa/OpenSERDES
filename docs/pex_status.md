@@ -21,12 +21,14 @@ records delay and waveform deltas.
 | Macro | GDS | Magic counts | PEX result |
 |---|---|---|---|
 | TX | `Inverter_Based_Tx/Inv_Transmitter.gds` | 39 devices, 317 R, 6 C | rise 58.7 ps, fall 53.3 ps at 50 fF |
-| RX | `Receiver_Bypassing_CDR/Receiver.gds` | 76 devices, 5170 R, 16 C | simulation completes; waveform compared |
+| RX | `Receiver_Bypassing_CDR/Receiver.gds` | 76 devices, ~5.1k R, 16 C | clock-to-Q fall 1.224 ns PEX vs 1.197 ns schematic; OUT_B rise 3.156 vs 3.138 ns |
 
 The TX schematic (legacy `nshort`/`pshort` converted to sky130 devices) gives
 12.9 ps / 11.6 ps rise/fall in the same testbench, so the extracted RC network
 is the dominant difference.  The comparison also reports a delay-aware
-cross-correlation lag (TX: 81.8 ps) and the residual after shifting.  The
+cross-correlation lag (TX: 81.8 ps) and the residual after shifting.  For the
+clocked RX, the valid comparison is the clock-to-output edge: PEX `tco_fall`
+1.224 ns vs schematic 1.197 ns and `OUT_B` rise 3.156 ns vs 3.138 ns.  The
 PEX/schematic comparison JSON is generated at
 `build/verify/magic_pex/tx_compare.json` and `rx_compare.json`.
 

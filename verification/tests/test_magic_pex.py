@@ -3,7 +3,7 @@ import unittest
 from pathlib import Path
 
 from verification.analog.magic_pex import _clean_body, gds_read_path
-from verification.analog.magic_pex_compare import convert_schematic
+from verification.analog.magic_pex_compare import _read_waves, convert_schematic
 from verification.analog.pdk_mc import MODES, _netlist, parse_statistics
 
 
@@ -57,6 +57,17 @@ class TestMagicPexHelpers(unittest.TestCase):
             parsed = parse_statistics(p)
             self.assertEqual(parsed["process"][0]["name"], "cnwvc")
             self.assertEqual(parsed["mismatch"][0]["std"], 1.5)
+
+    def test_wrdata_pair_columns(self) -> None:
+        import numpy as np
+        with tempfile.TemporaryDirectory() as tmp:
+            p = Path(tmp) / "wave.dat"
+            t = np.array([0.0, 1e-12, 2e-12])
+            np.savetxt(p, np.column_stack([t, 0.1 * t, t, 0.2 * t, t, 0.3 * t, t, 0.4 * t]))
+            time, waves = _read_waves(p)
+            self.assertEqual(time.size, 3)
+            self.assertAlmostEqual(float(waves["out_b"][1]), 2e-13)
+            self.assertAlmostEqual(float(waves["clk"][2]), 8e-13)
 
     def test_pdk_mc_switch_netlist(self) -> None:
         self.assertTrue(MODES["mismatch"][1] == 1)
