@@ -58,7 +58,7 @@ DESIGN_FILES = {
     ],
     "serdes_soc_wrapper": [
         "apb_csr.sv", "bist_snapshot.sv", "cdc_sync.sv", "serdes_bist.sv",
-        "prbs_gen.sv", "prbs_check.sv",
+        "prbs_gen.sv", "prbs_check.sv", "prbs_word_gen.sv", "prbs_word_check.sv",
         "axis_tx_adapter.sv", "serializer_stream.sv",
         "serdes_tx_axis_digital.sv", "axis_rx_adapter.sv",
         "deserializer_word.sv", "deserializer.sv", "cdr_sync.sv",

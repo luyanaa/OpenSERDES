@@ -44,7 +44,8 @@ module tb_serdes_soc_wrapper;
 
     always @(posedge clk) cyc++;
 
-    assign rx_serial_in = tx_serial_out;
+    logic inject_bit;
+    assign rx_serial_in = tx_serial_out ^ inject_bit;
 
     serdes_soc_wrapper #(
         .DATA_WIDTH(DW), .WORDS(WORDS), .LSB_FIRST(1'b1),
@@ -188,10 +189,12 @@ module tb_serdes_soc_wrapper;
         logic [31:0] bcnt;
         logic [31:0] bc1;
         logic [31:0] bstat;
+        logic        snap_ok;
         int          c0;
         int          c1;
         int          dcyc;
         int          dbits;
+        int          stamp;
         clk           = 1'b0;
         rst_n         = 1'b0;
         paddr         = '0;
@@ -203,6 +206,7 @@ module tb_serdes_soc_wrapper;
         s_axis_tdata  = '0;
         s_axis_tlast  = 1'b0;
         m_axis_tready = 1'b0;
+        inject_bit    = 1'b0;
         errors        = 0;
         cyc           = 0;
         payload       = 32'h0123_4567;
@@ -349,6 +353,58 @@ module tb_serdes_soc_wrapper;
                 $display("ERROR: loopback RX tlast wrong at word %0d", w);
                 errors++;
             end
+        end
+
+        // ------------------------------------------------------------------
+        // Word/datapath BIST: PRBS payload through serializer + RX core.
+        // ------------------------------------------------------------------
+        apb_write(16'h0000, 32'h0000_0000);
+        apb_write(16'h0020, 32'h0000_0047); // enable|start|clear|word_mode
+        apb_write(16'h0020, 32'h0000_0043); // enable|start|word_mode
+        repeat (1200) @(posedge clk);
+
+        bist_snapshot(32'h0000_0043, ecnt, bc1, bstat, stamp);
+        if (!bstat[2] || !bstat[8] || bstat[9]) begin
+            $display("ERROR: word BIST status=%h expected valid+word_mode, no error",
+                     bstat);
+            errors++;
+        end
+        apb_read(16'h0034, ecnt); // word bit errors
+        apb_read(16'h0038, bc1);  // word frames
+        if (ecnt != 32'd0) begin
+            $display("ERROR: word BIST clean error_count=%0d", ecnt);
+            errors++;
+        end
+        if (bc1 < 32'd8) begin
+            $display("ERROR: word BIST only %0d frames", bc1);
+            errors++;
+        end
+
+        // Corrupt the serial stream for long enough to hit payload bits.
+        @(negedge clk); inject_bit = 1'b1;
+        repeat (200) @(posedge clk);
+        @(negedge clk); inject_bit = 1'b0;
+        repeat (400) @(posedge clk);
+        bist_snapshot(32'h0000_0043, ecnt, bc1, bstat, stamp);
+        if (!bstat[9]) begin
+            $display("ERROR: word BIST injection not observed status=%h", bstat);
+            errors++;
+        end
+        apb_read(16'h0034, ecnt);
+        if (ecnt == 32'd0) begin
+            $display("ERROR: word BIST error_count still 0 after injection");
+            errors++;
+        end
+
+        // Clear while paused.
+        apb_write(16'h0020, 32'h0000_0044); // word_mode|clear, start=0
+        bist_snapshot(32'h0000_0044, ecnt, bc1, bstat, stamp);
+        apb_read(16'h0034, ecnt);
+        apb_read(16'h0038, bc1);
+        if (bstat[9] || ecnt != 32'd0 || bc1 != 32'd0) begin
+            $display("ERROR: word BIST clear failed status=%h err=%0d frames=%0d",
+                     bstat, ecnt, bc1);
+            errors++;
         end
 
         if (errors != 0) begin

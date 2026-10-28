@@ -82,6 +82,7 @@ module serdes_soc_wrapper #(
 
     localparam int TX_WORDS = WORDS + 1;
     localparam int RX_WORDS = WORDS;
+    localparam logic [DATA_WIDTH-1:0] BIST_COMMA = DATA_WIDTH'(SYNC_PATTERN);
 
     localparam logic [2:0] BIST_WIDTH_CODE =
         (BIST_PRBS_WIDTH == 7)  ? 3'b001 :
@@ -113,6 +114,8 @@ module serdes_soc_wrapper #(
     logic        bist_clear;
     logic        bist_inject;
     logic        bist_loopback;
+    logic        bist_word_mode;
+    logic        bist_pad_mode;
     logic        bist_snapshot_req;
     logic        bist_serial_out;
     logic        bist_check_in;
@@ -125,6 +128,29 @@ module serdes_soc_wrapper #(
     logic        bist_running_snap;
     logic [31:0] bist_error_count_snap;
     logic [31:0] bist_bit_count_snap;
+
+    // Word/datapath BIST (AXIS-level PRBS frame source and sink).
+    logic        bist_word_valid;
+    logic        bist_word_ready;
+    logic        bist_word_last;
+    logic [DATA_WIDTH-1:0] bist_word_data;
+    logic        tx_axis_tvalid;
+    logic        tx_axis_tready;
+    logic [DATA_WIDTH-1:0] tx_axis_tdata;
+    logic        tx_axis_tlast;
+    logic        rx_axis_tvalid;
+    logic        rx_axis_tready;
+    logic [DATA_WIDTH-1:0] rx_axis_tdata;
+    logic        rx_axis_tlast;
+    logic        bist_word_error;
+    logic [31:0] bist_word_error_count;
+    logic [31:0] bist_word_frame_count;
+    logic        bist_word_snap_valid;
+    logic        bist_word_error_snap;
+    logic        bist_word_running_snap;
+    logic [31:0] bist_word_error_count_snap;
+    logic [31:0] bist_word_frame_count_snap;
+    logic        bist_snap_valid_all;
 
     // Core-side serial signals, muxed with the BIST datapath.
     logic        tx_core_serial_out;
@@ -147,6 +173,8 @@ module serdes_soc_wrapper #(
     assign bist_inject       = csr_regs[8][3];
     assign bist_loopback     = csr_regs[8][4];
     assign bist_snapshot_req = csr_regs[8][5];
+    assign bist_word_mode    = csr_regs[8][6];
+    assign bist_pad_mode     = bist_enable & ~bist_word_mode;
 
     assign status = {
         22'b0,
@@ -155,12 +183,13 @@ module serdes_soc_wrapper #(
         tx_busy, s_axis_tready
     };
 
-    // BIST owns the serial line while enabled; the normal cores are held off.
-    assign tx_core_enable = tx_enable & ~bist_enable;
-    assign rx_core_enable = rx_enable & ~bist_enable;
+    // Pad-level BIST owns the serial line and parks the cores.  Word BIST
+    // keeps the cores alive and injects/checks at the AXIS boundary instead.
+    assign tx_core_enable = (tx_enable | bist_word_mode) & ~bist_pad_mode;
+    assign rx_core_enable = (rx_enable | bist_word_mode) & ~bist_pad_mode;
 
-    assign tx_serial_out   = bist_enable ? bist_serial_out   : tx_core_serial_out;
-    assign tx_serial_valid = bist_enable ? bist_start        : tx_core_serial_valid;
+    assign tx_serial_out   = bist_pad_mode ? bist_serial_out   : tx_core_serial_out;
+    assign tx_serial_valid = bist_pad_mode ? bist_start        : tx_core_serial_valid;
     assign rx_core_serial_in = bist_loopback ? tx_serial_out : rx_serial_in;
 
     // Checker injection flips the monitored bit without touching the generator.
@@ -171,16 +200,21 @@ module serdes_soc_wrapper #(
         csr_ro = '0;
         csr_ro[10] = bist_error_count_snap;
         csr_ro[11] = bist_bit_count_snap;
-        csr_ro[12] = {24'b0, BIST_WIDTH_CODE, bist_inject, bist_loopback,
-                      bist_snap_valid, bist_running_snap, bist_error_snap};
+        csr_ro[12] = {21'b0, bist_word_running_snap, bist_word_error_snap,
+                      bist_word_mode, BIST_WIDTH_CODE, bist_inject, bist_loopback,
+                      bist_snap_valid_all, bist_running_snap, bist_error_snap};
+        csr_ro[13] = bist_word_error_count_snap;
+        csr_ro[14] = bist_word_frame_count_snap;
     end
+
+    assign bist_snap_valid_all = bist_snap_valid & bist_word_snap_valid;
 
     apb_csr #(
         .NUM_REGS(16),
         .DATA_WIDTH(32),
         .ADDR_WIDTH(16),
         .STATUS_IDX(7),
-        .RO_MASK(16'b0001_1100_0000_0000)
+        .RO_MASK(16'b0111_1100_0000_0000)
     ) u_csr (
         .pclk(clk),
         .presetn(rst_n),
@@ -197,6 +231,32 @@ module serdes_soc_wrapper #(
         .ro_i(csr_ro)
     );
 
+    // -------------------------------------------------------------------------
+    // Word/datapath BIST: AXIS-level PRBS frame source and sink.
+    // -------------------------------------------------------------------------
+    prbs_word_gen #(
+        .WIDTH(BIST_PRBS_WIDTH),
+        .DATA_WIDTH(DATA_WIDTH),
+        .WORDS(WORDS),
+        .SEED(BIST_SEED),
+        .COMMA(BIST_COMMA)
+    ) u_bist_word_gen (
+        .clk(clk),
+        .rst_n(rst_n),
+        .start(bist_start & bist_word_mode),
+        .clear(bist_clear),
+        .in_valid(bist_word_valid),
+        .in_ready(bist_word_ready),
+        .in_word(bist_word_data),
+        .in_last(bist_word_last)
+    );
+
+    assign tx_axis_tvalid = bist_word_mode ? bist_word_valid : s_axis_tvalid;
+    assign tx_axis_tdata  = bist_word_mode ? bist_word_data  : s_axis_tdata;
+    assign tx_axis_tlast  = bist_word_mode ? bist_word_last  : s_axis_tlast;
+    assign s_axis_tready  = bist_word_mode ? 1'b0 : tx_axis_tready;
+    assign bist_word_ready = bist_word_mode ? tx_axis_tready : 1'b0;
+
     serdes_tx_axis_digital #(
         .DATA_WIDTH(DATA_WIDTH),
         .WORDS(TX_WORDS),
@@ -206,10 +266,10 @@ module serdes_soc_wrapper #(
         .tx_rst_n(rst_n),
         .tx_enable(tx_core_enable),
         .tx_clear(tx_clear),
-        .s_axis_tvalid(s_axis_tvalid),
-        .s_axis_tready(s_axis_tready),
-        .s_axis_tdata(s_axis_tdata),
-        .s_axis_tlast(s_axis_tlast),
+        .s_axis_tvalid(tx_axis_tvalid),
+        .s_axis_tready(tx_axis_tready),
+        .s_axis_tdata(tx_axis_tdata),
+        .s_axis_tlast(tx_axis_tlast),
         .tx_serial_out(tx_core_serial_out),
         .tx_serial_valid(tx_core_serial_valid),
         .tx_busy(tx_busy),
@@ -235,10 +295,10 @@ module serdes_soc_wrapper #(
         .rx_align(1'b0),
         .rx_serial_in(rx_core_serial_in),
         .rx_clear(rx_clear),
-        .m_axis_tvalid(m_axis_tvalid),
-        .m_axis_tready(m_axis_tready),
-        .m_axis_tdata(m_axis_tdata),
-        .m_axis_tlast(m_axis_tlast),
+        .m_axis_tvalid(rx_axis_tvalid),
+        .m_axis_tready(rx_axis_tready),
+        .m_axis_tdata(rx_axis_tdata),
+        .m_axis_tlast(rx_axis_tlast),
         .rx_lock(rx_lock),
         .rx_lock_stale(rx_lock_stale),
         .rx_frame_locked(rx_frame_locked),
@@ -252,13 +312,38 @@ module serdes_soc_wrapper #(
         .rx_clk_out(rx_clk_out)
     );
 
+    // In word-BIST mode the RX AXIS frame is consumed by the checker instead
+    // of the external m_axis port.  The checker is always ready.
+    assign m_axis_tvalid  = bist_word_mode ? 1'b0 : rx_axis_tvalid;
+    assign m_axis_tdata   = rx_axis_tdata;
+    assign m_axis_tlast   = rx_axis_tlast;
+    assign rx_axis_tready = bist_word_mode ? 1'b1 : m_axis_tready;
+
+    prbs_word_check #(
+        .WIDTH(BIST_PRBS_WIDTH),
+        .DATA_WIDTH(DATA_WIDTH),
+        .WORDS(WORDS),
+        .SEED(BIST_SEED),
+        .COMMA(BIST_COMMA)
+    ) u_bist_word_check (
+        .clk(clk),
+        .rst_n(rst_n),
+        .clear(bist_clear),
+        .word_valid(rx_axis_tvalid & bist_word_mode),
+        .word_last(rx_axis_tlast),
+        .word_in(rx_axis_tdata),
+        .error(bist_word_error),
+        .error_count(bist_word_error_count),
+        .frame_count(bist_word_frame_count)
+    );
+
     serdes_bist #(
         .WIDTH(BIST_PRBS_WIDTH),
         .SEED(BIST_SEED)
     ) u_bist (
         .clk(clk),
         .rst_n(rst_n),
-        .start(bist_start),
+        .start(bist_start & bist_pad_mode),
         .clear(bist_clear),
         .serial_out(bist_serial_out),
         .serial_in(bist_check_in),
@@ -283,7 +368,26 @@ module serdes_soc_wrapper #(
         .error_count_i(bist_error_count),
         .bit_count_i(bist_bit_count),
         .error_i(bist_error),
-        .running_i(bist_start & bist_enable)
+        .running_i(bist_start & bist_pad_mode)
+    );
+
+    bist_snapshot #(
+        .WIDTH(32)
+    ) u_bist_word_snapshot (
+        .pclk(clk),
+        .presetn(rst_n),
+        .req(bist_snapshot_req),
+        .valid(bist_word_snap_valid),
+        .error_count_o(bist_word_error_count_snap),
+        .bit_count_o(bist_word_frame_count_snap),
+        .error_o(bist_word_error_snap),
+        .running_o(bist_word_running_snap),
+        .clk(clk),
+        .rst_n(rst_n),
+        .error_count_i(bist_word_error_count),
+        .bit_count_i(bist_word_frame_count),
+        .error_i(bist_word_error),
+        .running_i(bist_start & bist_word_mode)
     );
 
 endmodule

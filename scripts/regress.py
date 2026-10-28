@@ -98,6 +98,7 @@ CASES = [
     ("serdes_bist7", "tb_serdes_bist", ["rtl/serdes_bist.sv", "rtl/prbs_gen.sv", "rtl/prbs_check.sv"], {"WIDTH": 7}),
     ("serdes_bist15", "tb_serdes_bist", ["rtl/serdes_bist.sv", "rtl/prbs_gen.sv", "rtl/prbs_check.sv"], {"WIDTH": 15}),
     ("serdes_bist31", "tb_serdes_bist", ["rtl/serdes_bist.sv", "rtl/prbs_gen.sv", "rtl/prbs_check.sv"], {"WIDTH": 31}),
+    ("serdes_bist_word", "tb_serdes_bist_word", ["rtl/prbs_word_gen.sv", "rtl/prbs_word_check.sv", "rtl/serializer_stream.sv", "rtl/deserializer.sv", "rtl/deserializer_word.sv"], {}),
 ]
 
 
