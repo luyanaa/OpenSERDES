@@ -246,7 +246,10 @@ python -m verification.cli bathtub --profile verification/profiles/stressed.yaml
 python -m verification.cli jtol    --profile verification/profiles/stressed.yaml --out build/verify/jtol.json --model analytic
 python -m verification.rtl.runner  --nbits 800 --sj-peak-ui 0.2 --sj-freq-hz 500000   # 真实 cdr_adaptive
 python -m verification.rtl.runner  --nbits 600 --chain rx --noise-rms-v 0.12      # 完整 serdes_rx_digital + 模拟信道切片
+make verify-link PACKAGE=out/soc PYTHON=/usr/bin/python3                            # capability gate -> reports/ber.json
 ```
+
+`make verify-link` 把 eye/bathtub/JTOL 结果写成 qualification 可消费的 `ber.json`，并把 `link_capability` 写回 package manifest；没有通过该 gate 的 package 始终保持 `supported=false`。PVT/PEX 目前不在声明范围内。
 
 `verification/` 把三类问题分开：2-UI eye / eye metrics、固定相位或固定阈值扫描的经验 BER bathtub（0 误码只报 3/N 上界，不报 BER=0）、以及 Gaussian 尾部统计 BER。`jtol --model analytic` 是明确标注的固定相位演示，不含 CDR；`verification.rtl.runner` 用 iverilog 驱动真实 RTL：`--chain cdr` 直接驱动 `cdr_adaptive`，`--chain rx` 把 Python 模拟信道（ISI + AWGN + 阈值）切片后的码流送入完整 `serdes_rx_digital` 链，统计实际恢复比特的 BER、bit slip 与 lock loss。它仍不是模拟 TX/RX、PEX 或晶体管级模型；详见 `verification/README.md`。
 

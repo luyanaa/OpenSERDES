@@ -114,9 +114,14 @@ def collect(package: Path, reports: Path) -> dict:
             checks[key] = value
 
     ber = load_json(reports / "ber.json")
+    # Accept both the legacy flat form and the richer verify_link form, which
+    # nests the qualification checks under "checks".
+    ber_checks = ber.get("checks", {}) if isinstance(ber.get("checks"), dict) else {}
     for key in ("ber", "jtol_pass", "eye_margin_ui"):
         if key in ber:
             checks[key] = ber[key]
+        elif key in ber_checks:
+            checks[key] = ber_checks[key]
 
     metrics = load_json(reports / "metrics.json")
     checks.update(metrics.get("checks", {}))

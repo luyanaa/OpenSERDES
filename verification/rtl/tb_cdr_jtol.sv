@@ -53,7 +53,15 @@ module tb_cdr_jtol;
     logic locked_once;
     int scan_cycles;
 
-    always #5 clk = ~clk;
+    real half_ns;
+
+    initial begin
+        half_ns = 5.0;
+        if (!$value$plusargs("HALF_NS=%f", half_ns))
+            half_ns = 5.0;
+    end
+
+    always #(half_ns) clk = ~clk;
 
     cdr_adaptive #(
         .OVERSAMPLE(OS),

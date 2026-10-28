@@ -52,10 +52,11 @@ The default profile is `verification/profiles/stressed.yaml`.
 ``rtl/cdr_adaptive.sv`` directly with a jittered edge schedule; ``--chain rx``
 drives the full ``rtl/serdes_rx_digital.sv`` chain (CDR + sampler +
 deserializer) with the *sliced analog waveform*: the Python channel model adds
-ISI and AWGN at a 1 ns grid, thresholds it, and the RTL recovers bits from that
-binary stream.  Both paths report BER, bit slips and lock losses from recovered
-RTL bits.  The harness is fixed at a 12.5 Mb/s line rate (10 ns clock,
-OVERSAMPLE=8).
+ISI and AWGN on an 80-samples-per-UI grid, thresholds it, and the RTL recovers
+bits from that binary stream.  Both paths report BER, bit slips and lock losses
+from recovered RTL bits.  The harness clock is derived from the profile rate at
+OVERSAMPLE=8 (the default ``runner.py`` rate is 12.5 Mb/s; the CLI uses the
+profile rate).
 
 ## What each layer does
 
@@ -71,6 +72,23 @@ OVERSAMPLE=8).
 | How does margin vary with SJ frequency/amplitude? | `analysis/jtol.py` | Generic `simulate(stimulus)` sweep driver and last-passing JTOL curve |
 | Does the real CDR track the jitter? | `rtl/runner.py` + `rtl/tb_cdr_jtol.sv` | iverilog drives `rtl/cdr_adaptive.sv` with a jittered PRBS edge schedule; Python computes BER/bit slips from recovered bits |
 | How do I run a standard scenario? | `profiles/*.yaml` + `cli.py` | Stable YAML schema and `eye`/`bathtub`/`jtol` commands |
+
+## Capability gate
+
+`scripts/verify_link.py` combines the behavioral eye with the RTL JTOL sweep and
+writes a qualification-compatible `ber.json`:
+
+```bash
+python scripts/verify_link.py --profile verification/profiles/stressed.yaml \
+  --out build/verify/ber.json --package out/soc
+```
+
+The gate uses the 3/N upper bound when the RTL run observes zero errors, so a
+clean short run can never claim BER=0.  `eye_margin_ui` is the 2-UI
+threshold-crossing width, not a BER contour.  `jtol_pass` requires every swept
+frequency to reach the configured peak amplitude with no lock losses.  The
+capability block records the profile SHA-256, chain, rate, ppm and git commit;
+`pvt_validated` is always false because no PVT/PEX model is bundled.
 
 ## Conventions (read this before comparing numbers)
 

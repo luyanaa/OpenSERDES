@@ -13,11 +13,13 @@ SIGNOFF_LEVEL ?= POST_ROUTE_TIMING
 PPA_DB   ?= tech/ppa_measured.yaml
 PPA_CSV  ?=
 PPA_OUT  ?= tech/ppa_measured.yaml
+VERIFY_PROFILE ?= verification/profiles/stressed.yaml
+VERIFY_OUT     ?= $(BUILD)/verify/ber.json
 
 BUILD := build
 RTL   := $(wildcard rtl/*.sv)
 
-.PHONY: all sim lint synth regress gen qualify signoff ppa-import clean si-eye si-bathtub si-jtol si-rtl-jtol
+.PHONY: all sim lint synth regress gen qualify signoff ppa-import clean si-eye si-bathtub si-jtol si-rtl-jtol verify-link
 
 all: sim
 
@@ -214,6 +216,10 @@ synth:
 	$(YOSYS) -q -p "read_verilog -sv rtl/bist_snapshot.sv rtl/cdc_sync.sv; synth -top bist_snapshot; stat"
 	$(YOSYS) -q -p "read_verilog -sv rtl/prbs_word_gen.sv rtl/prbs_word_check.sv; synth -top prbs_word_check; stat"
 	$(YOSYS) -q -p "read_verilog -sv $(RTL); synth -top serdes_digital_top; stat"
+
+verify-link:
+	$(PYTHON) scripts/verify_link.py --profile $(VERIFY_PROFILE) --out $(VERIFY_OUT) \
+		$(if $(PACKAGE),--package $(PACKAGE),)
 
 si-eye:
 	$(PYTHON) -m verification.cli eye --profile verification/profiles/stressed.yaml --out $(BUILD)/verify/eye.png

@@ -75,7 +75,40 @@ missing or ambiguous report into a pass.  Combined `pre_pnr_sta.rpt` and
 `post_route_sta.rpt` files with `setup WNS` / `hold WNS` lines are also
 accepted.
 
-## 3. Rules
+## 3. Link verification gate
+
+`scripts/verify_link.py` runs the SI/BER framework and emits the `ber.json`
+consumed above, plus a `capability` block:
+
+```bash
+make verify-link PACKAGE=out/soc PYTHON=/usr/bin/python3
+# equivalently:
+python3 scripts/verify_link.py --profile verification/profiles/stressed.yaml \
+  --out build/verify/ber.json --package out/soc
+```
+
+With `--package` it writes `reports/ber.json` and updates
+`manifest.json`'s `link_capability`.  A package generated without this step
+keeps `link_capability.supported = false`; generation never invents a link
+claim.
+
+The gate's checks are deliberately explicit:
+
+| Check | Definition |
+|---|---|
+| `ber` | RTL CDR/RX BER at the profile's nominal stress. If zero errors are seen, the value is the 95 % rule-of-three upper bound `3/N`, never 0. |
+| `jtol_pass` | Every swept SJ frequency reaches at least `--jtol-min-amp-ui` peak SJ at `--ber-target` with no lock losses. |
+| `eye_margin_ui` | 0.5/99.5 threshold-crossing eye width from the 2-UI behavioral fold; not a BER contour. |
+| `capability.supported` | `ber` and `eye` thresholds pass, the JTOL mask passes, and the nominal run never loses lock. |
+| `capability.pvt_validated` | Always `false` in this repository: no PVT/transistor/PEX evidence is bundled. |
+
+`--chain rx` (default) drives the full `serdes_rx_digital` chain with the sliced
+analog waveform; `--chain cdr` drives `cdr_adaptive` directly. The report
+records the profile SHA-256, rate, chain, ppm, BER target and git commit, so a
+claim can be traced to a specific profile and RTL revision. PVT, PEX and
+silicon correlation are still open.
+
+## 4. Rules
 
 - Pre-PnR WNS is not post-route WNS.  Do not put pre-PnR numbers in a
   POST_ROUTE_TIMING report.

@@ -1124,6 +1124,10 @@ def main() -> int:
         "checks": {},
         "required": ["lint", "sim", "synth"],
         "note": "Run make regress and scripts/qualify.py to record evidence.",
+        "link_capability": {
+            "supported": False,
+            "reason": "no verification report; run make verify-link PACKAGE=<out>",
+        },
     }
     manifest = {
         "generator": "OpenSERDES gen_ip",
@@ -1160,6 +1164,10 @@ def main() -> int:
             "rx_period_ns": cfg["rx_period_ns"],
             "pnr_clock_port": plan["clock_port"],
             "note": "CLOCK_PORT is scalar; verify rx_clk enters the CTS clock set for target link.",
+        },
+        "link_capability": {
+            "supported": False,
+            "reason": "no verification report; run make verify-link PACKAGE=<out>",
         },
         "qualification": qualification,
         "files": sorted(str(p.relative_to(out)) for p in out.rglob("*") if p.is_file()),

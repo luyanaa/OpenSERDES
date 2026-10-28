@@ -398,10 +398,9 @@ def _cmd_jtol_rtl(args: argparse.Namespace) -> int:
     from verification.rtl.runner import run_rtl_jtol
 
     profile = load_profile(args.profile)
-    # The tb_cdr_jtol harness clocks cdr_adaptive at 10 ns with OVERSAMPLE=8,
-    # i.e. a 12.5 Mb/s line rate.  This is fixed by the RTL harness; the
-    # profile rate is reported but cannot be used directly here.
-    rtl_rate_mbps = 12.5
+    # The RTL harness derives its clock period from the requested rate with
+    # OVERSAMPLE=8, so the profile's line rate can be used directly.
+    rtl_rate_mbps = float(profile["rate_mbps"])
     chain = getattr(args, "chain", "cdr")
     n_bits = int(args.bits) if args.bits is not None else 800
     if n_bits < 256:
@@ -458,7 +457,8 @@ def _cmd_jtol_rtl(args: argparse.Namespace) -> int:
     print(f"MODEL: real RTL {base_stress['cdr']} driven by a jittered edge schedule.")
     print(
         "This is the digital CDR state machine, not an analog/PEX model. "
-        "The line rate is fixed at 12.5 Mb/s (10 ns clock, OVERSAMPLE=8)."
+        f"The harness clock is derived from {rtl_rate_mbps:.3f} Mb/s at "
+        "OVERSAMPLE=8."
     )
     if chain == "rx":
         print(
@@ -541,7 +541,7 @@ def _cmd_jtol_rtl(args: argparse.Namespace) -> int:
         ax.semilogx(curve_freqs, curve_amps, marker="o", color="#1f4e79", linewidth=1.3)
     ax.set_xlabel("SJ frequency (Hz)")
     ax.set_ylabel("Max passing SJ peak amplitude (UI)")
-    ax.set_title("RTL cdr_adaptive JTOL (12.5 Mb/s, digital only)")
+    ax.set_title(f"RTL {base_stress['cdr']} JTOL ({rtl_rate_mbps:.1f} Mb/s)")
     ax.grid(True, which="both", alpha=0.25)
     fig.tight_layout()
     _ensure_parent(png_path)

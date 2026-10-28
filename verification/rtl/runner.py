@@ -131,7 +131,7 @@ def build_sliced_stimulus(
     reflections: tuple[tuple[float, float], ...] = ((1.0, 0.20), (2.0, -0.08)),
     threshold_v: float = 0.0,
     seed: int = 2026,
-    grid_ns: float = 1.0,
+    grid_ns: float | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Return (times_s, sliced_decisions) at a fine grid for the RX chain.
 
@@ -144,6 +144,8 @@ def build_sliced_stimulus(
     # The channel builder places boundary n at n + tie_n UI; ppm is added as a
     # slow frequency offset through the nominal bit period.
     ui_eff = ui_s * (1.0 + ppm * 1e-6)
+    if grid_ns is None:
+        grid_ns = max(0.01, (ui_eff * 1e9) / 80.0)  # 80 samples per UI
     sps = max(8, int(round(ui_eff * 1e9 / grid_ns)))
     # Rebuild TIE for the effective UI so the SJ phase is in real time.
     tie_eff, _ = build_tie(
@@ -319,12 +321,14 @@ def run_rtl_jtol(
         )
         _write_stimulus(stim, expected, times)
 
+    half_ns = ui_s * 1e9 / 2.0 / 8.0  # OVERSAMPLE=8 in both harnesses
     cmd = [
         "vvp",
         str(binary),
         f"+STIM={stim}",
         f"+OUT={out}",
         f"+NBITS={nbits}",
+        f"+HALF_NS={half_ns:.6f}",
     ]
     proc = subprocess.run(cmd, text=True, capture_output=True)
     if proc.returncode != 0:
