@@ -31,6 +31,7 @@ PVT_OUT ?= $(BUILD)/verify/sky130_pvt_lut.json
 PVT_MARGIN_OUT ?= $(BUILD)/verify/pvt_margin.json
 MAGIC_PEX_DIR ?= $(BUILD)/verify/magic_pex
 PDK_MC_OUT ?= $(BUILD)/verify/pdk_mc.json
+XYCE_GLOBAL_MC_OUT ?= $(BUILD)/verify/xyce_global_mc.json
 TIMING_LIB ?=
 TIMING_PERIOD_NS ?= 5.0
 TIMING_PERIOD2_NS ?= 10.0
@@ -50,7 +51,7 @@ RTL   := $(wildcard rtl/*.sv)
 SV2V_DIR := $(BUILD)/sv2v
 SV2V_RTL := $(SV2V_DIR)/rtl.v
 
-.PHONY: all sim lint synth regress gen qualify signoff ppa-import clean si-eye si-bathtub si-jtol si-rtl-jtol verify-link analog-lut sky130-lut analog-lut-demo analog-tech-check sky130-pvt pvt-margin pdk-mc magic-pex magic-pex-compare sky130-mc pex-compare lib-catalog timing-compare
+.PHONY: all sim lint synth regress gen qualify signoff ppa-import clean si-eye si-bathtub si-jtol si-rtl-jtol verify-link analog-lut sky130-lut analog-lut-demo analog-tech-check sky130-pvt pvt-margin pdk-mc xyce-global-mc magic-pex magic-pex-compare sky130-mc pex-compare lib-catalog timing-compare
 
 all: sim
 
@@ -335,6 +336,9 @@ pvt-margin:
 
 pdk-mc:
 	$(PYTHON) verification/analog/pdk_mc.py --mode mismatch --samples 8 --out $(PDK_MC_OUT)
+
+xyce-global-mc:
+	$(PYTHON) verification/analog/xyce_global_mc.py --mode global --samples 8 --out $(XYCE_GLOBAL_MC_OUT)
 
 magic-pex:
 	$(PYTHON) verification/analog/magic_pex.py --gds Inverter_Based_Tx/Inv_Transmitter.gds \

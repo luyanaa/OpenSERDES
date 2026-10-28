@@ -38,14 +38,16 @@ mc:
   # Global process (mc_pr_switch) is not wired in this PDK/library and remains
   # unavailable.  Do not call behavioral offset injection PDK Monte Carlo.
   status: partial
-  pdk_mismatch: available
-  pdk_global: unavailable
-  runner: verification/analog/pdk_mc.py
+  pdk_mismatch: available_ngspice
+  pdk_global: available_xyce
+  runner_ngspice: verification/analog/pdk_mc.py
+  runner_xyce: verification/analog/xyce_global_mc.py
   reason: >-
     True per-device PDK mismatch is available via mc_mm_switch=1 and a seeded
-    ngspice run.  mc_pr_switch=1 produces no variation in this install, so
-    global-process MC is fail-closed.  Behavioral offsets remain a separate,
-    explicitly labeled mode.
+    ngspice run.  Global-process MC is available in Xyce by declaring the
+    critical.spice process variables as .global_param before .lib mc and
+    sampling them with .SAMPLING; ngspice's library-scope parameters do not
+    expose the global process.  Behavioral offsets remain separate.
   behavioral:
     sigma_nmos_v: 0.020
     sigma_pmos_v: 0.020

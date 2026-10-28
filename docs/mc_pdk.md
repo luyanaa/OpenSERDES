@@ -1,4 +1,4 @@
-# sky130 PDK statistical Monte Carlo in ngspice
+# sky130 PDK statistical Monte Carlo: ngspice + Xyce
 
 ## What the PDK exposes
 
@@ -30,7 +30,7 @@ difference (local mismatch):
 ```bash
 make pdk-mc          # mismatch mode, 8 seeds
 python3 verification/analog/pdk_mc.py --mode nominal
-python3 verification/analog/pdk_mc.py --mode global   # fail-closed
+python3 verification/analog/pdk_mc.py --mode global   # ngspice: fail-closed
 ```
 
 Observed with 6 mismatch seeds:
@@ -45,6 +45,61 @@ Observed with 6 mismatch seeds:
   ngspice device cards, so global MC is reported unavailable rather than
   mislabeled.
 
+## Global-process MC: Xyce `.SAMPLING`
+
+Xyce can consume the same PDK process distribution, but **not** through the
+ngspice library scope.  The correct pattern is to declare the process variables
+as `.global_param` *before* loading the `mc` library:
+
+```spice
+.global_param cnwvc=0.0
+.global_param diff_cd=0.0
+...
+.lib "$PDK_ROOT/sky130A/libs.tech/ngspice/sky130.lib.spice" mc
+.param mc_mm_switch=0
+.param mc_pr_switch=1
+.SAMPLING
++ param=cnwvc,diff_cd,...
++ type=normal,normal,...
++ means=0.0,0.0,...
++ std_deviations=1.0,1.5,...
+.options SAMPLES numsamples=8 SAMPLE_TYPE=MC SEED=20261028
+```
+
+The ordering is essential.  The library's `critical.spice` defines `.param
+lvn_threshold=0.0`, etc.; the preceding `.global_param` declarations make the
+sampled values visible to the `montecarlo.spice` model expressions instead of a
+library-local `.param` shadow.
+
+Run it with mpirun as recommended:
+
+```bash
+make xyce-global-mc
+# or
+mpirun -np 1 ~/spack/opt/spack/*/xyce-*/bin/Xyce -b build/verify/xyce_global_mc/xyce_global.cir
+```
+
+`xyce_global_mc.py`:
+
+- parses all 67 process `vary` entries from `critical.spice`;
+- emits `.global_param` for each variable before `.lib mc`;
+- samples them with the PDK standard deviations;
+- reports common-mode and differential current for two identical devices;
+- proves the seed changes the global draw (different seeds give different
+  common-mode samples);
+- uses `mpirun -np 1` by default and records the exact command.
+
+8-sample result (Xyce 7.10, sky130A, `tt`, mpirun):
+
+```text
+common_std       = 8.04e-6 A
+differential_std = 0.0 A
+verdict          = global-process-supported
+```
+
+The two devices move together; that is the signature of a global-process draw,
+not local mismatch.
+
 ## Why this is not just behavioral
 
 The mismatch draw is inside the PDK device model expressions, not a series
@@ -52,8 +107,19 @@ gate-voltage offset.  Two instances with the same model see independent
 `AGAUSS` draws.  The behavioral mode in `mc_runner.py` remains separate and is
 never presented as PDK MC.
 
-## Remaining gap
+## Engine split
 
-Global process Monte Carlo requires either a Spectre statistical run or a PDK
-release that wires `mc_pr_switch`/global process variables into the model
-cards.  This repository fails closed for that mode.
+| Effect | Engine | Path |
+|---|---|---|
+| per-device local mismatch | ngspice | `pdk_mc.py --mode mismatch` |
+| global process | Xyce | `xyce_global_mc.py --mode global` |
+| both | separate runs; do not sum variances without a model | — |
+
+Xyce local `AGAUSS` in this PDK/library did not produce a per-device difference
+in the two-device probe, so local mismatch is kept on the verified ngspice
+path.  Xyce is used for the global process, where its `.SAMPLING` and
+`.global_param` semantics match the requirement.
+
+The global Xyce run is transistor-level PDK MC (model expressions from
+`montecarlo.spice`), not the behavioral offset injection in `mc_runner.py`.
+No yield or silicon claim is made.

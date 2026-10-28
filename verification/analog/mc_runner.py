@@ -90,8 +90,11 @@ def main() -> int:
             if mc.get("pdk_mismatch") == "available":
                 print("hint: use `python3 verification/analog/pdk_mc.py "
                       "--mode mismatch` for the verified per-device PDK "
-                      "mismatch path; this runner's --mode pdk intentionally "
-                      "covers global MC only.", file=sys.stderr)
+                      "mismatch path.", file=sys.stderr)
+            if str(mc.get("pdk_global", "")).startswith("available"):
+                print("hint: use `python3 verification/analog/xyce_global_mc.py "
+                      "--mode global` for the global-process PDK MC path.",
+                      file=sys.stderr)
             return 2
         raise SystemExit("PDK MC path is not implemented; refusing to relabel behavioral samples")
     if shutil.which("ngspice") is None and not args.dry_run:
