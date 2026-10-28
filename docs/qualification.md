@@ -81,7 +81,7 @@ accepted.
 consumed above, plus a `capability` block:
 
 ```bash
-make verify-link PACKAGE=out/soc PYTHON=/usr/bin/python3
+make verify-link VERIFY_PACKAGE=out/soc PYTHON=/usr/bin/python3
 # equivalently:
 python3 scripts/verify_link.py --profile verification/profiles/stressed.yaml \
   --out build/verify/ber.json --package out/soc

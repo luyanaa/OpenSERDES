@@ -15,6 +15,7 @@ PPA_CSV  ?=
 PPA_OUT  ?= tech/ppa_measured.yaml
 VERIFY_PROFILE ?= verification/profiles/stressed.yaml
 VERIFY_OUT     ?= $(BUILD)/verify/ber.json
+VERIFY_PACKAGE ?=
 
 BUILD := build
 RTL   := $(wildcard rtl/*.sv)
@@ -219,7 +220,7 @@ synth:
 
 verify-link:
 	$(PYTHON) scripts/verify_link.py --profile $(VERIFY_PROFILE) --out $(VERIFY_OUT) \
-		$(if $(PACKAGE),--package $(PACKAGE),)
+		$(if $(VERIFY_PACKAGE),--package $(VERIFY_PACKAGE),)
 
 si-eye:
 	$(PYTHON) -m verification.cli eye --profile verification/profiles/stressed.yaml --out $(BUILD)/verify/eye.png

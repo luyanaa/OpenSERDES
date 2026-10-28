@@ -246,7 +246,7 @@ python -m verification.cli bathtub --profile verification/profiles/stressed.yaml
 python -m verification.cli jtol    --profile verification/profiles/stressed.yaml --out build/verify/jtol.json --model analytic
 python -m verification.rtl.runner  --nbits 800 --sj-peak-ui 0.2 --sj-freq-hz 500000   # 真实 cdr_adaptive
 python -m verification.rtl.runner  --nbits 600 --chain rx --noise-rms-v 0.12      # 完整 serdes_rx_digital + 模拟信道切片
-make verify-link PACKAGE=out/soc PYTHON=/usr/bin/python3                            # capability gate -> reports/ber.json
+make verify-link VERIFY_PACKAGE=out/soc PYTHON=/usr/bin/python3                            # capability gate -> reports/ber.json
 ```
 
 `make verify-link` 把 eye/bathtub/JTOL 结果写成 qualification 可消费的 `ber.json`，并把 `link_capability` 写回 package manifest；没有通过该 gate 的 package 始终保持 `supported=false`。PVT/PEX 目前不在声明范围内。
