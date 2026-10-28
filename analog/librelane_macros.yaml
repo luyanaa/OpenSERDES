@@ -1,0 +1,22 @@
+# LibreLane macro fragment (interface/abstract views, not post-route signoff).
+# Merge into the generated pnr/librelane.yaml only after checking the target
+# LibreLane version's MACROS schema and the actual macro instantiation.
+MACROS:
+  tx_inv_chain_1_3_9:
+    gds:
+      - Inverter_Based_Tx/Inv_Transmitter.gds
+    lef:
+      - analog/macros/tx_inv_chain_1_3_9/abstract.lef
+    verilog:
+      - analog/macros/tx_inv_chain_1_3_9/macro.v
+    lib:
+      - analog/macros/tx_inv_chain_1_3_9/macro.lib
+  rx_res_fb_inv:
+    gds:
+      - Resistive_FB_inverter/Res_FB_Inv.gds
+    lef:
+      - analog/macros/rx_res_fb_inv/abstract.lef
+    verilog:
+      - analog/macros/rx_res_fb_inv/macro.v
+    lib:
+      - analog/macros/rx_res_fb_inv/macro.lib

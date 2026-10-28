@@ -100,6 +100,50 @@ wrdata {wave.resolve()} v(in) v(out)
     }
 
 
+def _run_ac(dut: Path, top: str, ports: list[str], corner: str, pdk: Path,
+            workdir: Path) -> dict[str, Any]:
+    workdir.mkdir(parents=True, exist_ok=True)
+    wave = workdir / "ac.dat"
+    tb = workdir / "ac.sp"
+    lib = pdk / "sky130A/libs.tech/ngspice/sky130.lib.spice"
+    order = ["vss", "vdd", "in", "out"]
+    tb.write_text(f"""* RX feedback macro AC
+.lib "{lib}" {corner}
+.param VDD=1.8
+Vdd vdd 0 {{VDD}}
+Vin in 0 DC 0.9 AC 1
+.include "{dut.resolve()}"
+Xdut {' '.join(order)} {top}
+Cload out 0 20f
+.ac dec 20 1 1e9
+.control
+run
+wrdata {wave.resolve()} v(out)
+.endc
+.end
+""")
+    proc = subprocess.run(["ngspice", "-b", str(tb)], text=True,
+                          capture_output=True, timeout=240, cwd=workdir)
+    if proc.returncode != 0 or not wave.is_file():
+        raise RuntimeError(f"ngspice AC failed\n{proc.stdout[-3000:]}\n{proc.stderr[-1000:]}")
+    arr = np.loadtxt(wave)
+    if arr.ndim == 1:
+        arr = arr.reshape(1, -1)
+    f = arr[:, 0]
+    gain = np.sqrt(arr[:, 1] ** 2 + (arr[:, 2] if arr.shape[1] > 2 else 0.0) ** 2)
+    gain_db = 20.0 * np.log10(np.maximum(gain, 1e-30))
+    def at(freq: float) -> float:
+        return float(np.interp(freq, f, gain_db))
+    # Last crossing of the low-frequency gain - 3 dB.
+    dc = at(1.0)
+    below = np.where(gain_db < dc - 3.0)[0]
+    bw = float(f[below[0]]) if below.size else None
+    return {"dut": str(dut), "corner": corner,
+            "gain_db_1hz": dc, "gain_db_1mhz": at(1e6),
+            "gain_db_10mhz": at(1e7), "bandwidth_3db_hz": bw,
+            "returncode": proc.returncode, "wave": str(wave)}
+
+
 def _compare(pex: dict[str, Any], sch: dict[str, Any]) -> dict[str, Any]:
     pv = np.asarray(pex["vin_v"])
     sv = np.asarray(sch["vin_v"])
@@ -165,6 +209,13 @@ def main() -> int:
         s = _run(Path(sch["out"]), args.top, ports, corner, pdk, cdir / "schematic")
         rows.append({"corner": corner, "pex": pex, "schematic": s,
                      "delta": _compare(pex, s)})
+    ac = None
+    if rows:
+        first = rows[0]["corner"]
+        ac = {
+            "pex": _run_ac(Path(args.pex), args.top, ports, first, pdk, work / first / "pex_ac"),
+            "schematic": _run_ac(Path(sch["out"]), args.top, ports, first, pdk, work / first / "sch_ac"),
+        }
     mc_rows: list[dict[str, Any]] = []
     if args.mc_samples > 0:
         for i in range(args.mc_samples):
@@ -181,6 +232,7 @@ def main() -> int:
         "ports": ports,
         "corners": list(args.corners),
         "rows": rows,
+        "ac": ac,
         "mc": {
             "samples": args.mc_samples,
             "seed_start": args.seed_start,
@@ -198,6 +250,9 @@ def main() -> int:
         print(f"{row['corner']}: pex trip={row['pex']['trip_v']} "
               f"slope={row['pex']['slope_v_per_v']} "
               f"delta={row['delta']}")
+    if ac:
+        print(f"ac: pex={ac['pex']['gain_db_1mhz']} dB @1MHz, "
+              f"bw={ac['pex']['bandwidth_3db_hz']} Hz")
     if mc_rows:
         print(f"mc: {_summary(mc_rows)}")
     print(f"wrote {out}")

@@ -54,7 +54,7 @@ RTL   := $(wildcard rtl/*.sv)
 SV2V_DIR := $(BUILD)/sv2v
 SV2V_RTL := $(SV2V_DIR)/rtl.v
 
-.PHONY: all sim lint synth regress gen qualify signoff ppa-import clean si-eye si-bathtub si-jtol si-rtl-jtol verify-link analog-contracts analog-macro-pex analog-drc analog-rx-dc analog-rx-pvt soc-e2e soc-e2e-stress analog-lut sky130-lut analog-lut-demo analog-tech-check sky130-pvt pvt-margin pdk-mc xyce-global-mc magic-pex magic-pex-compare sky130-mc pex-compare lib-catalog timing-compare
+.PHONY: all sim lint synth regress gen qualify signoff ppa-import clean si-eye si-bathtub si-jtol si-rtl-jtol verify-link analog-contracts analog-views analog-package analog-macro-pex analog-drc analog-rx-dc analog-rx-pvt mixed-signal-e2e soc-e2e soc-e2e-stress analog-lut sky130-lut analog-lut-demo analog-tech-check sky130-pvt pvt-margin pdk-mc xyce-global-mc magic-pex magic-pex-compare sky130-mc pex-compare lib-catalog timing-compare
 
 all: sim
 
@@ -366,6 +366,12 @@ magic-pex-compare: magic-pex
 analog-tech-check:
 	$(PYTHON) verification/analog/extract_lut.py --tech $(ANALOG_TECH) --check-tools --out $(BUILD)/verify/$(ANALOG_TECH)_tech_check.json
 
+analog-views:
+	$(PYTHON) verification/analog/generate_views.py
+
+analog-package:
+	$(PYTHON) verification/analog/macro_package.py --package $(SOC_E2E_PACKAGE)
+
 analog-contracts:
 	$(PYTHON) verification/analog/macro_contract.py --validate \
 		--out $(BUILD)/verify/analog_contracts.json
@@ -392,6 +398,10 @@ analog-rx-pvt: analog-macro-pex
 	$(PYTHON) verification/analog/macro_characterize.py \
 		--corners tt ss ff sf fs --mc-samples 4 \
 		--out $(BUILD)/verify/rx_macro_pvt.json
+
+mixed-signal-e2e: magic-pex analog-macro-pex
+	$(PYTHON) verification/analog/mixed_signal_e2e.py \
+		--out $(BUILD)/verify/mixed_signal_e2e.json
 
 soc-e2e:
 	$(PYTHON) verification/rtl/soc_runner.py --package $(SOC_E2E_PACKAGE) \

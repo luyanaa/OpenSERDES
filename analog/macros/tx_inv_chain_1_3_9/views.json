@@ -1,0 +1,37 @@
+{
+  "name": "tx_inv_chain_1_3_9",
+  "gds": "/opt/OpenSERDES/Inverter_Based_Tx/Inv_Transmitter.gds",
+  "cell": "Inv_Transmitter",
+  "bbox_um": [
+    0.09,
+    0.925,
+    20.93,
+    13.870000000000001
+  ],
+  "size_um": [
+    20.84,
+    12.945
+  ],
+  "pins_um": {
+    "OUT": [
+      20.740000000000002,
+      6.405
+    ],
+    "IN": [
+      0.11500000000000002,
+      6.430000000000001
+    ],
+    "VSS": [
+      8.58,
+      0.10499999999999998
+    ],
+    "VDD": [
+      9.475,
+      12.844999999999999
+    ]
+  },
+  "lef": "/opt/OpenSERDES/analog/macros/tx_inv_chain_1_3_9/abstract.lef",
+  "liberty": "/opt/OpenSERDES/analog/macros/tx_inv_chain_1_3_9/macro.lib",
+  "lef_kind": "abstract-label-pins-not-metal-extracted",
+  "liberty_kind": "analog-blackbox-no-timing-arcs"
+}

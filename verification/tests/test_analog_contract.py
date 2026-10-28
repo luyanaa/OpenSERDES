@@ -3,6 +3,7 @@ import json
 import unittest
 from pathlib import Path
 
+from verification.analog.macro_package import stage
 from verification.analog.macro_contract import (
     DEFAULT_MACROS,
     canonical_ports,
@@ -64,6 +65,31 @@ class TestAnalogContract(unittest.TestCase):
         bad["views"]["layout_spice"]["port_order"] = ["GND", "VDD", "NOPE", "OUT"]
         errors, _ = validate_manifest(self.rx_path, bad)
         self.assertTrue(errors)
+
+    def test_generated_views_are_present_and_canonical(self) -> None:
+        for name in ("tx_inv_chain_1_3_9", "rx_res_fb_inv"):
+            base = DEFAULT_MACROS / name
+            lef = (base / "abstract.lef").read_text()
+            lib = (base / "macro.lib").read_text()
+            self.assertIn(f"MACRO {name}", lef)
+            self.assertIn(f"cell ({name})", lib)
+            for pin in ("VDD", "VSS", "IN", "OUT"):
+                self.assertIn(f"PIN {pin}", lef)
+                self.assertIn(f"pin ({pin})", lib)
+            self.assertNotIn("timing()", lib)
+
+    def test_macro_package_staging_is_package_local(self) -> None:
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            pkg = Path(tmp)
+            (pkg / "manifest.json").write_text(json.dumps({"design": "x"}))
+            index = stage(pkg, pkg / "analog")
+            self.assertIn("tx_inv_chain_1_3_9", index["macros"])
+            self.assertIn("rx_res_fb_inv", index["macros"])
+            wrapper = (pkg / "analog" / "rx_res_fb_inv" / "canonical.spice").read_text()
+            self.assertIn('.include "schematic.sp"', wrapper)
+            self.assertIn("Xcore VSS IN OUT VDD", wrapper)
+            self.assertTrue((pkg / "analog" / "librelane_macros.yaml").is_file())
 
     def test_calibre_rve_cannot_be_available(self) -> None:
         bad = copy.deepcopy(self.rx)

@@ -23,3 +23,16 @@ Validate every contract with:
 ```bash
 python3 verification/analog/macro_contract.py --validate
 ```
+
+
+## Generated views
+
+`make analog-views` produces `abstract.lef` and `macro.lib` beside each
+manifest.  The LEF pins are abstract rectangles derived from GDS text labels,
+not extracted metal shapes.  The Liberty is an analog black box with no timing
+arcs; it must not be treated as a characterized digital timing model.
+
+`make analog-package PACKAGE=...` stages the views into the package and writes
+`analog/librelane_macros.yaml`.  The PnR config is not overwritten
+automatically; merge the fragment only after checking the target LibreLane
+MACROS schema.

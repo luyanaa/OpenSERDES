@@ -45,6 +45,8 @@ make analog-rx-pvt       # 5 corners + local MC (longer)` (tt/ss/ff/sf/fs), PEX 
 ```bash
 make analog-contracts
 python3 verification/analog/macro_contract.py --validate
+make analog-views       # KLayout abstract LEF + black-box Liberty
+make analog-package     # stage views into out/ci-soc/analog
 make analog-drc
 make analog-macro-pex
 make analog-rx-dc        # tt DC/PEX
@@ -62,8 +64,25 @@ aliases, duplicate/unknown view pins and Calibre RVE relabeling.
 `make analog-rx-dc        # tt DC/PEX
 make analog-rx-pvt       # 5 corners + local MC (longer)` extracts the RX feedback GDS with Magic, converts the
 schematic MOS cards to sky130 devices, and compares DC trip point/slope at
-tt/ss/ff/sf/fs.  Initial tt result: PEX trip 0.839 V, schematic/PEX
-`max_abs_v=1.57e-5`, `trip_delta=-2.2e-7 V`.  Full AC/noise and MC remain open.
+tt/ss/ff/sf/fs.  Initial tt DC result: PEX trip 0.839 V, schematic/PEX `max_abs_v=1.57e-5`,
+`trip_delta=-2.2e-7 V`.  AC at tt: PEX gain about 17.05 dB at 1 MHz and
+10 MHz; no 3 dB crossing below 1 GHz in this first sweep.  Local mismatch and
+DC corner sweeps are implemented; noise/MC signoff remains open.
+
+## C: macro views and package staging
+
+`make analog-views` generates:
+
+- `abstract.lef`: macro size and pin rectangles from GDS text-label
+  coordinates.  This is an **abstract interface LEF**, not extracted metal.
+- `macro.lib`: analog black-box Liberty with pins and area, **no timing arcs**.
+- `views.json`: bbox, pin coordinates and generation provenance.
+
+`make analog-package` copies the canonical SPICE, GDS, LEF, Liberty and
+black-box Verilog into `<package>/analog/` and writes
+`<package>/analog/librelane_macros.yaml`.  It deliberately does not overwrite
+`pnr/librelane.yaml`; the fragment must be merged after confirming the target
+LibreLane MACROS schema and actual macro instantiation.
 
 ## Polarity evidence
 

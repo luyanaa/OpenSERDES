@@ -56,6 +56,9 @@ jobs:
       - name: Analog macro contracts
         run: make analog-contracts PYTHON=python3
 
+      - name: Stage analog macro package views
+        run: make analog-package PYTHON=python3 SOC_E2E_PACKAGE=out/ci-soc
+
       - name: Generated-top SoC E2E smoke
         run: make soc-e2e PYTHON=python3 SOC_E2E_PACKAGE=out/ci-soc
 

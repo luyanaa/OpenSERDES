@@ -1,0 +1,43 @@
+VERSION 5.8 ;
+BUSBITCHARS "[]" ;
+DIVIDERCHAR "/" ;
+MACRO tx_inv_chain_1_3_9
+  CLASS CORE ;
+  ORIGIN 0 0 ;
+  FOREIGN tx_inv_chain_1_3_9 0 0 ;
+  SIZE 20.840 BY 12.945 ;
+  SYMMETRY X Y ;
+  PIN VDD
+    DIRECTION INOUT ;
+    USE POWER ;
+    PORT
+      LAYER met1 ;
+        RECT 9.375 12.745 9.575 12.945 ;
+    END
+  END VDD
+  PIN VSS
+    DIRECTION INOUT ;
+    USE GROUND ;
+    PORT
+      LAYER met1 ;
+        RECT 8.480 0.005 8.680 0.205 ;
+    END
+  END VSS
+  PIN IN
+    DIRECTION INPUT ;
+    USE SIGNAL ;
+    PORT
+      LAYER met1 ;
+        RECT 0.015 6.330 0.215 6.530 ;
+    END
+  END IN
+  PIN OUT
+    DIRECTION OUTPUT ;
+    USE SIGNAL ;
+    PORT
+      LAYER met1 ;
+        RECT 20.640 6.305 20.840 6.505 ;
+    END
+  END OUT
+END tx_inv_chain_1_3_9
+END LIBRARY

@@ -132,10 +132,14 @@
       "reason": "Only Calibre extraction report is present; no comparable LVS match report."
     },
     "lef": {
-      "status": "missing"
+      "path": "analog/macros/tx_inv_chain_1_3_9/abstract.lef",
+      "status": "abstract",
+      "kind": "label-pin-rectangles-not-extracted-metal"
     },
     "liberty": {
-      "status": "missing"
+      "path": "analog/macros/tx_inv_chain_1_3_9/macro.lib",
+      "status": "blackbox-no-timing-arcs",
+      "kind": "analog-blackbox"
     },
     "macro_v": {
       "path": "analog/macros/tx_inv_chain_1_3_9/macro.v",
@@ -147,6 +151,10 @@
       "errors": 0,
       "command": "make analog-drc",
       "note": "DRC only; not LVS/PEX signoff."
+    },
+    "views_json": {
+      "path": "analog/macros/tx_inv_chain_1_3_9/views.json",
+      "status": "generated"
     }
   },
   "legacy_names": []

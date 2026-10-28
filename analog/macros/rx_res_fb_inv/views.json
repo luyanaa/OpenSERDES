@@ -1,0 +1,37 @@
+{
+  "name": "rx_res_fb_inv",
+  "gds": "/opt/OpenSERDES/Resistive_FB_inverter/Res_FB_Inv.gds",
+  "cell": "Resist_FB_INV",
+  "bbox_um": [
+    0.08,
+    0.62,
+    9.995000000000001,
+    17.25
+  ],
+  "size_um": [
+    9.915000000000001,
+    16.63
+  ],
+  "pins_um": {
+    "OUT": [
+      9.145,
+      6.43
+    ],
+    "IN": [
+      0.7350000000000001,
+      6.435
+    ],
+    "VSS": [
+      4.85,
+      0.11499999999999999
+    ],
+    "VDD": [
+      5.505,
+      12.865
+    ]
+  },
+  "lef": "/opt/OpenSERDES/analog/macros/rx_res_fb_inv/abstract.lef",
+  "liberty": "/opt/OpenSERDES/analog/macros/rx_res_fb_inv/macro.lib",
+  "lef_kind": "abstract-label-pins-not-metal-extracted",
+  "liberty_kind": "analog-blackbox-no-timing-arcs"
+}

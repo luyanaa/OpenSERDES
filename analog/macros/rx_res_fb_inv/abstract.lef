@@ -1,0 +1,43 @@
+VERSION 5.8 ;
+BUSBITCHARS "[]" ;
+DIVIDERCHAR "/" ;
+MACRO rx_res_fb_inv
+  CLASS CORE ;
+  ORIGIN 0 0 ;
+  FOREIGN rx_res_fb_inv 0 0 ;
+  SIZE 9.915 BY 16.630 ;
+  SYMMETRY X Y ;
+  PIN VDD
+    DIRECTION INOUT ;
+    USE POWER ;
+    PORT
+      LAYER met1 ;
+        RECT 5.405 12.765 5.605 12.965 ;
+    END
+  END VDD
+  PIN VSS
+    DIRECTION INOUT ;
+    USE GROUND ;
+    PORT
+      LAYER met1 ;
+        RECT 4.750 0.015 4.950 0.215 ;
+    END
+  END VSS
+  PIN IN
+    DIRECTION INPUT ;
+    USE SIGNAL ;
+    PORT
+      LAYER met1 ;
+        RECT 0.635 6.335 0.835 6.535 ;
+    END
+  END IN
+  PIN OUT
+    DIRECTION OUTPUT ;
+    USE SIGNAL ;
+    PORT
+      LAYER met1 ;
+        RECT 9.045 6.330 9.245 6.530 ;
+    END
+  END OUT
+END rx_res_fb_inv
+END LIBRARY
