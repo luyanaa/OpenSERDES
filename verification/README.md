@@ -51,7 +51,9 @@ The default profile is `verification/profiles/stressed.yaml`.
 `jtol --model rtl` runs iverilog with the real RTL.  ``--chain cdr`` drives
 ``rtl/cdr_adaptive.sv`` directly with a jittered edge schedule; ``--chain rx``
 drives the full ``rtl/serdes_rx_digital.sv`` chain (CDR + sampler +
-deserializer) with the *sliced analog waveform*: the Python channel model adds
+deserializer) with the *sliced analog waveform*; ``--chain frame`` adds a
+comma-prefixed frame stream and scores ``rx_par_data``/``rx_frame_valid``
+(ALIGN_MODE=2), so comma/frame alignment is part of the test.  In all modes, the Python channel model adds the Python channel model adds
 ISI and AWGN on an 80-samples-per-UI grid, thresholds it, and the RTL recovers
 bits from that binary stream.  Both paths report BER, bit slips and lock losses
 from recovered RTL bits.  The harness clock is derived from the profile rate at
@@ -202,9 +204,9 @@ upper-bound field, because the rule of three does not apply.
 
 ## Phase-2 plan
 
-* **cocotb + comma-aligned frames:** the full RX chain is exercised, but
-  `ALIGN_MODE=0` so the PRBS stream has no comma framing.  Add a framed PRBS
-  mode and check `rx_par_data`/frame lock in addition to `rx_serial_data`.
+* **cocotb integration:** the iverilog harness already covers the framed RX
+  path; a cocotb port would make it easier to add more protocol/scoreboard
+  variants and vendor simulators.
 * **Standards-shaped JTOL masks:** compare the measured RTL curve against a
   defined mask, and separate sinusoidal tolerance from ppm tracking and RJ.
 * **Jitter transfer / peaking:** measure CDR phase transfer, not only BER.
@@ -237,7 +239,8 @@ verification/
   analysis/jtol.py              generic sweep driver + last-passing curve
   rtl/tb_cdr_jtol.sv            iverilog TB: jittered edges -> cdr_adaptive
   rtl/tb_rx_jtol.sv             iverilog TB: sliced analog -> serdes_rx_digital
-  rtl/runner.py                 compile/run/analyse RTL CDR/RX, BER and slips
+  rtl/tb_rx_frame_jtol.sv       framed PRBS -> rx_par_data/frame_valid scoreboard
+  rtl/runner.py                 compile/run/analyse RTL CDR/RX/frame, BER and slips
   profiles/*.yaml               clean / stressed / worst_case
   cli.py                        eye / bathtub / jtol commands
   tests/                        PRBS, jitter, bathtub, BER and RTL-JTOL tests

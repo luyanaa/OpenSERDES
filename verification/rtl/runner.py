@@ -25,11 +25,12 @@ import numpy as np
 
 from verification.channel.channel_impulse import RCReflectionChannel, nrz_waveform
 from verification.channel.jitter import build_tie
-from verification.patterns.prbs import prbs_bits
+from verification.patterns.prbs import prbs_bits, prbs_words
 
 ROOT = Path(__file__).resolve().parents[2]
 TB_CDR = Path(__file__).resolve().parent / "tb_cdr_jtol.sv"
 TB_RX = Path(__file__).resolve().parent / "tb_rx_jtol.sv"
+TB_FRAME = Path(__file__).resolve().parent / "tb_rx_frame_jtol.sv"
 CDR_SOURCES = [ROOT / "rtl" / "cdr_adaptive.sv", ROOT / "rtl" / "cdr_sync.sv"]
 BUILD_DIR = ROOT / "build" / "verify"
 
@@ -62,6 +63,9 @@ def _compile_tb(chain: str = "cdr") -> Path:
     if chain == "rx":
         binary = BUILD_DIR / "tb_rx_jtol"
         sources = [TB_RX, *sorted((ROOT / "rtl").glob("*.sv"))]
+    elif chain == "frame":
+        binary = BUILD_DIR / "tb_rx_frame_jtol"
+        sources = [TB_FRAME, *sorted((ROOT / "rtl").glob("*.sv"))]
     else:
         binary = BUILD_DIR / "tb_cdr_jtol"
         sources = [TB_CDR, *CDR_SOURCES]
@@ -169,6 +173,86 @@ def build_sliced_stimulus(
     change[0] = True
     change[1:] = decisions[1:] != decisions[:-1]
     return sample_times[change], decisions[change]
+
+
+def build_framed_bits(
+    prbs_width: int, n_frames: int, *, word_bits: int = 8, words: int = 4,
+    comma: int = 0xBC,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Return (serial frame bits, expected payload words[n_frames, words])."""
+    payload = prbs_words(prbs_width, n_frames * words, word_bits)
+    expected = payload.reshape(n_frames, words)
+    bits: list[int] = []
+    for frame in expected:
+        frame_bytes = [comma, *(int(w) for w in frame)]
+        for value in frame_bytes:
+            for k in range(word_bits):
+                bits.append((value >> k) & 1)
+    return np.asarray(bits, dtype=np.int8), expected
+
+
+def analyse_frames(
+    recovered: np.ndarray,
+    expected: np.ndarray,
+    *,
+    lock_losses: int,
+    lock_wait: int,
+    params: dict[str, float],
+) -> JtolResult:
+    """Compare recovered frame words with the transmitted PRBS frames."""
+    words = expected.shape[1]
+    bits_per_frame = words * 8
+    if recovered.size == 0:
+        return JtolResult(
+            ber=1.0, errors=0, compared=0, bit_slips=0,
+            lock_losses=lock_losses, lock_wait_cycles=lock_wait,
+            recovered=0, offset=0, locked=False, **params,
+        )
+    # Tolerate a small startup frame offset (CDR/comma lock transient).
+    best_offset = 0
+    best_err = None
+    for off in range(0, min(4, expected.shape[0])):
+        n = min(recovered.shape[0], expected.shape[0] - off)
+        if n <= 0:
+            continue
+        diff = recovered[:n] != expected[off:off + n]
+        err = int(np.count_nonzero(diff))
+        if best_err is None or err < best_err:
+            best_err = err
+            best_offset = off
+    n = min(recovered.shape[0], expected.shape[0] - best_offset)
+    recovered = recovered[:n]
+    truth = expected[best_offset:best_offset + n]
+    diff = recovered != truth
+    word_errors = int(np.count_nonzero(diff))
+    bit_errors = 0
+    for f in range(n):
+        for w in range(words):
+            bit_errors += int(bin(int(recovered[f, w]) ^ int(truth[f, w])).count("1"))
+    compared = n * bits_per_frame
+    return JtolResult(
+        ber=bit_errors / compared if compared else 1.0,
+        errors=bit_errors,
+        compared=compared,
+        bit_slips=max(0, int(expected.shape[0]) - best_offset - int(recovered.shape[0])),
+        lock_losses=lock_losses,
+        lock_wait_cycles=lock_wait,
+        recovered=int(recovered.shape[0]),
+        offset=best_offset,
+        locked=True,
+        **params,
+    )
+
+
+def _read_frames(path: Path) -> np.ndarray:
+    rows = []
+    if path.exists():
+        for line in path.read_text().splitlines():
+            parts = line.split()
+            if len(parts) != 4:
+                continue
+            rows.append([int(x, 16) for x in parts])
+    return np.asarray(rows, dtype=np.int64)
 
 
 def _write_edges(path: Path, times_s: np.ndarray, bits: np.ndarray) -> None:
@@ -281,21 +365,30 @@ def run_rtl_jtol(
     """Drive the RTL CDR with a jittered PRBS stream and analyse its output."""
     if nbits < 256:
         raise ValueError("nbits must be >= 256")
-    if chain not in ("cdr", "rx"):
-        raise ValueError("chain must be 'cdr' or 'rx'")
+    if chain not in ("cdr", "rx", "frame"):
+        raise ValueError("chain must be 'cdr', 'rx' or 'frame'")
     ui_s = 1.0 / (rate_mbps * 1e6)
     expected = prbs_bits(prbs_width, nbits + 4096, seed=None)
+    expected_frames = None
+    n_frames = 0
+    if chain == "frame":
+        n_frames = max(8, int(math.ceil(nbits / 32.0)))
+        expected_serial, expected_frames = build_framed_bits(
+            prbs_width, n_frames, word_bits=8, words=4, comma=0xBC
+        )
+    else:
+        expected_serial = expected
     binary = _compile_tb(chain)
 
     tmp = Path(tempfile.mkdtemp(prefix="serdes_jtol_", dir=str(ROOT / "build" / "verify")))
     stim = tmp / "stim.txt"
-    out = tmp / "rx_bits.txt"
-    if chain == "rx":
+    out = tmp / "rx_bits.txt" if chain != "frame" else tmp / "rx_frames.txt"
+    if chain in ("rx", "frame"):
         # The analog channel is evaluated at a 1 ns grid; only sliced
         # transitions are handed to the RTL.  The RX chain then samples and
         # recovers the stream with its own CDR.
         times, sliced = build_sliced_stimulus(
-            expected,
+            expected_serial,
             ui_s,
             rj_rms_ui=rj_rms_ui,
             sj_peak_ui=sj_peak_ui,
@@ -328,6 +421,7 @@ def run_rtl_jtol(
         f"+STIM={stim}",
         f"+OUT={out}",
         f"+NBITS={nbits}",
+        f"+NFRAMES={n_frames}",
         f"+HALF_NS={half_ns:.6f}",
     ]
     proc = subprocess.run(cmd, text=True, capture_output=True)
@@ -337,6 +431,7 @@ def run_rtl_jtol(
     lock_losses = 0
     lock_wait = 0
     locked = False
+    frame_locked = False
     for line in proc.stdout.splitlines():
         if line.startswith("NO_LOCK"):
             locked = False
@@ -345,29 +440,44 @@ def run_rtl_jtol(
                 lock_wait = int(m.group(1))
         elif line.startswith("META"):
             locked = True
-            for key in ("recovered", "lock_wait", "lock_losses", "freq_trim"):
+            for key in ("recovered", "lock_wait", "lock_losses", "freq_trim",
+                        "frames", "frame_locked"):
                 m = re.search(rf"{key}=(-?\d+)", line)
                 if m:
                     if key == "lock_wait":
                         lock_wait = int(m.group(1))
                     elif key == "lock_losses":
                         lock_losses = int(m.group(1))
+                    elif key == "frame_locked":
+                        frame_locked = bool(int(m.group(1)))
 
-    recovered = _read_recovered(out)
-    result = analyse(
-        recovered,
-        expected,
-        lock_losses=lock_losses,
-        lock_wait=lock_wait,
-        params={
-            "rj_rms_ui": float(rj_rms_ui),
-            "sj_peak_ui": float(sj_peak_ui),
-            "sj_freq_hz": float(sj_freq_hz),
-            "dcd_peak_ui": float(dcd_peak_ui),
-            "ppm": float(ppm),
-        },
-    )
-    result.locked = result.locked and locked
+    params = {
+        "rj_rms_ui": float(rj_rms_ui),
+        "sj_peak_ui": float(sj_peak_ui),
+        "sj_freq_hz": float(sj_freq_hz),
+        "dcd_peak_ui": float(dcd_peak_ui),
+        "ppm": float(ppm),
+    }
+    if chain == "frame":
+        recovered_frames = _read_frames(out)
+        result = analyse_frames(
+            recovered_frames,
+            expected_frames,
+            lock_losses=lock_losses,
+            lock_wait=lock_wait,
+            params=params,
+        )
+        result.locked = result.locked and locked and frame_locked
+    else:
+        recovered = _read_recovered(out)
+        result = analyse(
+            recovered,
+            expected,
+            lock_losses=lock_losses,
+            lock_wait=lock_wait,
+            params=params,
+        )
+        result.locked = result.locked and locked
     if not keep:
         shutil.rmtree(tmp, ignore_errors=True)
     else:
@@ -387,8 +497,9 @@ def _main() -> int:
     ap.add_argument("--sj-freq-hz", type=float, default=0.0)
     ap.add_argument("--dcd-peak-ui", type=float, default=0.0)
     ap.add_argument("--ppm", type=float, default=0.0)
-    ap.add_argument("--chain", choices=("cdr", "rx"), default="cdr",
-                    help="cdr = cdr_adaptive only; rx = full serdes_rx_digital")
+    ap.add_argument("--chain", choices=("cdr", "rx", "frame"), default="cdr",
+                    help="cdr = cdr_adaptive only; rx = full serdes_rx_digital; "
+                         "frame = comma-framed RX with rx_par_data scoreboard")
     ap.add_argument("--noise-rms-v", type=float, default=0.0,
                     help="AWGN at the slicer input for --chain rx")
     ap.add_argument("--channel-tau-ui", type=float, default=0.16)

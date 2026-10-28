@@ -31,6 +31,12 @@ class TestRtlJtol(unittest.TestCase):
         self.assertTrue(result.locked)
         self.assertGreater(result.ber, 0.0)
 
+    def test_framed_rx_clean(self) -> None:
+        result = run_rtl_jtol(nbits=800, chain="frame")
+        self.assertTrue(result.locked)
+        self.assertEqual(result.errors, 0)
+        self.assertGreater(result.recovered, 0)
+
     def test_full_rx_chain_clean_and_noisy(self) -> None:
         clean = run_rtl_jtol(nbits=300, chain="rx")
         self.assertTrue(clean.locked)

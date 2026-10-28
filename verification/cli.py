@@ -443,7 +443,11 @@ def _cmd_jtol_rtl(args: argparse.Namespace) -> int:
 
     base_stress = {
         "model": "rtl-iverilog-cdr-adaptive",
-        "cdr": "cdr_adaptive OVERSAMPLE=8" if chain == "cdr" else "serdes_rx_digital (CDR+sampler+deserializer)",
+        "cdr": {
+            "cdr": "cdr_adaptive OVERSAMPLE=8",
+            "rx": "serdes_rx_digital (CDR+sampler+deserializer)",
+            "frame": "serdes_rx_digital ALIGN_MODE=2 (framed payload scoreboard)",
+        }[chain],
         "chain": chain,
         "rate_mbps": rtl_rate_mbps,
         "n_bits": n_bits,
@@ -497,7 +501,11 @@ def _cmd_jtol_rtl(args: argparse.Namespace) -> int:
     png_path = stem.with_suffix(".png")
     payload = {
         "model": "rtl-iverilog-cdr-adaptive",
-        "cdr": "cdr_adaptive OVERSAMPLE=8" if chain == "cdr" else "serdes_rx_digital (CDR+sampler+deserializer)",
+        "cdr": {
+            "cdr": "cdr_adaptive OVERSAMPLE=8",
+            "rx": "serdes_rx_digital (CDR+sampler+deserializer)",
+            "frame": "serdes_rx_digital ALIGN_MODE=2 (framed payload scoreboard)",
+        }[chain],
         "chain": chain,
         "disclaimer": (
             "Real digital CDR, but no analog TX/RX, no PEX and no channel "
@@ -804,12 +812,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     jtol.add_argument(
         "--chain",
-        choices=("cdr", "rx"),
+        choices=("cdr", "rx", "frame"),
         default="cdr",
         help=(
             "RTL path only: cdr = drive cdr_adaptive directly; "
-            "rx = drive the full serdes_rx_digital chain with the sliced "
-            "analog waveform (channel + AWGN) at 1 ns grid"
+            "rx = full serdes_rx_digital with the sliced analog waveform; "
+            "frame = comma-framed RX, scoreboard on rx_par_data/frame_valid"
         ),
     )
     jtol.add_argument("--bits", type=int, default=None, help="override profile n_bits")

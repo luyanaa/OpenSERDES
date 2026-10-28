@@ -285,7 +285,7 @@ def main() -> int:
     ap.add_argument("--out", default=str(ROOT / "build/verify/ber.json"))
     ap.add_argument("--package", default=None,
                     help="optional generated package; writes reports/ber.json and updates manifest")
-    ap.add_argument("--chain", choices=("rx", "cdr"), default="rx")
+    ap.add_argument("--chain", choices=("rx", "cdr", "frame"), default="rx")
     ap.add_argument("--bits", type=int, default=4000, help="RTL bits for the nominal BER point")
     ap.add_argument("--jtol-bits", type=int, default=1200, help="RTL bits per JTOL point")
     ap.add_argument("--eye-bits", type=int, default=8000)
