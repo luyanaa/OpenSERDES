@@ -28,6 +28,7 @@ PVT_CORNERS ?= tt ss ff sf fs
 PVT_VOLTAGES ?= 1.62 1.80 1.98
 PVT_TEMPERATURES ?= -40 25 100
 PVT_OUT ?= $(BUILD)/verify/sky130_pvt_lut.json
+PVT_MARGIN_OUT ?= $(BUILD)/verify/pvt_margin.json
 TIMING_LIB ?=
 TIMING_PERIOD_NS ?= 5.0
 TIMING_PERIOD2_NS ?= 10.0
@@ -47,7 +48,7 @@ RTL   := $(wildcard rtl/*.sv)
 SV2V_DIR := $(BUILD)/sv2v
 SV2V_RTL := $(SV2V_DIR)/rtl.v
 
-.PHONY: all sim lint synth regress gen qualify signoff ppa-import clean si-eye si-bathtub si-jtol si-rtl-jtol verify-link analog-lut sky130-lut analog-lut-demo analog-tech-check sky130-pvt sky130-mc pex-compare lib-catalog timing-compare
+.PHONY: all sim lint synth regress gen qualify signoff ppa-import clean si-eye si-bathtub si-jtol si-rtl-jtol verify-link analog-lut sky130-lut analog-lut-demo analog-tech-check sky130-pvt pvt-margin sky130-mc pex-compare lib-catalog timing-compare
 
 all: sim
 
@@ -326,6 +327,9 @@ timing-compare:
 
 lib-catalog:
 	$(PYTHON) scripts/library_catalog.py --out $(BUILD)/library_catalog.json --markdown $(BUILD)/library_catalog.md
+
+pvt-margin:
+	$(PYTHON) scripts/pvt_margin.py --pvt $(PVT_OUT) --out $(PVT_MARGIN_OUT)
 
 analog-tech-check:
 	$(PYTHON) verification/analog/extract_lut.py --tech $(ANALOG_TECH) --check-tools --out $(BUILD)/verify/$(ANALOG_TECH)_tech_check.json

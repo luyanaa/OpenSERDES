@@ -27,3 +27,14 @@ extraction timestamp.  The model flow is PM3 corner device files +
 
 Limits: schematic-level only.  No PEX, Monte Carlo, package/channel, or
 post-route timing.  This is a characterization matrix, not a signoff claim.
+
+## Behavioral margin projection
+
+`make pvt-margin` converts each row's TX rise time to an equivalent RC tau and
+runs the behavioral eye/Gaussian-tail analysis at that tau (clean profile,
+8000 bits).  On this 45-point matrix the eye width/height are dominated by the
+sampling grid and clean channel; `tau_ui` spans about 1.3e-8 .. 3.5e-8, and the
+predicted margin does not separate the corners at 100 Mb/s.  This is a useful
+negative result: the simple inverter at 50 fF is not the limiting corner in
+this behavioral model, so RTL/JTOL and PEX (not just this LUT) are required for
+a meaningful corner sensitivity claim.
