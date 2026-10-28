@@ -1,0 +1,28 @@
+# Worst-case behavioral stress for margin exploration, not a silicon corner.
+# The stress values are intentionally large enough to make the fixed-phase
+# slicer fail over part of the phase scan.
+rate_mbps: 100.0
+prbs_width: 7
+n_bits: 20000
+sps: 32
+
+rj_rms_ui: 0.05
+sj_peak_ui: 0.20         # PEAK; p-p is 0.40 UI
+sj_freq_hz: 400000.0
+dcd_peak_ui: 0.04
+noise_rms_v: 0.12
+
+channel:
+  tau_ui: 0.16
+  reflections:
+    - [1, 0.20]
+    - [2, -0.08]
+
+phases:
+  start: 0.01
+  stop: 0.99
+  count: 81
+
+threshold_v: 0.0
+discard: 100
+seed: 20261028

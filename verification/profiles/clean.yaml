@@ -1,0 +1,28 @@
+# Clean behavioral NRZ baseline for the phase-1 SI/BER framework.
+# Units: rate in Mb/s, jitter amplitudes in UI, noise in volts, time constants in UI.
+# The default NRZ levels are -0.5 V / +0.5 V (1 V nominal p-p), threshold 0 V.
+rate_mbps: 100.0
+prbs_width: 7
+n_bits: 20000
+sps: 32
+
+rj_rms_ui: 0.0
+sj_peak_ui: 0.0          # PEAK; p-p is 2x
+sj_freq_hz: 0.0
+dcd_peak_ui: 0.0
+noise_rms_v: 0.005
+
+channel:
+  tau_ui: 0.16
+  reflections:
+    - [1, 0.20]
+    - [2, -0.08]
+
+phases:
+  start: 0.01
+  stop: 0.99
+  count: 81
+
+threshold_v: 0.0
+discard: 100
+seed: 20261028

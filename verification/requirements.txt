@@ -1,0 +1,6 @@
+# Verification framework dependencies.
+# Python 3.10+; install with: python3 -m pip install -r verification/requirements.txt
+PyYAML>=6.0
+numpy>=1.24
+scipy>=1.10
+matplotlib>=3.7

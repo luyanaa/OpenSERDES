@@ -17,7 +17,7 @@ PPA_OUT  ?= tech/ppa_measured.yaml
 BUILD := build
 RTL   := $(wildcard rtl/*.sv)
 
-.PHONY: all sim lint synth regress gen qualify signoff ppa-import clean
+.PHONY: all sim lint synth regress gen qualify signoff ppa-import clean si-eye si-bathtub si-jtol si-rtl-jtol
 
 all: sim
 
@@ -214,6 +214,18 @@ synth:
 	$(YOSYS) -q -p "read_verilog -sv rtl/bist_snapshot.sv rtl/cdc_sync.sv; synth -top bist_snapshot; stat"
 	$(YOSYS) -q -p "read_verilog -sv rtl/prbs_word_gen.sv rtl/prbs_word_check.sv; synth -top prbs_word_check; stat"
 	$(YOSYS) -q -p "read_verilog -sv $(RTL); synth -top serdes_digital_top; stat"
+
+si-eye:
+	$(PYTHON) -m verification.cli eye --profile verification/profiles/stressed.yaml --out $(BUILD)/verify/eye.png
+
+si-bathtub:
+	$(PYTHON) -m verification.cli bathtub --profile verification/profiles/stressed.yaml --out $(BUILD)/verify/bathtub.png --json $(BUILD)/verify/bathtub.json
+
+si-jtol:
+	$(PYTHON) -m verification.cli jtol --profile verification/profiles/stressed.yaml --out $(BUILD)/verify/jtol.json --model analytic
+
+si-rtl-jtol:
+	$(PYTHON) -m verification.rtl.runner --nbits 800 --sj-peak-ui 0.2 --sj-freq-hz 500000
 
 regress:
 	@$(PYTHON) -c "import yaml" >/dev/null 2>&1 || { \

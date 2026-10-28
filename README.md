@@ -237,6 +237,18 @@ make ppa-import PPA_CSV=measured.csv PPA_OUT=tech/ppa_measured.yaml
 - Yosys synth：仅通用门/DFF，无 latch、无 memory
 - `scripts/regress.py`：63/63，含参数矩阵、link scoreboard、APB/FIFO、AXIS endpoint、PRBS/BIST、单/多时钟 SoC wrapper、generator package、signoff collector 和 measured-PPA gate
 
+SI/BER 验证框架（`verification/`，纯 Python + 可选 iverilog）：
+
+```bash
+pip install -r verification/requirements.txt
+python -m verification.cli eye     --profile verification/profiles/stressed.yaml --out build/verify/eye.png
+python -m verification.cli bathtub --profile verification/profiles/stressed.yaml --out build/verify/bathtub.png
+python -m verification.cli jtol    --profile verification/profiles/stressed.yaml --out build/verify/jtol.json --model analytic
+python -m verification.rtl.runner  --nbits 800 --sj-peak-ui 0.2 --sj-freq-hz 500000   # 真实 cdr_adaptive
+```
+
+`verification/` 把三类问题分开：2-UI eye / eye metrics、固定相位或固定阈值扫描的经验 BER bathtub（0 误码只报 3/N 上界，不报 BER=0）、以及 Gaussian 尾部统计 BER。`jtol --model analytic` 是明确标注的固定相位演示，不含 CDR；`verification.rtl.runner` 用 iverilog 驱动真实 `cdr_adaptive`，按边界注入 RJ/SJ/DCD/ppm，统计实际恢复比特的 BER、bit slip 与 lock loss，作为 JTOL 的 RTL 路径。它仍不是模拟 TX/RX、PEX 或晶体管级模型；详见 `verification/README.md`。
+
 顶层/信道/SDC：
 
 - `rtl/serdes_digital_top.sv`：数字顶层

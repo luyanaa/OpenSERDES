@@ -1,0 +1,28 @@
+# Stressed behavioral NRZ profile used as the CLI default.
+# 100 Mb/s demo: 1 UI = 10 ns; 400 kHz SJ is a slow phase modulation relative
+# to the data rate and is not a CDR-tracking claim.
+rate_mbps: 100.0
+prbs_width: 7
+n_bits: 20000
+sps: 32
+
+rj_rms_ui: 0.02
+sj_peak_ui: 0.10         # PEAK; p-p is 0.20 UI
+sj_freq_hz: 400000.0
+dcd_peak_ui: 0.02
+noise_rms_v: 0.06
+
+channel:
+  tau_ui: 0.16
+  reflections:
+    - [1, 0.20]
+    - [2, -0.08]
+
+phases:
+  start: 0.01
+  stop: 0.99
+  count: 81
+
+threshold_v: 0.0
+discard: 100
+seed: 20261028
