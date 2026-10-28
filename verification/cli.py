@@ -185,11 +185,27 @@ def _build_bits_and_channel(
     return bits, channel
 
 
+def _parse_port_map(text: str | None) -> dict[str, int] | None:
+    if not text:
+        return None
+    out: dict[str, int] = {}
+    for item in text.split(","):
+        if not item.strip():
+            continue
+        key, sep, value = item.partition("=")
+        if not sep:
+            raise ValueError(f"bad channel port map entry {item!r}; use name=index")
+        out[key.strip()] = int(value)
+    return out
+
+
 def _build_record(
     profile: dict[str, Any],
     n_bits: int,
     *,
     add_noise: bool,
+    channel_file: str | None = None,
+    channel_port_map: dict[str, int] | None = None,
 ) -> dict[str, Any]:
     """Build bits -> TIE -> NRZ waveform -> channel for one profile."""
     bits, channel = _build_bits_and_channel(profile, n_bits)
@@ -204,7 +220,18 @@ def _build_record(
         rng=rng,
     )
     waveform = nrz_waveform(bits, profile["sps"], tie_ui=tie / profile["ui_s"])
-    waveform = channel.apply(waveform, profile["sps"])
+    if channel_file:
+        from verification.channel.touchstone import load_touchstone_channel
+
+        channel = load_touchstone_channel(
+            channel_file,
+            profile["sps"],
+            profile["ui_s"],
+            port_map=channel_port_map,
+        )
+        waveform = channel.apply(waveform)
+    else:
+        waveform = channel.apply(waveform, profile["sps"])
     if add_noise and profile["noise_rms_v"] > 0.0:
         waveform = waveform + rng.normal(
             0.0, profile["noise_rms_v"], size=waveform.shape
@@ -240,7 +267,11 @@ def _cmd_eye(args: argparse.Namespace) -> int:
     n_bits = int(args.bits) if args.bits is not None else profile["n_bits"]
     if n_bits <= profile["discard"] + 1:
         raise ValueError("--bits must be greater than profile discard + 1")
-    record = _build_record(profile, n_bits, add_noise=True)
+    record = _build_record(
+        profile, n_bits, add_noise=True,
+        channel_file=args.channel_file,
+        channel_port_map=_parse_port_map(args.channel_port_map),
+    )
     sps = profile["sps"]
     folded = fold_eye(record["waveform"], sps, ui_window=2)
 
@@ -261,6 +292,8 @@ def _cmd_eye(args: argparse.Namespace) -> int:
     ui_s = profile["ui_s"]
     sj_peak = profile["sj_peak_ui"]
     print(f"Profile: {profile['path']}")
+    if args.channel_file:
+        print(f"Channel: {args.channel_file} (Touchstone)")
     print(
         f"Rate: {profile['rate_mbps']:.3f} Mb/s; UI = {ui_s * 1e12:.4f} ps; "
         f"bits = {n_bits}; sps = {sps}; discard = {profile['discard']}"
@@ -288,7 +321,11 @@ def _cmd_bathtub(args: argparse.Namespace) -> int:
     n_bits = int(args.bits) if args.bits is not None else profile["n_bits"]
     if n_bits <= profile["discard"] + 1:
         raise ValueError("--bits must be greater than profile discard + 1")
-    record = _build_record(profile, n_bits, add_noise=True)
+    record = _build_record(
+        profile, n_bits, add_noise=True,
+        channel_file=args.channel_file,
+        channel_port_map=_parse_port_map(args.channel_port_map),
+    )
     sps = profile["sps"]
     phases = _profile_phases(profile)
     scan = phase_scan(
@@ -332,6 +369,8 @@ def _cmd_bathtub(args: argparse.Namespace) -> int:
     plt.close(fig)
 
     print(f"Profile: {profile['path']}")
+    if args.channel_file:
+        print(f"Channel: {args.channel_file} (Touchstone)")
     print(
         f"Rate: {profile['rate_mbps']:.3f} Mb/s; UI = {profile['ui_s'] * 1e12:.4f} ps; "
         f"bits = {n_bits}; sps = {sps}; discard = {profile['discard']}; "
@@ -788,6 +827,10 @@ def build_parser() -> argparse.ArgumentParser:
     eye.add_argument("--profile", default=str(DEFAULT_PROFILE), help="YAML profile path")
     eye.add_argument("--out", required=True, help="output PNG path")
     eye.add_argument("--bits", type=int, default=None, help="override profile n_bits")
+    eye.add_argument("--channel-file", default=None,
+                     help="Touchstone .s2p/.s4p channel override")
+    eye.add_argument("--channel-port-map", default=None,
+                     help="comma list, e.g. tx_p=0,tx_n=1,rx_p=2,rx_n=3")
     eye.set_defaults(func=_cmd_eye)
 
     tub = sub.add_parser("bathtub", help="empirical BER vs fixed sampling phase")
@@ -795,6 +838,10 @@ def build_parser() -> argparse.ArgumentParser:
     tub.add_argument("--out", required=True, help="output PNG path")
     tub.add_argument("--json", default=None, help="optional JSON results path")
     tub.add_argument("--bits", type=int, default=None, help="override profile n_bits")
+    tub.add_argument("--channel-file", default=None,
+                     help="Touchstone .s2p/.s4p channel override")
+    tub.add_argument("--channel-port-map", default=None,
+                     help="comma list, e.g. tx_p=0,tx_n=1,rx_p=2,rx_n=3")
     tub.set_defaults(func=_cmd_bathtub)
 
     jtol = sub.add_parser("jtol", help="JTOL sweep harness / analytic demo")

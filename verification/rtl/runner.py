@@ -144,6 +144,8 @@ def build_sliced_stimulus(
     threshold_v: float = 0.0,
     seed: int = 2026,
     grid_ns: float | None = None,
+    channel_file: str | None = None,
+    channel_port_map: dict[str, int] | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Return (times_s, sliced_decisions) at a fine grid for the RX chain.
 
@@ -169,8 +171,16 @@ def build_sliced_stimulus(
         rng=np.random.default_rng(seed),
     )
     wave = nrz_waveform(bits, sps, tie_ui=tie_eff / ui_eff)
-    channel = RCReflectionChannel(tau_ui=channel_tau_ui, reflections=reflections)
-    wave = channel.apply(wave, sps)
+    if channel_file:
+        from verification.channel.touchstone import load_touchstone_channel
+
+        channel = load_touchstone_channel(
+            channel_file, sps, ui_eff, port_map=channel_port_map
+        )
+        wave = channel.apply(wave)
+    else:
+        channel = RCReflectionChannel(tau_ui=channel_tau_ui, reflections=reflections)
+        wave = channel.apply(wave, sps)
     if noise_rms_v > 0.0:
         noise_rng = np.random.default_rng(seed + 1)
         wave = wave + noise_rng.normal(0.0, noise_rms_v, size=wave.size)
@@ -369,6 +379,8 @@ def run_rtl_jtol(
     sync_len: int | None = None,
     noise_rms_v: float = 0.0,
     channel_tau_ui: float = 0.16,
+    channel_file: str | None = None,
+    channel_port_map: dict[str, int] | None = None,
     threshold_v: float = 0.0,
     keep: bool = False,
 ) -> JtolResult:
@@ -411,6 +423,8 @@ def run_rtl_jtol(
             channel_tau_ui=channel_tau_ui,
             threshold_v=threshold_v,
             seed=seed,
+            channel_file=channel_file,
+            channel_port_map=channel_port_map,
         )
         _write_edges(stim, times, sliced)
     else:
@@ -522,6 +536,10 @@ def _main() -> int:
     ap.add_argument("--noise-rms-v", type=float, default=0.0,
                     help="AWGN at the slicer input for --chain rx")
     ap.add_argument("--channel-tau-ui", type=float, default=0.16)
+    ap.add_argument("--channel-file", default=None,
+                    help="Touchstone .s2p/.s4p channel for rx/frame chains")
+    ap.add_argument("--channel-port-map", default=None,
+                    help="comma list, e.g. tx_p=0,tx_n=1,rx_p=2,rx_n=3")
     ap.add_argument("--threshold-v", type=float, default=0.0)
     ap.add_argument("--seed", type=int, default=2026)
     ap.add_argument("--keep", action="store_true")
@@ -541,6 +559,12 @@ def _main() -> int:
         sync_len=args.sync_len,
         noise_rms_v=args.noise_rms_v,
         channel_tau_ui=args.channel_tau_ui,
+        channel_file=args.channel_file,
+        channel_port_map=(dict(
+            (part.split("=")[0].strip(), int(part.split("=")[1]))
+            for part in args.channel_port_map.split(",")
+            if part.strip()
+        ) if args.channel_port_map else None),
         threshold_v=args.threshold_v,
         keep=args.keep,
     )

@@ -51,7 +51,9 @@ def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def behavioral_eye(profile: dict[str, Any], n_bits: int) -> dict[str, float]:
+def behavioral_eye(profile: dict[str, Any], n_bits: int,
+                   channel_file: str | None = None,
+                   channel_port_map: dict[str, int] | None = None) -> dict[str, float]:
     bits = prbs_bits(profile["prbs_width"], n_bits)
     tie, _ = build_tie(
         bits,
@@ -63,11 +65,20 @@ def behavioral_eye(profile: dict[str, Any], n_bits: int) -> dict[str, float]:
         rng=np.random.default_rng(profile["seed"]),
     )
     wave = nrz_waveform(bits, profile["sps"], tie_ui=tie / profile["ui_s"])
-    channel = RCReflectionChannel(
-        tau_ui=profile["channel"]["tau_ui"],
-        reflections=profile["channel"]["reflections"],
-    )
-    wave = channel.apply(wave, profile["sps"])
+    if channel_file:
+        from verification.channel.touchstone import load_touchstone_channel
+
+        channel = load_touchstone_channel(
+            channel_file, profile["sps"], profile["ui_s"],
+            port_map=channel_port_map,
+        )
+        wave = channel.apply(wave)
+    else:
+        channel = RCReflectionChannel(
+            tau_ui=profile["channel"]["tau_ui"],
+            reflections=profile["channel"]["reflections"],
+        )
+        wave = channel.apply(wave, profile["sps"])
     if profile["noise_rms_v"] > 0.0:
         rng = np.random.default_rng(profile["seed"] + 1)
         wave = wave + rng.normal(0.0, profile["noise_rms_v"], size=wave.size)
@@ -90,6 +101,8 @@ def rtl_point(
     data_width: int = 8,
     words: int = 4,
     sync_len: int | None = None,
+    channel_file: str | None = None,
+    channel_port_map: dict[str, int] | None = None,
     allow_long: bool = True,
 ) -> dict[str, Any]:
     if shutil.which("iverilog") is None or shutil.which("vvp") is None:
@@ -128,6 +141,8 @@ def jtol_sweep(
     data_width: int = 8,
     words: int = 4,
     sync_len: int | None = None,
+    channel_file: str | None = None,
+    channel_port_map: dict[str, int] | None = None,
 ) -> tuple[bool, list[dict[str, Any]], dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     per_freq: dict[str, Any] = {}
@@ -144,6 +159,8 @@ def jtol_sweep(
                 data_width=data_width,
                 words=words,
                 sync_len=sync_len,
+                channel_file=channel_file,
+                channel_port_map=channel_port_map,
             )
             ber_upper = _upper95(int(point["errors"]), int(point["compared"]))
             row = {
@@ -239,6 +256,11 @@ def load_package_binding(package: str | None, profile: dict[str, Any]) -> dict[s
 
 def build_report(args: argparse.Namespace) -> dict[str, Any]:
     profile = load_profile(args.profile)
+    if args.channel_port_map:
+        args.channel_port_map = {
+            part.split("=")[0].strip(): int(part.split("=")[1])
+            for part in args.channel_port_map.split(",") if part.strip()
+        }
     binding = load_package_binding(args.package, profile)
     data_width = int(binding.get("data_width", 8))
     words = int(binding.get("words", 4))
@@ -268,7 +290,11 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
             "link capability)"
         )
 
-    eye = behavioral_eye(profile, args.eye_bits)
+    eye = behavioral_eye(
+        profile, args.eye_bits,
+        channel_file=args.channel_file,
+        channel_port_map=args.channel_port_map,
+    )
     eye_ok = eye["eye_width_ui"] >= args.min_eye_ui
 
     capability_reasons: list[str] = []
@@ -291,6 +317,8 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
             data_width=data_width,
             words=words,
             sync_len=sync_len,
+            channel_file=args.channel_file,
+            channel_port_map=args.channel_port_map,
         )
         if nominal["compared"] == 0:
             ber_value = 1.0
@@ -310,6 +338,8 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
             data_width=data_width,
             words=words,
             sync_len=sync_len,
+            channel_file=args.channel_file,
+            channel_port_map=args.channel_port_map,
         )
 
     ber_ok = ber_value <= args.ber_target
@@ -384,6 +414,8 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
         "capability": capability,
         "profile": str(profile_path),
         "profile_sha256": capability["profile_sha256"],
+        "channel_file": args.channel_file,
+        "channel_port_map": args.channel_port_map,
         "binding": binding,
         "evidence": {
             "eye": {**eye, "min_eye_ui": args.min_eye_ui},
@@ -431,6 +463,10 @@ def main() -> int:
     ap.add_argument("--jtol-amps", type=float, nargs="*",
                     default=[0.05, 0.10, 0.20, 0.40])
     ap.add_argument("--ppm", type=float, default=0.0)
+    ap.add_argument("--channel-file", default=None,
+                    help="Touchstone .s2p/.s4p channel override")
+    ap.add_argument("--channel-port-map", default=None,
+                    help="comma list, e.g. tx_p=0,tx_n=1,rx_p=2,rx_n=3")
     ap.add_argument("--analog-lut", default=None,
                     help="optional LUT from verification/analog/extract_lut.py; "
                          "replaces the profile channel tau with the TX rise-time tau")

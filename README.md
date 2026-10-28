@@ -244,6 +244,7 @@ SI/BER 验证框架（`verification/`，纯 Python + 可选 iverilog）：
 pip install -r verification/requirements.txt
 python -m verification.cli eye     --profile verification/profiles/stressed.yaml --out build/verify/eye.png
 python -m verification.cli bathtub --profile verification/profiles/stressed.yaml --out build/verify/bathtub.png
+python -m verification.cli eye --profile verification/profiles/stressed.yaml --channel-file channel.s4p --channel-port-map tx_p=0,tx_n=1,rx_p=2,rx_n=3 --out build/verify/eye_touch.png
 python -m verification.cli jtol    --profile verification/profiles/stressed.yaml --out build/verify/jtol.json --model analytic
 python -m verification.rtl.runner  --nbits 800 --sj-peak-ui 0.2 --sj-freq-hz 500000   # 真实 cdr_adaptive
 python -m verification.rtl.runner  --nbits 600 --chain rx --noise-rms-v 0.12      # 完整 serdes_rx_digital + 模拟信道切片
