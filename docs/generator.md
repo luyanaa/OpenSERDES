@@ -131,10 +131,12 @@ Current candidates:
 
 soc and phy_ip still require the link-level APB/AXIS/CDC/top integration
 wrappers and BIST/DFT blocks that are not in this release.  APB CSR
-(`rtl/apb_csr.sv`), async FIFO (`rtl/async_fifo.sv`), AXIS adapters and the TX/RX
-AXIS endpoint wrappers are implemented and tested.  `target: tx`/`rx` with
-`interface.data: axi4_stream` generates a real endpoint package; `target: link`
-AXIS is still a scaffold.  The presets fail fast unless --allow-incomplete is
+(`rtl/apb_csr.sv`), async FIFO (`rtl/async_fifo.sv`), AXIS adapters, the TX/RX
+AXIS endpoint wrappers and PRBS7/15/31 generator/checker are implemented and
+tested.  `target: tx`/`rx` with `interface.data: axi4_stream` generates a real
+endpoint package; `target: link` AXIS is still a scaffold, and the optional
+PRBS/APB/FIFO blocks are copied into soc/phy_ip scaffolds without a link-level
+BIST/control integration.  The presets fail fast unless --allow-incomplete is
 passed, and the generated package explicitly records the missing blocks.
 
 ## 5. Package layout

@@ -87,9 +87,10 @@ See [`generator.md`](generator.md) and [`qualification.md`](qualification.md).
 - The adaptive CDR is a first-order frequency-tracking loop, not a clone of
   the original `CLK_RECOVERY` period tracker.  No analog/gate-level
   equivalence is claimed; jitter tolerance and BER are not measured here.
-- APB CSR, dual-clock async FIFO, AXIS adapters and AXIS endpoint wrappers are
-  implemented; the link-level SoC CDC/APB register map, BIST and calibration
-  remain scaffolded in the presets.
+- APB CSR, dual-clock async FIFO, AXIS adapters, AXIS endpoint wrappers and
+  PRBS7/15/31 generator/checker are implemented; the link-level SoC CDC/APB
+  register map, BIST integration and calibration remain scaffolded in the
+  presets.
 - The receiver, inverter-based TX, resistive-feedback inverter, and custom
   DFF/NAND physical cells remain legacy until a new analog/back-end design is
   available.

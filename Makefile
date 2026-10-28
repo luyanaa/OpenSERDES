@@ -93,6 +93,15 @@ $(BUILD)/tb_serdes_tx_axis: tb/tb_serdes_tx_axis.sv rtl/serdes_tx_axis_digital.s
 $(BUILD)/tb_serdes_rx_axis: tb/tb_serdes_rx_axis.sv $(RTL) | $(BUILD)
 	$(IVERILOG) -g2012 -Wall -o $@ $^
 
+$(BUILD)/tb_prbs_7: tb/tb_prbs.sv rtl/prbs_gen.sv rtl/prbs_check.sv | $(BUILD)
+	$(IVERILOG) -g2012 -Wall -Ptb_prbs.WIDTH=7 -o $@ $^
+
+$(BUILD)/tb_prbs_15: tb/tb_prbs.sv rtl/prbs_gen.sv rtl/prbs_check.sv | $(BUILD)
+	$(IVERILOG) -g2012 -Wall -Ptb_prbs.WIDTH=15 -o $@ $^
+
+$(BUILD)/tb_prbs_31: tb/tb_prbs.sv rtl/prbs_gen.sv rtl/prbs_check.sv | $(BUILD)
+	$(IVERILOG) -g2012 -Wall -Ptb_prbs.WIDTH=31 -o $@ $^
+
 SIM_BINS := $(BUILD)/tb_serializer_lsb $(BUILD)/tb_serializer_msb \
             $(BUILD)/tb_serializer_capture $(BUILD)/tb_serializer_stream \
             $(BUILD)/tb_deserializer_lsb $(BUILD)/tb_deserializer_msb \
@@ -102,7 +111,8 @@ SIM_BINS := $(BUILD)/tb_serializer_lsb $(BUILD)/tb_serializer_msb \
             $(BUILD)/tb_cdr_bypass $(BUILD)/tb_compat_legacy $(BUILD)/tb_compat_port_order \
             $(BUILD)/tb_apb_csr $(BUILD)/tb_async_fifo \
             $(BUILD)/tb_axis_tx_adapter $(BUILD)/tb_axis_rx_adapter \
-            $(BUILD)/tb_serdes_tx_axis $(BUILD)/tb_serdes_rx_axis
+            $(BUILD)/tb_serdes_tx_axis $(BUILD)/tb_serdes_rx_axis \
+            $(BUILD)/tb_prbs_7 $(BUILD)/tb_prbs_15 $(BUILD)/tb_prbs_31
 
 sim: $(SIM_BINS)
 	$(VVP) $(BUILD)/tb_serializer_lsb
@@ -128,6 +138,9 @@ sim: $(SIM_BINS)
 	$(VVP) $(BUILD)/tb_axis_rx_adapter
 	$(VVP) $(BUILD)/tb_serdes_tx_axis
 	$(VVP) $(BUILD)/tb_serdes_rx_axis
+	$(VVP) $(BUILD)/tb_prbs_7
+	$(VVP) $(BUILD)/tb_prbs_15
+	$(VVP) $(BUILD)/tb_prbs_31
 
 lint:
 	$(VERILATOR) --lint-only -Wall --top-module serdes_digital_top $(RTL)
@@ -144,6 +157,8 @@ lint:
 	$(VERILATOR) --lint-only -Wall --top-module axis_rx_adapter $(RTL)
 	$(VERILATOR) --lint-only -Wall --top-module serdes_tx_axis_digital $(RTL)
 	$(VERILATOR) --lint-only -Wall --top-module serdes_rx_axis_digital $(RTL)
+	$(VERILATOR) --lint-only -Wall --top-module prbs_gen $(RTL)
+	$(VERILATOR) --lint-only -Wall --top-module prbs_check $(RTL)
 	$(VERILATOR) --lint-only -Wall --top-module serializer_unit_cell_1 rtl/serializer.sv rtl/compat/serializer_unit_cell_1.v
 	$(VERILATOR) --lint-only -Wall --top-module deserialiser_unit_cell_1 rtl/deserializer_word.sv rtl/deserializer.sv rtl/compat/deserialiser_unit_cell_1.v
 
@@ -159,6 +174,7 @@ synth:
 	$(YOSYS) -q -p "read_verilog -sv rtl/axis_rx_adapter.sv; synth -top axis_rx_adapter; stat"
 	$(YOSYS) -q -p "read_verilog -sv rtl/serdes_tx_axis_digital.sv rtl/axis_tx_adapter.sv rtl/serializer_stream.sv rtl/reset_sync.sv; synth -top serdes_tx_axis_digital; stat"
 	$(YOSYS) -q -p "read_verilog -sv $(RTL); synth -top serdes_rx_axis_digital; stat"
+	$(YOSYS) -q -p "read_verilog -sv rtl/prbs_gen.sv rtl/prbs_check.sv; synth -top prbs_check; stat"
 	$(YOSYS) -q -p "read_verilog -sv $(RTL); synth -top serdes_digital_top; stat"
 
 regress:

@@ -59,8 +59,8 @@ DESIGN_FILES = {
 }
 
 OPTIONAL_FILES = {
-    "soc": ["apb_csr.sv", "async_fifo.sv"],
-    "phy_ip": ["apb_csr.sv", "async_fifo.sv"],
+    "soc": ["apb_csr.sv", "async_fifo.sv", "prbs_gen.sv", "prbs_check.sv"],
+    "phy_ip": ["apb_csr.sv", "async_fifo.sv", "prbs_gen.sv", "prbs_check.sv"],
 }
 
 PRESETS = {

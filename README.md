@@ -92,6 +92,10 @@ deserializer #(
 
 每个 word 一个 `DATA_WIDTH` 寄存器组；`capture` 只在选中的 word 且 `serial_valid` 时有效。`par_data` 直接映射到这些 word 寄存器，修复了原 DeSer 的 `INT_PAR_IN` 传递问题。
 
+### `rtl/prbs_gen.sv` / `rtl/prbs_check.sv`
+
+PRBS7/15/31 串行 generator/checker，带 sticky `error`、`error_count` 和 `bit_count`。作为 BIST/链路测试原语；`soc`/`phy_ip` scaffold package 会把它列为可选块。
+
 ### `rtl/axis_tx_adapter.sv` / `rtl/axis_rx_adapter.sv`
 
 AXIS word adapter：一个 beat 是一个 `DATA_WIDTH` word，`tlast` 标最后一 word。TX adapter 驱动 `serializer_stream` 的 `in_valid/in_ready/in_word`；RX adapter 把 `rx_frame_valid` 的并行 frame 拆成 AXIS beats，并在上一帧未排空时置 `frame_overflow`。
@@ -184,12 +188,12 @@ cdr_adaptive #(
 | DeSer `INT_PAR_IN` 没有正确传递 | 每个 word 单寄存器组，`par_data` 直连，无影子锁存 |
 | CDR 只有门级网表、22 位 SCAN_IN 语义未文档化 | fixed/adaptive/source-sync 三种可综合模式；明确 `sample_strobe/lock/lock_stale/freq_trim` 契约；`comma_align` 帧同步 |
 | 原 Serializer 只有 13 个 DFF（输入寄存器被删），DeSer 更多 | 抽象后 Serializer 266 FF、DeSer 266 FF、Top 550 FF；单时钟 + `enable`，必须走 CTS；见 `docs/clocking.md` |
-| 无 testbench | 23 个自检 TB（serializer LSB/MSB/capture/stream、deserializer LSB/MSB、loopback LSB/MSB、32×8、link scoreboard、channel、fixed/adaptive CDR、frame sync、CDR bypass、compat legacy/port-order、APB CSR、async FIFO、AXIS TX/RX adapter + endpoint） |
+| 无 testbench | 26 个自检 TB（serializer LSB/MSB/capture/stream、deserializer LSB/MSB、loopback LSB/MSB、32×8、link scoreboard、channel、fixed/adaptive CDR、frame sync、CDR bypass、compat legacy/port-order、APB CSR、async FIFO、AXIS TX/RX adapter + endpoint、PRBS7/15/31） |
 
 ## 4. 验证
 
 ```bash
-make sim      # iverilog：23 个自检 TB
+make sim      # iverilog：26 个自检 TB
 make regress  # 参数矩阵 + link/scoreboard + generator 包检查
 make lint     # Verilator -Wall（0 warning）
 make synth    # Yosys 通用门级检查
@@ -215,7 +219,7 @@ make ppa-import PPA_CSV=measured.csv PPA_OUT=tech/ppa_measured.yaml
 - `tb_compat_legacy` / `tb_compat_port_order`：named 和 positional legacy 兼容：PASS
 - Verilator lint：0 warning
 - Yosys synth：仅通用门/DFF，无 latch、无 memory
-- `scripts/regress.py`：51/51，含参数矩阵、link scoreboard、APB/FIFO、AXIS endpoint、generator package、signoff collector 和 measured-PPA gate
+- `scripts/regress.py`：54/54，含参数矩阵、link scoreboard、APB/FIFO、AXIS endpoint、PRBS、generator package、signoff collector 和 measured-PPA gate
 
 顶层/信道/SDC：
 
@@ -270,7 +274,7 @@ limits:
 仍未实现 / 不在本目录承诺：
 
 - 8b10b/64b66b、scrambler、CRC、FEC。
-- `async_fifo`、AXIS TX/RX adapter 和 AXIS endpoint wrapper 已实现；仍缺 RX 恢复时钟 → 本地 SoC 时钟的完整 CDC wrapper、APB 寄存器映射和 `soc` link 级顶层集成。
+- `async_fifo`、AXIS TX/RX adapter、AXIS endpoint wrapper、PRBS7/15/31 已实现；仍缺 RX 恢复时钟 → 本地 SoC 时钟的完整 CDC wrapper、APB 寄存器映射、BIST 集成和 `soc` link 级顶层。
 - Scan/DFT、clock gating、BIST/calibration、DFT signoff。
 - 模拟 TX/RX 的 Verilog-A/RNM wrapper、PEX、SI/PI、jitter/BER、silicon correlation。
 - 目标 PDK 的 cellmap/floorplan/post-route signoff adapter；当前 `native_dff` 仍是文档字段，尚无自动 `dfflibmap` runner。

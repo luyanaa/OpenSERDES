@@ -90,6 +90,9 @@ CASES = [
       "rtl/cdr_sync.sv", "rtl/cdr_oversampling.sv", "rtl/cdr_adaptive.sv",
       "rtl/comma_align.sv", "rtl/receiver_sampler.sv", "rtl/reset_sync.sv",
       "rtl/serdes_rx_digital.sv", "rtl/axis_rx_adapter.sv"], {}),
+    ("prbs7", "tb_prbs", ["rtl/prbs_gen.sv", "rtl/prbs_check.sv"], {"WIDTH": 7}),
+    ("prbs15", "tb_prbs", ["rtl/prbs_gen.sv", "rtl/prbs_check.sv"], {"WIDTH": 15}),
+    ("prbs31", "tb_prbs", ["rtl/prbs_gen.sv", "rtl/prbs_check.sv"], {"WIDTH": 31}),
 ]
 
 
