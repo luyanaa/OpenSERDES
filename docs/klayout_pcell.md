@@ -143,9 +143,43 @@ netgen LVS: Circuits match uniquely
 Extracted topology:
 
 ```text
-Xpfet_dev_0 IN OUT VDD pfet_dev
-Xnfet_dev_0 IN OUT VSS VSUBS nfet_dev
+Xinv_pfet_0 IN OUT VDD inv_pfet
+Xinv_nfet_0 IN OUT VSS VSUBS inv_nfet
 ```
 
-This is the unit primitive; TX 1/3/9 and RX feedback assembly still need
-arrayed device banks and macro-level PDN/LEF/CDL views.
+This is the unit primitive.
+
+## TX 1/3/9 PCell array
+
+`verification/analog/pya_tx_array.py` places 13 unit inverters as
+`1 -> 3 -> 9` stages.  Upper-metal interconnect uses met3/met4 distribution
+and met1 rails; the top cell is `tx_pcell`.
+
+Reproducible headless evidence:
+
+```sh
+make analog-pcell-tx-verify
+```
+
+Result:
+
+```text
+Magic DRC: 0
+netgen LVS: Circuits match uniquely
+bbox: 56.725 x 8.480 um (database units -125,-380;56600,8100)
+LEF: build/verify/pcell_tx/tx_pcell.lef
+CDL: build/verify/pcell_tx/tx_pcell.cdl
+```
+
+The verified schematic is the same 13-inverter hierarchy:
+
+```text
+stage 1: 1 inverter
+stage 2: 3 parallel inverters
+stage 3: 9 parallel inverters
+```
+
+This is a PCell array topology, not yet the C std-cell
+`inv_1 -> inv_4 -> inv_16` physical macro.  LEF/CDL views are generated and
+the CDL is LVS-matched to the extracted layout; PEX and the RX feedback array
+remain open.  No signoff claim is made.

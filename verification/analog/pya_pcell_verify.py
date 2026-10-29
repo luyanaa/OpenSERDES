@@ -61,8 +61,10 @@ quit
 """)
     pdk = Path(os.environ.get("PDK_ROOT", str(DEFAULT_PDK)))
     rc = magic_rcfile(pdk)
+    env = dict(os.environ)
+    env["PDK_ROOT"] = str(pdk)
     proc = subprocess.run(["magic", "-dnull", "-noconsole", "-rcfile", str(rc), str(script)],
-                          cwd=work, text=True, capture_output=True, timeout=300)
+                          cwd=work, env=env, text=True, capture_output=True, timeout=300)
     if proc.returncode != 0:
         raise RuntimeError(proc.stdout + proc.stderr)
     return work / "extracted.spice"

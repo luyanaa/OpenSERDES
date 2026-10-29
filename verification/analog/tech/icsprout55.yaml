@@ -1,0 +1,25 @@
+name: icsprout55
+status: scaffold
+pdk: icsprout55-pdk
+vdd_v: 1.2
+default_corner: nom_tt_025C_1v20
+devices:
+  style: subckt
+  nmos: TBD_ics55_nmos
+  pmos: TBD_ics55_pmos
+sizing_um:
+  wn: 1.0
+  wp: 1.0
+  l: 0.06
+pcell:
+  backend: klayout_pya
+  library: ICsprout55
+  devices:
+  - ics55_mos_analog
+  - ics55_rf_mos
+  status: geometry_verified
+  source: libs.tech/klayout/pcells
+  note: >-
+    Provisional PDK geometry generators. RF MOS is clean under the partial
+    KLayout DRC port; the analog MOS has one poly-spacing violation at
+    fingers=2 and is clean at fingers=1. No device LVS or Calibre signoff.
