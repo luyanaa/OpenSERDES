@@ -63,3 +63,27 @@ verified fixed cell or a pure-pya/PCell geometry implementation.
 - Recommended next step: add a pure-pya MOS geometry port with a narrow
   parameter contract (`type`, `w`, `l`, `nf`, `m`, `bulk`) and gate it behind
   independent Magic/KLayout DRC and netgen LVS.
+
+## Ported subset status (2026-10-29)
+
+`verification/analog/pya_pcell.py` now registers a pure-pya `mos` PCell and
+uses the ported `verification/analog/pya_draw/` subset.  Headless tests
+generated and Magic-DRC-checked:
+
+```text
+nfet W=5.00 L=0.15 nf=1   DRC 0
+pfet W=5.00 L=0.15 nf=1   DRC 0
+pfet W=0.55 L=8.00 nf=1   DRC 0
+nfet W=5.00 L=0.15 nf=3   DRC 0
+pfet W=5.00 L=0.15 nf=3   DRC 0
+```
+
+The subset is intentionally narrow:
+
+- `bulk=None`, `gate_con_pos=top/bottom`;
+- no guard-ring boolean operations or interdigitated gate patterns;
+- RF/high-voltage devices are not claimed.
+
+`external_magic` remains the second backend via the existing Magic gencell/PEX
+flow.  Device-level LVS labels/ports for the pure-pya PCell still need to be
+added before using it as a complete macro generator backend.
