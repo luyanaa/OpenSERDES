@@ -118,3 +118,20 @@ series voltage source (sigma 0 or 100 mV, seed 7) into the same 100 ohm /
 This is a small-N deterministic screening check, not a noise-margin or
 production BER claim.  PCell feedback again tracks the original feedback PEX.
 Input sensitivity, eye masks, and Monte Carlo remain open.
+
+## Eye opening spot check
+
+`mixed_signal_e2e.run` now reports a sampled eye width (range of sampling
+offsets at the best error count) and a vertical eye height.  128-bit PRBS-7:
+
+| route | rate | errors | eye width | eye height |
+|---|---:|---:|---:|---:|
+| feedback | 400 | 0/128 | 1.50 ns | 1.796 V |
+| parallel | 400 | 0/128 | 1.25 ns | 1.799 V |
+| PCell feedback | 400 | 0/128 | 1.50 ns | 1.788 V |
+| feedback | 800 | 14/128 | 0.0625 ns | 1.797 V |
+| parallel | 800 | 21/128 | 0 ns | 1.799 V |
+| PCell feedback | 800 | 14/128 | 0.0625 ns | 1.792 V |
+
+This is a sampled eye proxy, not a full bathtub/eye-mask or jitter
+decomposition.  PCell feedback again matches the original feedback route.
