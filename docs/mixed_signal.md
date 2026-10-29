@@ -30,7 +30,20 @@ Run:
 make mixed-signal-e2e
 ```
 
-Limitations: no package/channel S-parameter, no CTLE/DFE, no CDR/digital
-recovery, no PVT/MC sweep in this chain, and no post-route/silicon claim.  The
-next step is to feed the sliced RX PEX output into the digital receive bench and
-add PVT/MC samples.
+The sliced RX PEX output is also fed into the package's digital
+`serdes_rx_digital` frame bench:
+
+```bash
+make rx-pex-digital-e2e PACKAGE=out/ci-soc
+```
+
+One 4-word/8-bit frame result:
+
+```text
+analog errors=0
+digital frame_errors=0
+recovered=[127, 32, 24, 138]
+```
+
+This closes the one-frame analog-PEX-to-digital-recovery boundary.  It is not
+a full SoC channel/PVT/MC run.
