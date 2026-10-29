@@ -1,4 +1,5 @@
 import json
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -47,6 +48,8 @@ class TestMacroGen(unittest.TestCase):
             self.assertEqual(manifest["views"]["layout"]["status"], "missing")
 
     def test_abstract_layout_is_rejected(self):
+        if shutil.which("klayout") is None:
+            self.skipTest("klayout not installed")
         with tempfile.TemporaryDirectory() as td:
             p = self.run_gen("--tech", "sky130", "--topology", "tx_inv_chain",
                              "--layout-gds", "analog/macros/tx_inv_chain_1_3_9/layout.gds",
