@@ -1,0 +1,13 @@
+.param mc_mm_switch=0 mc_pr_switch=0
+.lib "models/sky130_models.spice" tt
+* Magic RC PEX extracted from /opt/OpenSERDES/analog/macros/rx_res_fb_inv/layout.gds
+* cell rx_res_fb_inv; ports VDD,VSS,IN,OUT; generated_utc=2026-10-29T05:44:08.736641+00:00
+.subckt rx_parallel_inv_macro VDD VSS IN OUT
+X0 OUT IN VSS VSS sky130_fd_pr__nfet_01v8 ad=0.169 pd=1.82 as=0.169 ps=1.82 w=0.65 l=0.15
+X1 OUT IN VDD VDD sky130_fd_pr__pfet_01v8_hvt ad=0.26 pd=2.52 as=0.26 ps=2.52 w=1 l=0.15
+X2 OUT IN VSS VSS sky130_fd_pr__nfet_01v8 ad=0.507 pd=5.46 as=0.507 ps=5.46 w=0.65 l=0.15
+X3 OUT IN VDD VDD sky130_fd_pr__pfet_01v8_hvt ad=0.78 pd=7.56 as=0.78 ps=7.56 w=1 l=0.15
+X4 OUT IN VSS VSS sky130_fd_pr__nfet_01v8 ad=0 pd=0 as=0 ps=0 w=0.65 l=0.15
+X5 OUT IN VDD VDD sky130_fd_pr__pfet_01v8_hvt ad=0 pd=0 as=0 ps=0 w=1 l=0.15
+C0 VDD VSS 2.08954f
+.ends

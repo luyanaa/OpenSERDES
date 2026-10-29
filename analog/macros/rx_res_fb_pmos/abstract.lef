@@ -1,26 +1,26 @@
 VERSION 5.8 ;
 BUSBITCHARS "[]" ;
 DIVIDERCHAR "/" ;
-MACRO rx_res_fb_inv
+MACRO rx_res_fb_pmos
   CLASS BLOCK ;
   ORIGIN 0 0 ;
-  FOREIGN rx_res_fb_inv 0 0 ;
-  SIZE 8.190 BY 6.000 ;
+  FOREIGN rx_res_fb_pmos 0 0 ;
+  SIZE 9.915 BY 16.630 ;
   SYMMETRY X Y ;
   PIN VDD
     DIRECTION INOUT ;
     USE POWER ;
     PORT
-      LAYER met5 ;
-        RECT 0.190 5.000 7.590 6.000 ;
+      LAYER met1 ;
+        RECT 5.415 12.740 5.590 12.935 ;
     END
   END VDD
   PIN VSS
     DIRECTION INOUT ;
     USE GROUND ;
     PORT
-      LAYER met5 ;
-        RECT 0.190 0.000 7.590 1.000 ;
+      LAYER met1 ;
+        RECT 4.755 0.000 4.930 0.195 ;
     END
   END VSS
   PIN IN
@@ -28,7 +28,7 @@ MACRO rx_res_fb_inv
     USE SIGNAL ;
     PORT
       LAYER met1 ;
-        RECT 0.190 2.700 2.390 2.900 ;
+        RECT 0.645 6.325 0.830 6.515 ;
     END
   END IN
   PIN OUT
@@ -36,8 +36,8 @@ MACRO rx_res_fb_inv
     USE SIGNAL ;
     PORT
       LAYER met1 ;
-        RECT 2.390 2.050 5.390 2.300 ;
+        RECT 9.055 6.355 9.245 6.495 ;
     END
   END OUT
-END rx_res_fb_inv
+END rx_res_fb_pmos
 END LIBRARY

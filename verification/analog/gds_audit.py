@@ -19,7 +19,7 @@ ly = pya.Layout(); ly.read(os.environ["GDS"]); c = ly.top_cell()
 layers = []
 for li in ly.layer_indexes():
     info = ly.get_info(li)
-    n = c.shapes(li).size()
+    n = sum(1 for _ in c.begin_shapes_rec(li))
     if n:
         layers.append({"layer": info.layer, "datatype": info.datatype,
                        "name": info.name, "count": n})

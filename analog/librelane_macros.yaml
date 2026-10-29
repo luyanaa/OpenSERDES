@@ -1,25 +1,31 @@
-# LibreLane macro fragment (abstract LEF, black-box Liberty, no timing arcs).
-# Merge only after checking the target LibreLane MACROS schema and the actual
-# macro instantiation.  The combined LEF avoids OpenROAD treating separate
-# macro LEFs as the same abstract library.
 MACROS:
+  rx_parallel_inv_macro:
+    gds:
+    - analog/rx_parallel_inv_macro/layout.gds
+    lef:
+    - analog/sky130_analog_macros.lef
+    nl:
+    - analog/rx_parallel_inv_macro/macro.v
+    lib:
+      '*':
+      - analog/rx_parallel_inv_macro/macro.lib
+  rx_res_fb_pmos:
+    gds:
+    - analog/rx_res_fb_pmos/layout.gds
+    lef:
+    - analog/sky130_analog_macros.lef
+    nl:
+    - analog/rx_res_fb_pmos/macro.v
+    lib:
+      '*':
+      - analog/rx_res_fb_pmos/macro.lib
   tx_inv_chain_1_3_9:
     gds:
-      - analog/macros/tx_inv_chain_1_3_9/layout.gds
+    - analog/tx_inv_chain_1_3_9/layout.gds
     lef:
-      - analog/macros/sky130_analog_macros.lef
+    - analog/sky130_analog_macros.lef
     nl:
-      - analog/macros/tx_inv_chain_1_3_9/macro.v
+    - analog/tx_inv_chain_1_3_9/macro.v
     lib:
-      "*":
-        - analog/macros/tx_inv_chain_1_3_9/macro.lib
-  rx_res_fb_inv:
-    gds:
-      - analog/macros/rx_res_fb_inv/layout.gds
-    lef:
-      - analog/macros/sky130_analog_macros.lef
-    nl:
-      - analog/macros/rx_res_fb_inv/macro.v
-    lib:
-      "*":
-        - analog/macros/rx_res_fb_inv/macro.lib
+      '*':
+      - analog/tx_inv_chain_1_3_9/macro.lib

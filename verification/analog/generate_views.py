@@ -217,7 +217,8 @@ def main() -> int:
     args = ap.parse_args()
     manifests = args.manifest or [
         str(ROOT / "analog/macros/tx_inv_chain_1_3_9/manifest.json"),
-        str(ROOT / "analog/macros/rx_res_fb_inv/manifest.json"),
+        str(ROOT / "analog/macros/rx_parallel_inv_macro/manifest.json"),
+        str(ROOT / "analog/macros/rx_res_fb_pmos/manifest.json"),
     ]
     made = []
     for m in manifests:

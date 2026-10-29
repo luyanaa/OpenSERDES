@@ -40,10 +40,10 @@ MACRO tx_inv_chain_1_3_9
     END
   END OUT
 END tx_inv_chain_1_3_9
-MACRO rx_res_fb_inv
+MACRO rx_parallel_inv_macro
   CLASS BLOCK ;
   ORIGIN 0 0 ;
-  FOREIGN rx_res_fb_inv 0 0 ;
+  FOREIGN rx_parallel_inv_macro 0 0 ;
   SIZE 8.190 BY 6.000 ;
   SYMMETRY X Y ;
   PIN VDD
@@ -78,5 +78,44 @@ MACRO rx_res_fb_inv
         RECT 2.390 2.050 5.390 2.300 ;
     END
   END OUT
-END rx_res_fb_inv
+END rx_parallel_inv_macro
+MACRO rx_res_fb_pmos
+  CLASS BLOCK ;
+  ORIGIN 0 0 ;
+  FOREIGN rx_res_fb_pmos 0 0 ;
+  SIZE 9.915 BY 16.630 ;
+  SYMMETRY X Y ;
+  PIN VDD
+    DIRECTION INOUT ;
+    USE POWER ;
+    PORT
+      LAYER met1 ;
+        RECT 5.415 12.740 5.590 12.935 ;
+    END
+  END VDD
+  PIN VSS
+    DIRECTION INOUT ;
+    USE GROUND ;
+    PORT
+      LAYER met1 ;
+        RECT 4.755 0.000 4.930 0.195 ;
+    END
+  END VSS
+  PIN IN
+    DIRECTION INPUT ;
+    USE SIGNAL ;
+    PORT
+      LAYER met1 ;
+        RECT 0.645 6.325 0.830 6.515 ;
+    END
+  END IN
+  PIN OUT
+    DIRECTION OUTPUT ;
+    USE SIGNAL ;
+    PORT
+      LAYER met1 ;
+        RECT 9.055 6.355 9.245 6.495 ;
+    END
+  END OUT
+END rx_res_fb_pmos
 END LIBRARY

@@ -1,0 +1,138 @@
+* Magic RC PEX extracted from /opt/OpenSERDES/Resistive_FB_inverter/Res_FB_Inv.gds
+* cell Resist_FB_INV; ports GND,VDD,INP,OUT; generated_utc=2026-10-29T07:33:47.876900+00:00
+.subckt Resist_FB_INV GND VDD INP OUT
+X0 OUT INP GND Inverter1_0/GND.t2 sky130_fd_pr__nfet_01v8 ad=1.325 pd=10.53 as=0.7 ps=5.28 w=5 l=0.15
+X1 VDD INP OUT VDD sky130_fd_pr__pfet_01v8 ad=0.7 pd=5.28 as=0.7 ps=5.28 w=5 l=0.15
+X2 VDD INP OUT VDD sky130_fd_pr__pfet_01v8 ad=0.7 pd=5.28 as=0.7 ps=5.28 w=5 l=0.15
+X3 OUT INP VDD VDD sky130_fd_pr__pfet_01v8 ad=0.7 pd=5.28 as=0.7 ps=5.28 w=5 l=0.15
+X4 OUT INP VDD VDD sky130_fd_pr__pfet_01v8 ad=0.7 pd=5.28 as=1.325 ps=10.53 w=5 l=0.15
+X5 OUT INP VDD VDD sky130_fd_pr__pfet_01v8 ad=0.7 pd=5.28 as=0.7 ps=5.28 w=5 l=0.15
+X6 OUT INP GND Inverter1_0/GND.t0 sky130_fd_pr__nfet_01v8 ad=0.7 pd=5.28 as=1.325 ps=10.53 w=5 l=0.15
+X7 VDD INP OUT VDD sky130_fd_pr__pfet_01v8 ad=1.325 pd=10.53 as=0.7 ps=5.28 w=5 l=0.15
+X8 GND INP OUT Inverter1_0/GND.t1 sky130_fd_pr__nfet_01v8 ad=0.7 pd=5.28 as=0.7 ps=5.28 w=5 l=0.15
+X9 a_16_2437# a_16_2437# INP VDD sky130_fd_pr__pfet_01v8 ad=0.14575 pd=1.63 as=0.14575 ps=1.63 w=0.55 l=8
+X10 a_16_2437# OUT OUT VDD sky130_fd_pr__pfet_01v8 ad=0.14575 pd=1.63 as=0.14575 ps=1.63 w=0.55 l=8
+C0 OUT VDD 3.15131f
+R0 Inverter1_0/GND.n32 Inverter1_0/GND.t2 112643
+R1 Inverter1_0/GND.n32 Inverter1_0/GND.t0 647.342
+R2 Inverter1_0/GND.n34 Inverter1_0/GND.n33 595.542
+R3 Inverter1_0/GND.n33 Inverter1_0/GND.n32 585
+R4 Inverter1_0/GND.n3 Inverter1_0/GND.n2 585
+R5 Inverter1_0/GND.n14 Inverter1_0/GND.n13 585
+R6 Inverter1_0/GND.n32 Inverter1_0/GND.n9 585
+R7 Inverter1_0/GND.n15 Inverter1_0/GND.n9 585
+R8 Inverter1_0/GND.n17 Inverter1_0/GND.n16 585
+R9 Inverter1_0/GND.n19 Inverter1_0/GND.n18 585
+R10 Inverter1_0/GND.n32 Inverter1_0/GND.n6 585
+R11 Inverter1_0/GND.n21 Inverter1_0/GND.n6 585
+R12 Inverter1_0/GND.n24 Inverter1_0/GND.n23 585
+R13 Inverter1_0/GND.n26 Inverter1_0/GND.n25 585
+R14 Inverter1_0/GND.n28 Inverter1_0/GND.n27 585
+R15 Inverter1_0/GND.n11 Inverter1_0/GND.n10 585
+R16 Inverter1_0/GND.n31 Inverter1_0/GND.n30 303.678
+R17 Inverter1_0/GND.n32 Inverter1_0/GND.n31 293.252
+R18 Inverter1_0/GND.t1 Inverter1_0/GND.t0 275.601
+R19 Inverter1_0/GND.t2 Inverter1_0/GND.t1 275.601
+R20 Inverter1_0/GND.n32 Inverter1_0/GND.n8 252.845
+R21 Inverter1_0/GND.n32 Inverter1_0/GND.n7 252.845
+R22 Inverter1_0/GND.n32 Inverter1_0/GND.n5 252.845
+R23 Inverter1_0/GND.n32 Inverter1_0/GND.n4 252.845
+R24 Inverter1_0/GND.n31 Inverter1_0/GND.n10 217.769
+R25 Inverter1_0/GND.n33 Inverter1_0/GND.n3 183.507
+R26 Inverter1_0/GND.n13 Inverter1_0/GND.n9 183.507
+R27 Inverter1_0/GND.n16 Inverter1_0/GND.n9 183.507
+R28 Inverter1_0/GND.n18 Inverter1_0/GND.n6 183.507
+R29 Inverter1_0/GND.n23 Inverter1_0/GND.n6 183.507
+R30 Inverter1_0/GND.n27 Inverter1_0/GND.n26 183.507
+R31 Inverter1_0/GND.n13 Inverter1_0/GND.n8 79.3146
+R32 Inverter1_0/GND.n18 Inverter1_0/GND.n7 79.3146
+R33 Inverter1_0/GND.n23 Inverter1_0/GND.n5 79.3146
+R34 Inverter1_0/GND.n27 Inverter1_0/GND.n4 79.3146
+R35 Inverter1_0/GND.n8 Inverter1_0/GND.n3 79.3146
+R36 Inverter1_0/GND.n16 Inverter1_0/GND.n7 79.3146
+R37 Inverter1_0/GND.n26 Inverter1_0/GND.n5 79.3146
+R38 Inverter1_0/GND.n10 Inverter1_0/GND.n4 79.3146
+R39 Inverter1_0/GND.n15 Inverter1_0/GND.n14 25.6005
+R40 Inverter1_0/GND.n17 Inverter1_0/GND.n15 25.6005
+R41 Inverter1_0/GND.n19 Inverter1_0/GND.n17 25.6005
+R42 Inverter1_0/GND.n25 Inverter1_0/GND.n24 25.6005
+R43 Inverter1_0/GND.n28 Inverter1_0/GND.n25 25.6005
+R44 Inverter1_0/GND.n22 Inverter1_0/GND.n21 21.0829
+R45 Inverter1_0/GND.n30 Inverter1_0/GND.n11 19.9534
+R46 Inverter1_0/GND.n20 Inverter1_0/GND.n19 19.577
+R47 Inverter1_0/GND.n29 Inverter1_0/GND.n28 18.4476
+R48 Inverter1_0/GND.n34 Inverter1_0/GND.n2 15.0593
+R49 Inverter1_0/GND.n14 Inverter1_0/GND.n12 13.5534
+R50 Inverter1_0/GND.n12 Inverter1_0/GND.n2 12.0476
+R51 Inverter1_0/GND.n30 Inverter1_0/GND.n1 9.45567
+R52 Inverter1_0/GND.n12 Inverter1_0/GND.n0 9.3005
+R53 Inverter1_0/GND.n0 Inverter1_0/GND.n34 9.3005
+R54 Inverter1_0/GND.n20 Inverter1_0/GND.n1 9.3005
+R55 Inverter1_0/GND.n22 Inverter1_0/GND.n1 9.3005
+R56 Inverter1_0/GND.n1 Inverter1_0/GND.n29 9.3005
+R57 Inverter1_0/GND.n29 Inverter1_0/GND.n11 7.15344
+R58 Inverter1_0/GND.n21 Inverter1_0/GND.n20 6.02403
+R59 Inverter1_0/GND.n24 Inverter1_0/GND.n22 4.51815
+R60 Inverter1_0/GND.n1 Inverter1_0/GND.n0 1.93217
+R61 GND Inverter1_0/GND.n0 1.01822
+R62 GND.n34 GND.n33 595.542
+R63 GND.n33 GND.n32 585
+R64 GND.n3 GND.n2 585
+R65 GND.n13 GND.n12 585
+R66 GND.n15 GND.n14 585
+R67 GND.n17 GND.n16 585
+R68 GND.n32 GND.n6 585
+R69 GND.n18 GND.n6 585
+R70 GND.n21 GND.n20 585
+R71 GND.n24 GND.n23 585
+R72 GND.n26 GND.n25 585
+R73 GND.n28 GND.n27 585
+R74 GND.n10 GND.n9 585
+R75 GND.n31 GND.n30 361.945
+R76 GND.n32 GND.n4 252.845
+R77 GND.n32 GND.n5 252.845
+R78 GND.n32 GND.n7 252.845
+R79 GND.n32 GND.n8 252.845
+R80 GND.n33 GND.n3 183.507
+R81 GND.n14 GND.n13 183.507
+R82 GND.n16 GND.n6 183.507
+R83 GND.n20 GND.n6 183.507
+R84 GND.n25 GND.n24 183.507
+R85 GND.n27 GND.n9 183.507
+R86 GND.n32 GND.n31 156.524
+R87 GND.n31 GND.n9 116.236
+R88 GND.n13 GND.n4 79.3146
+R89 GND.n16 GND.n5 79.3146
+R90 GND.n24 GND.n7 79.3146
+R91 GND.n27 GND.n8 79.3146
+R92 GND.n4 GND.n3 79.3146
+R93 GND.n14 GND.n5 79.3146
+R94 GND.n20 GND.n7 79.3146
+R95 GND.n25 GND.n8 79.3146
+R96 GND.n15 GND.n12 25.6005
+R97 GND.n17 GND.n15 25.6005
+R98 GND.n18 GND.n17 25.6005
+R99 GND.n26 GND.n23 25.6005
+R100 GND.n28 GND.n26 25.6005
+R101 GND.n22 GND.n21 21.0829
+R102 GND.n30 GND.n10 19.9534
+R103 GND.n19 GND.n18 19.577
+R104 GND.n29 GND.n28 18.4476
+R105 GND.n34 GND.n2 15.0593
+R106 GND.n12 GND.n11 13.5534
+R107 GND.n11 GND.n2 12.0476
+R108 GND.n30 GND.n1 9.45567
+R109 GND.n11 GND.n0 9.3005
+R110 GND.n0 GND.n34 9.3005
+R111 GND.n19 GND.n1 9.3005
+R112 GND.n22 GND.n1 9.3005
+R113 GND.n1 GND.n29 9.3005
+R114 GND.n29 GND.n10 7.15344
+R115 GND.n21 GND.n19 6.02403
+R116 GND.n23 GND.n22 4.51815
+R117 GND.n1 GND.n0 1.93217
+R118 GND GND.n0 1.29386
+C1 a_16_2437# GND 2.02454f
+C2 VDD GND 5.50046f
+C3 OUT GND 3.32109f
+.ends

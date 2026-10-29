@@ -37,8 +37,7 @@ A physical template must contain real diff/poly/li1 device layers, not only
 met1 pin rectangles.  For the current repository GDS this audit fails:
 
 ```text
-tx_inv_chain_1_3_9: missing diff, poly, li1
-rx_res_fb_inv:     missing diff
+abstract fixture only: missing diff, poly, li1
 ```
 
 That is intentional.  The schematic generator remains useful for device
@@ -70,3 +69,29 @@ make analog-stdcell-gen
 The C integration uses this backend as soft macros, so DRC/LVS/STA are closed
 in one standard-cell hierarchy.  The hard macro views are generated separately
 and are not silently treated as timing-characterized macros.
+
+## Identity and evidence gate
+
+Physical signoff is rejected unless all of the following hold:
+
+```text
+electrical_topology == physical_topology
+topology_match == true
+layout.physical == true
+lvs.status in {match-unique, clean, correct}
+magic_pex path exists
+canonical_spice path exists
+```
+
+The RX identities are deliberately separate:
+
+- `rx_parallel_inv_macro`: three parallel stdcell inverters, physical
+  GDS/LEF/PEX, no feedback field.
+- `rx_res_fb_pmos`: original full GDS with the inverter plus two series
+  nonlinear PMOS feedback devices; its canonical SPICE is the matching
+  post-layout PEX wrapper.
+- The soft `inv_4` RX used by C is a separate soft identity and is not
+  advertised as a feedback macro.
+
+`--layout-gds` also requires physical `diff/poly/li1`; a pin-only abstract GDS
+is rejected.  File hashes in manifests bind GDS, LEF, SPICE, Liberty and PEX.

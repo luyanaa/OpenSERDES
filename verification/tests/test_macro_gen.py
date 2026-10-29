@@ -47,12 +47,35 @@ class TestMacroGen(unittest.TestCase):
             self.assertEqual(manifest["feedback"]["series_devices"], 2)
             self.assertEqual(manifest["views"]["layout"]["status"], "missing")
 
-    def test_abstract_layout_is_rejected(self):
+    def test_custom_name_is_used_in_spice_and_verilog(self):
+        with tempfile.TemporaryDirectory() as td:
+            p = self.run_gen("--tech", "sky130", "--topology", "tx_inv_chain",
+                             "--name", "custom_tx", "--out", td + "/tx")
+            self.assertEqual(p.returncode, 0, p.stderr)
+            self.assertIn(".subckt custom_tx VDD VSS IN OUT",
+                          Path(td, "tx/circuit.spice").read_text())
+            self.assertIn("module custom_tx", Path(td, "tx/macro.v").read_text())
+
+    def test_physical_layout_is_accepted(self):
         if shutil.which("klayout") is None:
             self.skipTest("klayout not installed")
         with tempfile.TemporaryDirectory() as td:
             p = self.run_gen("--tech", "sky130", "--topology", "tx_inv_chain",
                              "--layout-gds", "analog/macros/tx_inv_chain_1_3_9/layout.gds",
+                             "--out", td + "/tx")
+            self.assertEqual(p.returncode, 0, p.stderr)
+
+    def test_abstract_layout_is_rejected(self):
+        if shutil.which("klayout") is None:
+            self.skipTest("klayout not installed")
+        with tempfile.TemporaryDirectory() as td:
+            script = Path(td) / "abstract.py"
+            gds = Path(td) / "abstract.gds"
+            script.write_text(f"""import pya\nly=pya.Layout(); c=ly.create_cell('abstract')\nc.shapes(ly.layer(68,20)).insert(pya.Box(0,0,1000,1000))\nly.write('{gds}')\n""")
+            subprocess.run(["klayout", "-b", "-r", str(script)], check=True,
+                           capture_output=True)
+            p = self.run_gen("--tech", "sky130", "--topology", "tx_inv_chain",
+                             "--layout-gds", str(gds),
                              "--out", td + "/tx")
             self.assertNotEqual(p.returncode, 0)
             self.assertIn("not a physical transistor layout", p.stderr + p.stdout)

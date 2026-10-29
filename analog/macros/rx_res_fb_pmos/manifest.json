@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "name": "rx_res_fb_inv",
+  "name": "rx_res_fb_pmos",
   "aliases": {
     "VDD": [
       "VDD",
@@ -19,7 +19,7 @@
     ]
   },
   "kind": "analog_macro",
-  "topology": "parallel_cmos_inverter_stdcell",
+  "topology": "cmos_inverter_with_nonlinear_pmos_feedback",
   "polarity": "inverting",
   "polarity_verified": true,
   "polarity_evidence": {
@@ -69,7 +69,7 @@
         "VDD"
       ],
       "format": "spice",
-      "status": "available"
+      "status": "available-historical"
     },
     "layout_spice": {
       "path": "Resistive_FB_inverter/Resist_FB_INV.sp",
@@ -84,67 +84,71 @@
       "status": "available"
     },
     "layout": {
-      "path": "analog/macros/rx_res_fb_inv/layout.gds",
-      "top": "rx_res_fb_inv",
+      "path": "analog/macros/rx_res_fb_pmos/layout.gds",
+      "top": "Resist_FB_INV",
       "format": "gds",
-      "status": "available-physical-stdcell",
-      "source_path": "Resistive_FB_inverter/Res_FB_Inv.gds",
-      "note": "Top renamed; PR boundary 235/4 added for LibreLane.",
+      "status": "available-physical",
       "physical": true,
-      "reason": ""
+      "note": "Original full GDS; ports GND,VDD,INP,OUT.",
+      "sha256": "5690859d0df8ed7fc94b33d948ab0504ebb90d1aecc587d5e8d1fa79d50fab76"
     },
     "canonical_spice": {
-      "path": "analog/macros/rx_res_fb_inv/canonical.spice",
-      "top": "rx_res_fb_inv",
-      "format": "spice",
-      "status": "available"
+      "path": "analog/macros/rx_res_fb_pmos/canonical.spice",
+      "top": "rx_res_fb_pmos",
+      "format": "spice-postlayout",
+      "status": "available",
+      "sha256": "62572c1f40ec2fc1e3f6472d26ca83e76f93d83d0c567991b99ab0c041132502"
     },
     "magic_pex": {
-      "path": "build/verify/analog_stdcell/rx_res_fb_inv.pex.spice",
-      "top": "rx_res_fb_inv",
+      "path": "build/verify/magic_pex/Resist_FB_INV.pex.spice",
+      "top": "Resist_FB_INV",
       "status": "generated",
-      "format": "magic-rc-spice"
+      "format": "magic-rc-spice",
+      "sha256": "b9b0f1eafab2b3264e91e49de8a74c18c1d963dd97644f7b18fc23ee0f0bfe30"
     },
     "pex": {
-      "path": "Resistive_FB_inverter/Resist_FB_INV.pex.netlist",
+      "path": "analog/macros/rx_res_fb_pmos/pex.spice",
       "top": "Resist_FB_INV",
-      "format": "calibre-rve",
-      "status": "unusable",
-      "reason": "Calibre RVE is not ngspice-readable; use the Magic RC flow."
+      "format": "spice",
+      "status": "available",
+      "sha256": "b9b0f1eafab2b3264e91e49de8a74c18c1d963dd97644f7b18fc23ee0f0bfe30"
     },
     "lvs": {
-      "status": "match-unique",
-      "tool": "netgen 1.5",
-      "note": "Physical stdcell macro; circuits match uniquely."
+      "status": "correct",
+      "tool": "Calibre",
+      "path": "Resistive_FB_inverter/Resist_FB_INV.lvs.report"
     },
     "lef": {
-      "path": "analog/macros/rx_res_fb_inv/abstract.lef",
+      "path": "analog/macros/rx_res_fb_pmos/abstract.lef",
       "status": "gds-pin-shapes",
-      "kind": "met1-signal-met4-power",
-      "note": "Rectangles extracted from GDS met1.pin (68/16) near canonical labels; not label-only."
+      "sha256": "152de3ca56ed19823badbb684186d7c83f5174963d069a13eae5fb0a8e80008e"
     },
     "liberty": {
-      "path": "analog/macros/rx_res_fb_inv/macro.lib",
+      "path": "analog/macros/rx_res_fb_pmos/macro.lib",
       "status": "blackbox-no-timing-arcs",
-      "kind": "analog-blackbox"
+      "sha256": "c3dac47c24334de1112ed8bb19ae2ec441b6504f48936b4309f01fa6c8fc546b"
     },
     "macro_v": {
-      "path": "analog/macros/rx_res_fb_inv/macro.v",
-      "status": "available"
+      "path": "analog/macros/rx_res_fb_pmos/macro.v",
+      "status": "available",
+      "sha256": "0228b75668c40e7aaa7796ce644115530bd32a7bb447dfede6612bd9f3fe63f0"
     },
     "drc": {
       "status": "clean",
       "errors": 0,
       "tool": "Magic 8.3",
-      "note": "Physical stdcell macro DRC."
+      "note": "Magic DRC on original full GDS."
     },
     "views_json": {
-      "path": "analog/macros/rx_res_fb_inv/views.json",
+      "path": "analog/macros/rx_res_fb_pmos/views.json",
       "status": "generated"
     }
   },
   "legacy_names": [],
-  "physical_layout": true,
   "physical_signoff_eligible": true,
-  "note": "Physical stdcell macro: three parallel inverters; no nonlinear PMOS feedback in this hard macro. C uses the soft stdcell implementation."
+  "note": "Physical stdcell macro: three parallel inverters; no nonlinear PMOS feedback in this hard macro. C uses the soft stdcell implementation.",
+  "physical_layout": true,
+  "electrical_topology": "cmos_inverter_with_series_pmos_feedback",
+  "physical_topology": "cmos_inverter_with_series_pmos_feedback",
+  "topology_match": true
 }

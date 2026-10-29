@@ -1,0 +1,6 @@
+.param mc_mm_switch=0 mc_pr_switch=0
+.lib "models/sky130_models.spice" tt
+.include "pex.spice"
+.subckt rx_res_fb_pmos VDD VSS IN OUT
+Xcore VSS VDD IN OUT Resist_FB_INV
+.ends

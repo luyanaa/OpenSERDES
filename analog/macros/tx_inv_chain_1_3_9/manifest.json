@@ -21,7 +21,7 @@
     ]
   },
   "kind": "analog_macro",
-  "topology": "cmos_inverter_chain",
+  "topology": "stdcell_inverter_chain_1_4_16",
   "polarity": "inverting",
   "polarity_verified": true,
   "polarity_evidence": {
@@ -54,45 +54,27 @@
   ],
   "stages": [
     {
-      "name": "Inverter0",
-      "n_parallel": 1,
-      "p_parallel": 2,
-      "n_total_um": 5.0,
-      "p_total_um": 10.0
+      "stage": 0,
+      "cell": "sky130_fd_sc_hd__inv_1"
     },
     {
-      "name": "Inverter1",
-      "n_parallel": 3,
-      "p_parallel": 6,
-      "n_total_um": 15.0,
-      "p_total_um": 30.0
+      "stage": 1,
+      "cell": "sky130_fd_sc_hd__inv_4"
     },
     {
-      "name": "Inverter2",
-      "n_parallel": 9,
-      "p_parallel": 18,
-      "n_total_um": 45.0,
-      "p_total_um": 90.0
+      "stage": 2,
+      "cell": "sky130_fd_sc_hd__inv_16"
     }
   ],
   "device": {
-    "nmos": "nshort/sky130 nfet",
-    "pmos": "pshort/sky130 pfet",
-    "l_um": 0.15,
-    "w_finger_um": 5.0
+    "implementation": "sky130_fd_sc_hd__inv_1/inv_4/inv_16",
+    "note": "Physical stdcell chain; original transistor sizing is historical."
   },
   "views": {
     "schematic": {
-      "path": "Inverter_Based_Tx/Full_TX/Inv_Transmitter.sp",
-      "top": "Inv_Transmitter",
-      "port_order": [
-        "GND",
-        "VDD",
-        "VIN",
-        "VOUT"
-      ],
-      "format": "spice",
-      "status": "available"
+      "path": "analog/macros/tx_inv_chain_1_3_9/canonical.spice",
+      "top": "tx_inv_chain_1_3_9",
+      "status": "postlayout-canonical"
     },
     "layout": {
       "path": "analog/macros/tx_inv_chain_1_3_9/layout.gds",
@@ -102,46 +84,45 @@
       "source_path": "Inverter_Based_Tx/Inv_Transmitter.gds",
       "note": "Top renamed; PR boundary 235/4 added for LibreLane.",
       "physical": true,
-      "reason": ""
+      "reason": "",
+      "sha256": "44ae2ad114dcaf1eaea052ef619be97f1da05e913a7fd55ee54d1d68104b6ddb"
     },
     "canonical_spice": {
       "path": "analog/macros/tx_inv_chain_1_3_9/canonical.spice",
       "top": "tx_inv_chain_1_3_9",
-      "format": "spice",
-      "status": "available"
+      "format": "spice-postlayout",
+      "status": "available",
+      "sha256": "6823d73cec90008f9b8b379c52ca5f4e4e05ae12520bab0731aad7336bd641f8"
     },
     "magic_pex": {
       "path": "build/verify/analog_stdcell/tx_inv_chain_1_3_9.pex.spice",
       "top": "tx_inv_chain_1_3_9",
       "status": "generated",
-      "format": "magic-rc-spice"
-    },
-    "pex": {
-      "path": "Inverter_Based_Tx/Full_TX/Inv_Transmitter.pex.netlist",
-      "top": "Inv_Transmitter",
-      "format": "calibre-rve",
-      "status": "unusable",
-      "reason": "Calibre RVE is not ngspice-readable; use the Magic RC flow."
+      "format": "magic-rc-spice",
+      "sha256": "0a4c75399fd9d4f9172b315fd5cf83fd41904f255c74e426443325ba31d03772"
     },
     "lvs": {
       "status": "match-unique",
       "tool": "netgen 1.5",
-      "note": "Physical stdcell macro; circuits match uniquely."
+      "note": "Physical stdcell macro."
     },
     "lef": {
       "path": "analog/macros/tx_inv_chain_1_3_9/abstract.lef",
       "status": "gds-pin-shapes",
       "kind": "met1-signal-met4-power",
-      "note": "Rectangles extracted from GDS met1.pin (68/16) near canonical labels; not label-only."
+      "note": "Rectangles extracted from GDS met1.pin (68/16) near canonical labels; not label-only.",
+      "sha256": "6e3804cd8a9585d7bdac4d249e624170e08a1ef680d9573c63902e172afd0695"
     },
     "liberty": {
       "path": "analog/macros/tx_inv_chain_1_3_9/macro.lib",
       "status": "blackbox-no-timing-arcs",
-      "kind": "analog-blackbox"
+      "kind": "analog-blackbox",
+      "sha256": "fa16e8f993d453b7324e1bd5ada24ea3a9c7126748efcdf86a56dfd492755e8e"
     },
     "macro_v": {
       "path": "analog/macros/tx_inv_chain_1_3_9/macro.v",
-      "status": "available"
+      "status": "available",
+      "sha256": "a023afdb355486c4e330b6d44cf56b0d90c5a3e461a35322aa67ad9a37750ef6"
     },
     "drc": {
       "status": "clean",
@@ -156,5 +137,8 @@
   },
   "legacy_names": [],
   "physical_layout": true,
-  "physical_signoff_eligible": true
+  "physical_signoff_eligible": true,
+  "electrical_topology": "stdcell_inverter_chain_1_4_16",
+  "physical_topology": "stdcell_inverter_chain_1_4_16",
+  "topology_match": true
 }

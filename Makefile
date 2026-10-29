@@ -368,22 +368,26 @@ analog-tech-check:
 	$(PYTHON) verification/analog/extract_lut.py --tech $(ANALOG_TECH) --check-tools --out $(BUILD)/verify/$(ANALOG_TECH)_tech_check.json
 
 analog-gds:
+	@mkdir -p $(BUILD)/verify/legacy_gds
 	$(PYTHON) verification/analog/prepare_macro_gds.py \
-		--src Inverter_Based_Tx/Inv_Transmitter.gds --dst analog/macros/tx_inv_chain_1_3_9/layout.gds \
-		--name tx_inv_chain_1_3_9
+		--src Inverter_Based_Tx/Inv_Transmitter.gds --dst $(BUILD)/verify/legacy_gds/Inv_Transmitter.gds \
+		--name Inv_Transmitter
 	$(PYTHON) verification/analog/prepare_macro_gds.py \
-		--src Resistive_FB_inverter/Res_FB_Inv.gds --dst analog/macros/rx_res_fb_inv/layout.gds \
-		--name rx_res_fb_inv
+		--src Resistive_FB_inverter/Res_FB_Inv.gds --dst $(BUILD)/verify/legacy_gds/Res_FB_INV.gds \
+		--name Resist_FB_INV
 
-analog-gds-audit: analog-gds
+analog-gds-audit:
 	$(PYTHON) verification/analog/gds_audit.py \
 		--gds analog/macros/tx_inv_chain_1_3_9/layout.gds \
 		--out $(BUILD)/verify/gds_audit/tx_inv_chain_1_3_9.json
 	$(PYTHON) verification/analog/gds_audit.py \
-		--gds analog/macros/rx_res_fb_inv/layout.gds \
-		--out $(BUILD)/verify/gds_audit/rx_res_fb_inv.json
+		--gds analog/macros/rx_parallel_inv_macro/layout.gds \
+		--out $(BUILD)/verify/gds_audit/rx_parallel_inv_macro.json
+	$(PYTHON) verification/analog/gds_audit.py \
+		--gds Resistive_FB_inverter/Res_FB_Inv.gds \
+		--out $(BUILD)/verify/gds_audit/rx_res_fb_pmos.json
 
-analog-views: analog-gds
+analog-views:
 	$(PYTHON) verification/analog/generate_views.py
 
 analog-package:

@@ -1,0 +1,43 @@
+VERSION 5.8 ;
+BUSBITCHARS "[]" ;
+DIVIDERCHAR "/" ;
+MACRO rx_parallel_inv_macro
+  CLASS BLOCK ;
+  ORIGIN 0 0 ;
+  FOREIGN rx_parallel_inv_macro 0 0 ;
+  SIZE 8.190 BY 6.000 ;
+  SYMMETRY X Y ;
+  PIN VDD
+    DIRECTION INOUT ;
+    USE POWER ;
+    PORT
+      LAYER met5 ;
+        RECT 0.190 5.000 7.590 6.000 ;
+    END
+  END VDD
+  PIN VSS
+    DIRECTION INOUT ;
+    USE GROUND ;
+    PORT
+      LAYER met5 ;
+        RECT 0.190 0.000 7.590 1.000 ;
+    END
+  END VSS
+  PIN IN
+    DIRECTION INPUT ;
+    USE SIGNAL ;
+    PORT
+      LAYER met1 ;
+        RECT 0.190 2.700 2.390 2.900 ;
+    END
+  END IN
+  PIN OUT
+    DIRECTION OUTPUT ;
+    USE SIGNAL ;
+    PORT
+      LAYER met1 ;
+        RECT 2.390 2.050 5.390 2.300 ;
+    END
+  END OUT
+END rx_parallel_inv_macro
+END LIBRARY

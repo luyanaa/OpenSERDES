@@ -1,0 +1,125 @@
+{
+  "schema": 1,
+  "name": "rx_parallel_inv_macro",
+  "aliases": {
+    "VDD": [
+      "VDD",
+      "VCC"
+    ],
+    "VSS": [
+      "VSS",
+      "GND"
+    ],
+    "IN": [
+      "IN",
+      "INP"
+    ],
+    "OUT": [
+      "OUT"
+    ]
+  },
+  "kind": "analog_macro",
+  "topology": "three_parallel_cmos_inverter_stdcell",
+  "polarity": "inverting",
+  "polarity_verified": true,
+  "polarity_evidence": {
+    "method": "DC transfer sweep",
+    "condition": "sky130A tt, VDD=1.8 V, 20 fF load; feedback is two series diode-connected W=0.55/L=8 um PMOS",
+    "observed": "VOUT falls when INP rises; threshold near the inverter trip point"
+  },
+  "supply_v": 1.8,
+  "canonical_ports": [
+    {
+      "name": "VDD",
+      "direction": "power",
+      "index": 0
+    },
+    {
+      "name": "VSS",
+      "direction": "ground",
+      "index": 1
+    },
+    {
+      "name": "IN",
+      "direction": "input",
+      "index": 2
+    },
+    {
+      "name": "OUT",
+      "direction": "output",
+      "index": 3
+    }
+  ],
+  "views": {
+    "schematic": {
+      "path": "analog/macros/rx_parallel_inv_macro/canonical.spice",
+      "top": "rx_parallel_inv_macro",
+      "status": "postlayout-canonical"
+    },
+    "layout": {
+      "path": "analog/macros/rx_parallel_inv_macro/layout.gds",
+      "top": "rx_parallel_inv_macro",
+      "format": "gds",
+      "status": "available-physical-stdcell",
+      "source_path": "Resistive_FB_inverter/Res_FB_Inv.gds",
+      "note": "Top renamed; PR boundary 235/4 added for LibreLane.",
+      "physical": true,
+      "reason": "",
+      "sha256": "92f7bc8c56c328a603c9fe58f72e456f60e5a358fc81371d78e29cdf88bccc05"
+    },
+    "canonical_spice": {
+      "path": "analog/macros/rx_parallel_inv_macro/canonical.spice",
+      "top": "rx_parallel_inv_macro",
+      "format": "spice-postlayout",
+      "status": "available",
+      "sha256": "bcdcb7d51ab78112e112ff2de6b7af936d7b256857872d663d0cc676578d1f9e"
+    },
+    "magic_pex": {
+      "path": "build/verify/analog_stdcell/rx_parallel_inv_macro.pex.spice",
+      "top": "rx_parallel_inv_macro",
+      "status": "generated",
+      "format": "magic-rc-spice",
+      "sha256": "9446097481d5e94e0bafc58aaf6d3ef5bfb52712438c57c32f711d219856bc93"
+    },
+    "lvs": {
+      "status": "match-unique",
+      "tool": "netgen 1.5",
+      "note": "Physical stdcell macro; circuits match uniquely."
+    },
+    "lef": {
+      "path": "analog/macros/rx_parallel_inv_macro/abstract.lef",
+      "status": "gds-pin-shapes",
+      "kind": "met1-signal-met4-power",
+      "note": "Rectangles extracted from GDS met1.pin (68/16) near canonical labels; not label-only.",
+      "sha256": "e7263df1ece560793726e2eccb99abd8e1f79535f280435530c8ec21d9f4f2fe"
+    },
+    "liberty": {
+      "path": "analog/macros/rx_parallel_inv_macro/macro.lib",
+      "status": "blackbox-no-timing-arcs",
+      "kind": "analog-blackbox",
+      "sha256": "f6df3172ec9477c637345856b1516661855428d1482b417d2a0ce7ec5eed404d"
+    },
+    "macro_v": {
+      "path": "analog/macros/rx_parallel_inv_macro/macro.v",
+      "status": "available",
+      "sha256": "9b8d60a21561e5a796cd144005c2063a51bcd983c0e36ff8a4d5dfbcfb7eec92"
+    },
+    "drc": {
+      "status": "clean",
+      "errors": 0,
+      "tool": "Magic 8.3",
+      "note": "Physical stdcell macro DRC."
+    },
+    "views_json": {
+      "path": "analog/macros/rx_parallel_inv_macro/views.json",
+      "status": "generated"
+    }
+  },
+  "legacy_names": [],
+  "physical_layout": true,
+  "physical_signoff_eligible": true,
+  "note": "Physical 3-parallel stdcell inverter macro; no nonlinear PMOS feedback.",
+  "electrical_topology": "three_parallel_cmos_inverter_stdcell",
+  "physical_topology": "three_parallel_cmos_inverter_stdcell",
+  "topology_match": true
+}

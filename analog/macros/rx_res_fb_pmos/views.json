@@ -1,0 +1,51 @@
+{
+  "name": "rx_res_fb_pmos",
+  "gds": "/opt/OpenSERDES/Resistive_FB_inverter/Res_FB_Inv.gds",
+  "cell": "Resist_FB_INV",
+  "bbox_um": [
+    0.08,
+    0.62,
+    9.995000000000001,
+    17.25
+  ],
+  "size_um": [
+    9.915000000000001,
+    16.63
+  ],
+  "pins_um": {
+    "OUT": [
+      9.055,
+      6.355,
+      9.245000000000001,
+      6.495
+    ],
+    "IN": [
+      0.645,
+      6.325,
+      0.8300000000000001,
+      6.515
+    ],
+    "VSS": [
+      4.755,
+      0.0,
+      4.93,
+      0.19500000000000006
+    ],
+    "VDD": [
+      5.415,
+      12.74,
+      5.59,
+      12.935
+    ]
+  },
+  "pin_layers": {
+    "OUT": "met1",
+    "IN": "met1",
+    "VSS": "met1",
+    "VDD": "met1"
+  },
+  "lef": "/opt/OpenSERDES/analog/macros/rx_res_fb_pmos/abstract.lef",
+  "liberty": "/opt/OpenSERDES/analog/macros/rx_res_fb_pmos/macro.lib",
+  "lef_kind": "gds-met1-pin-shapes",
+  "liberty_kind": "analog-blackbox-no-timing-arcs"
+}

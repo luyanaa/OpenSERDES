@@ -19,7 +19,7 @@ ROOT = Path(__file__).resolve().parents[2]
 class TestAnalogContract(unittest.TestCase):
     def setUp(self) -> None:
         self.tx_path = DEFAULT_MACROS / "tx_inv_chain_1_3_9" / "manifest.json"
-        self.rx_path = DEFAULT_MACROS / "rx_res_fb_inv" / "manifest.json"
+        self.rx_path = DEFAULT_MACROS / "rx_res_fb_pmos" / "manifest.json"
         self.tx = load_manifest(self.tx_path)
         self.rx = load_manifest(self.rx_path)
 
@@ -45,8 +45,7 @@ class TestAnalogContract(unittest.TestCase):
         for manifest in (self.tx, self.rx):
             wrapper = ROOT / manifest["views"]["canonical_spice"]["path"]
             text = wrapper.read_text()
-            self.assertIn("Xcore VSS VDD IN OUT", text)
-            self.assertIn("VDD VSS IN OUT", text)
+            self.assertIn(f".subckt {manifest['name']} VDD VSS IN OUT", text)
             self.assertEqual(manifest["polarity"], "inverting")
             self.assertTrue(manifest["polarity_verified"])
 
@@ -67,7 +66,7 @@ class TestAnalogContract(unittest.TestCase):
         self.assertTrue(errors)
 
     def test_generated_views_are_present_and_canonical(self) -> None:
-        for name in ("tx_inv_chain_1_3_9", "rx_res_fb_inv"):
+        for name in ("tx_inv_chain_1_3_9", "rx_parallel_inv_macro"):
             base = DEFAULT_MACROS / name
             lef = (base / "abstract.lef").read_text()
             lib = (base / "macro.lib").read_text()
@@ -85,15 +84,16 @@ class TestAnalogContract(unittest.TestCase):
             (pkg / "manifest.json").write_text(json.dumps({"design": "x"}))
             index = stage(pkg, pkg / "analog")
             self.assertIn("tx_inv_chain_1_3_9", index["macros"])
-            self.assertIn("rx_res_fb_inv", index["macros"])
-            wrapper = (pkg / "analog" / "rx_res_fb_inv" / "canonical.spice").read_text()
-            self.assertIn('.include "schematic.sp"', wrapper)
-            self.assertIn("Xcore VSS IN OUT VDD", wrapper)
+            self.assertIn("rx_parallel_inv_macro", index["macros"])
+            canonical = (pkg / "analog" / "rx_parallel_inv_macro" / "canonical.spice").read_text()
+            self.assertIn(".subckt rx_parallel_inv_macro", canonical)
+            self.assertTrue((pkg / "analog" / "models" / "sky130_models.spice").is_file())
             self.assertTrue((pkg / "analog" / "librelane_macros.yaml").is_file())
 
     def test_calibre_rve_cannot_be_available(self) -> None:
         bad = copy.deepcopy(self.rx)
         bad["views"]["pex"]["status"] = "available"
+        bad["views"]["pex"]["format"] = "calibre-rve"
         errors, _ = validate_manifest(self.rx_path, bad)
         self.assertTrue(errors)
 

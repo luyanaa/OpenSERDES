@@ -1,7 +1,7 @@
 {
-  "name": "rx_res_fb_inv",
-  "gds": "/opt/OpenSERDES/analog/macros/rx_res_fb_inv/layout.gds",
-  "cell": "rx_res_fb_inv",
+  "name": "rx_parallel_inv_macro",
+  "gds": "/opt/OpenSERDES/analog/macros/rx_parallel_inv_macro/layout.gds",
+  "cell": "rx_parallel_inv_macro",
   "bbox_um": [
     -0.19,
     -1.6,
@@ -44,8 +44,8 @@
     "VDD": "met5",
     "VSS": "met5"
   },
-  "lef": "/opt/OpenSERDES/analog/macros/rx_res_fb_inv/abstract.lef",
-  "liberty": "/opt/OpenSERDES/analog/macros/rx_res_fb_inv/macro.lib",
+  "lef": "/opt/OpenSERDES/analog/macros/rx_parallel_inv_macro/abstract.lef",
+  "liberty": "/opt/OpenSERDES/analog/macros/rx_parallel_inv_macro/macro.lib",
   "lef_kind": "gds-met1-pin-shapes",
   "liberty_kind": "analog-blackbox-no-timing-arcs"
 }

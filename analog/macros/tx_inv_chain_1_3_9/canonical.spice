@@ -1,6 +1,33 @@
-* Canonical-name wrapper for the legacy three-stage inverter TX.
-* The wrapper is the only file downstream tools should instantiate.
-.include "../../../Inverter_Based_Tx/Full_TX/Inv_Transmitter.sp"
+.param mc_mm_switch=0 mc_pr_switch=0
+.lib "models/sky130_models.spice" tt
+* Magic RC PEX extracted from /tmp/opencode/txsc/tx_pins7.gds
+* cell tx_inv_chain_1_3_9; ports VDD,VSS,IN,OUT; generated_utc=2026-10-29T05:40:57.282478+00:00
 .subckt tx_inv_chain_1_3_9 VDD VSS IN OUT
-Xcore VSS VDD IN OUT Inv_Transmitter
+X0 OUT sky130_fd_sc_hd__inv_1_9/A VSS VSS sky130_fd_pr__nfet_01v8 ad=0.169 pd=1.82 as=0.169 ps=1.82 w=0.65 l=0.15
+X1 OUT sky130_fd_sc_hd__inv_1_9/A VDD VDD sky130_fd_pr__pfet_01v8_hvt ad=0.26 pd=2.52 as=0.26 ps=2.52 w=1 l=0.15
+X2 OUT sky130_fd_sc_hd__inv_1_9/A VSS VSS sky130_fd_pr__nfet_01v8 ad=1.521 pd=16.38 as=2.197 ps=23.66 w=0.65 l=0.15
+X3 OUT sky130_fd_sc_hd__inv_1_9/A VDD VDD sky130_fd_pr__pfet_01v8_hvt ad=2.34 pd=22.68 as=3.38 ps=32.76 w=1 l=0.15
+X4 sky130_fd_sc_hd__inv_1_9/A sky130_fd_sc_hd__inv_1_7/A VSS VSS sky130_fd_pr__nfet_01v8 ad=0.507 pd=5.46 as=0 ps=0 w=0.65 l=0.15
+X5 sky130_fd_sc_hd__inv_1_9/A sky130_fd_sc_hd__inv_1_7/A VDD VDD sky130_fd_pr__pfet_01v8_hvt ad=0.78 pd=7.56 as=0 ps=0 w=1 l=0.15
+X6 sky130_fd_sc_hd__inv_1_9/A sky130_fd_sc_hd__inv_1_7/A VSS VSS sky130_fd_pr__nfet_01v8 ad=0 pd=0 as=0 ps=0 w=0.65 l=0.15
+X7 sky130_fd_sc_hd__inv_1_9/A sky130_fd_sc_hd__inv_1_7/A VDD VDD sky130_fd_pr__pfet_01v8_hvt ad=0 pd=0 as=0 ps=0 w=1 l=0.15
+X8 OUT sky130_fd_sc_hd__inv_1_9/A VSS VSS sky130_fd_pr__nfet_01v8 ad=0 pd=0 as=0 ps=0 w=0.65 l=0.15
+X9 OUT sky130_fd_sc_hd__inv_1_9/A VDD VDD sky130_fd_pr__pfet_01v8_hvt ad=0 pd=0 as=0 ps=0 w=1 l=0.15
+X10 OUT sky130_fd_sc_hd__inv_1_9/A VSS VSS sky130_fd_pr__nfet_01v8 ad=0 pd=0 as=0 ps=0 w=0.65 l=0.15
+X11 OUT sky130_fd_sc_hd__inv_1_9/A VDD VDD sky130_fd_pr__pfet_01v8_hvt ad=0 pd=0 as=0 ps=0 w=1 l=0.15
+X12 OUT sky130_fd_sc_hd__inv_1_9/A VSS VSS sky130_fd_pr__nfet_01v8 ad=0 pd=0 as=0 ps=0 w=0.65 l=0.15
+X13 OUT sky130_fd_sc_hd__inv_1_9/A VDD VDD sky130_fd_pr__pfet_01v8_hvt ad=0 pd=0 as=0 ps=0 w=1 l=0.15
+X14 OUT sky130_fd_sc_hd__inv_1_9/A VSS VSS sky130_fd_pr__nfet_01v8 ad=0 pd=0 as=0 ps=0 w=0.65 l=0.15
+X15 OUT sky130_fd_sc_hd__inv_1_9/A VDD VDD sky130_fd_pr__pfet_01v8_hvt ad=0 pd=0 as=0 ps=0 w=1 l=0.15
+X16 OUT sky130_fd_sc_hd__inv_1_9/A VSS VSS sky130_fd_pr__nfet_01v8 ad=0 pd=0 as=0 ps=0 w=0.65 l=0.15
+X17 OUT sky130_fd_sc_hd__inv_1_9/A VDD VDD sky130_fd_pr__pfet_01v8_hvt ad=0 pd=0 as=0 ps=0 w=1 l=0.15
+X18 sky130_fd_sc_hd__inv_1_9/A sky130_fd_sc_hd__inv_1_7/A VSS VSS sky130_fd_pr__nfet_01v8 ad=0 pd=0 as=0 ps=0 w=0.65 l=0.15
+X19 sky130_fd_sc_hd__inv_1_9/A sky130_fd_sc_hd__inv_1_7/A VDD VDD sky130_fd_pr__pfet_01v8_hvt ad=0 pd=0 as=0 ps=0 w=1 l=0.15
+X20 OUT sky130_fd_sc_hd__inv_1_9/A VSS VSS sky130_fd_pr__nfet_01v8 ad=0 pd=0 as=0 ps=0 w=0.65 l=0.15
+X21 OUT sky130_fd_sc_hd__inv_1_9/A VDD VDD sky130_fd_pr__pfet_01v8_hvt ad=0 pd=0 as=0 ps=0 w=1 l=0.15
+X22 sky130_fd_sc_hd__inv_1_7/A IN VSS VSS sky130_fd_pr__nfet_01v8 ad=0.169 pd=1.82 as=0 ps=0 w=0.65 l=0.15
+X23 sky130_fd_sc_hd__inv_1_7/A IN VDD VDD sky130_fd_pr__pfet_01v8_hvt ad=0.26 pd=2.52 as=0 ps=0 w=1 l=0.15
+X24 OUT sky130_fd_sc_hd__inv_1_9/A VSS VSS sky130_fd_pr__nfet_01v8 ad=0 pd=0 as=0 ps=0 w=0.65 l=0.15
+X25 OUT sky130_fd_sc_hd__inv_1_9/A VDD VDD sky130_fd_pr__pfet_01v8_hvt ad=0 pd=0 as=0 ps=0 w=1 l=0.15
+C0 VDD VSS 6.99671f
 .ends

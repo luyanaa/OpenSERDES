@@ -12,6 +12,7 @@ recorded as missing/unusable rather than fabricated.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import sys
 from pathlib import Path
@@ -97,6 +98,26 @@ def validate_manifest(path: Path, manifest: dict[str, Any]) -> tuple[list[str], 
     for required in ("schematic", "layout", "canonical_spice", "macro_v"):
         if required not in views:
             errors.append(f"missing required view {required}")
+    # Identity gate: physical evidence is only valid when the canonical
+    # SPICE topology and the physical topology are explicitly the same.
+    if manifest.get("physical_signoff_eligible") is True:
+        if manifest.get("topology_match") is not True:
+            errors.append("physical_signoff_eligible requires topology_match: true")
+        if manifest.get("electrical_topology") != manifest.get("physical_topology"):
+            errors.append("electrical_topology != physical_topology")
+        if manifest.get("feedback") and manifest.get("physical_topology") == "cmos_inverter_with_series_pmos_feedback":
+            pass  # explicitly allowed when a matching physical GDS/LVS exists
+        elif manifest.get("feedback"):
+            errors.append("physical feedback topology is not declared")
+        lvs = views.get("lvs", {})
+        if lvs.get("status") not in ("match-unique", "clean", "correct"):
+            errors.append("physical_signoff_eligible requires a clean LVS view")
+        pex = views.get("magic_pex", {})
+        if not pex.get("path") or pex.get("status") in ("missing", "unusable"):
+            errors.append("physical_signoff_eligible requires PEX evidence")
+        layout = views.get("layout", {})
+        if layout.get("physical") is not True:
+            errors.append("physical_signoff_eligible requires layout.physical: true")
     for name, view in views.items():
         if not isinstance(view, dict):
             errors.append(f"view {name} is not an object")
@@ -114,6 +135,13 @@ def validate_manifest(path: Path, manifest: dict[str, Any]) -> tuple[list[str], 
                 errors.append(str(exc))
         if name in ("schematic", "layout", "canonical_spice") and not rel:
             errors.append(f"view {name}: no path")
+        expected = view.get("sha256")
+        if expected and rel:
+            target = ROOT / rel
+            if target.is_file():
+                digest = hashlib.sha256(target.read_bytes()).hexdigest()
+                if digest != expected:
+                    errors.append(f"view {name}: sha256 mismatch")
         if name == "pex":
             fmt = str(view.get("format", ""))
             if status == "available" and fmt not in ("ngspice", "spice"):

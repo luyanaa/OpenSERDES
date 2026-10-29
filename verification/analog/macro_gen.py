@@ -53,10 +53,10 @@ def _mos(xname: str, d: str, g: str, s: str, b: str, model: str,
 
 
 def tx_chain(tech: dict, stages: list[int], w_finger_um: float,
-             l_um: float) -> tuple[str, dict]:
+             l_um: float, name: str = "tx_inv_chain") -> tuple[str, dict]:
     nmos = tech["devices"]["nmos"]
     pmos = tech["devices"]["pmos"]
-    lines = [f"* Generated {tech['name']} TX inverter chain", ".subckt tx_inv_chain VDD VSS IN OUT"]
+    lines = [f"* Generated {tech['name']} TX inverter chain", f".subckt {name} VDD VSS IN OUT"]
     prev = "IN"
     for i, npar in enumerate(stages):
         ppar = npar * 2
@@ -82,11 +82,12 @@ def tx_chain(tech: dict, stages: list[int], w_finger_um: float,
 
 def rx_feedback(tech: dict, n_parallel: int, p_parallel: int,
                 w_finger_um: float, l_um: float,
-                fb_w_um: float, fb_l_um: float) -> tuple[str, dict]:
+                fb_w_um: float, fb_l_um: float,
+                name: str = "rx_res_fb_inv") -> tuple[str, dict]:
     nmos = tech["devices"]["nmos"]
     pmos = tech["devices"]["pmos"]
     lines = [f"* Generated {tech['name']} RX feedback inverter",
-             ".subckt rx_res_fb_inv VDD VSS IN OUT"]
+             f".subckt {name} VDD VSS IN OUT"]
     for k in range(n_parallel):
         lines.append(_mos(f"MN{k}", "OUT", "IN", "VSS", "VSS", nmos,
                           w_finger_um, l_um))
@@ -205,11 +206,11 @@ def main() -> int:
         stages = [int(x) for x in args.stages.split(",") if x.strip()]
         if not stages or any(x <= 0 for x in stages):
             raise SystemExit("stages must be positive comma-separated integers")
-        circuit, meta = tx_chain(tech, stages, args.w_finger_um, args.l_um)
+        circuit, meta = tx_chain(tech, stages, args.w_finger_um, args.l_um, name)
     else:
         circuit, meta = rx_feedback(
             tech, args.n_parallel, args.p_parallel, args.w_finger_um, args.l_um,
-            args.fb_w_um, args.fb_l_um,
+            args.fb_w_um, args.fb_l_um, name,
         )
     layout = Path(args.layout_gds) if args.layout_gds else None
     manifest = write_macro(Path(args.out), tech, args.topology, name,
