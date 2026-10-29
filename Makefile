@@ -17,6 +17,7 @@ PPA_OUT  ?= tech/ppa_measured.yaml
 VERIFY_PROFILE ?= verification/profiles/stressed.yaml
 VERIFY_OUT     ?= $(BUILD)/verify/ber.json
 SOC_E2E_PACKAGE ?= out/ci-soc
+ANALOG_PACKAGE ?= out/sky130-soc
 SOC_E2E_OUT ?= $(BUILD)/verify/soc_e2e.json
 SOC_E2E_STRESS_OUT ?= $(BUILD)/verify/soc_e2e_stress.json
 VERIFY_PACKAGE ?=
@@ -378,7 +379,7 @@ analog-views: analog-gds
 	$(PYTHON) verification/analog/generate_views.py
 
 analog-package:
-	$(PYTHON) verification/analog/macro_package.py --package $(SOC_E2E_PACKAGE)
+	$(PYTHON) verification/analog/macro_package.py --package $(ANALOG_PACKAGE)
 
 analog-contracts:
 	$(PYTHON) verification/analog/macro_contract.py --validate \

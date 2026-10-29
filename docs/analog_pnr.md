@@ -28,19 +28,23 @@ python3 scripts/gen_analog_pnr_config.py \
   --package out/sky130-soc --out build/analog_pnr_sky130
 ```
 
-The flow completed all 80 stages and produced routed GDS/LEF views under
-`build/analog_pnr_sky130/runs/<tag>/final`. It is **not a signoff pass**:
+The latest flow completed all 80 stages with GDS met1 pin rectangles and
+produced routed GDS/LEF views under
+`build/analog_pnr_sky130/runs/analog_link_pins/final`. It is **not a signoff
+pass**:
 
 ```text
 3 XOR differences
 98 Magic DRC errors
-57 LVS errors
+59 LVS errors
 setup timing violations (no characterized macro timing)
 ```
 
 Root causes are explicit:
 
-- macro LEF pins are abstract label rectangles, not extracted metal pin shapes;
+- macro LEF pins are now GDS met1.pin rectangles, but the integrated top still
+  has latch-up/tap and LVS connectivity errors; these are not closed by the pin
+  extraction alone;
 - macro GDS integration/PR boundary is not equivalent to the standalone DRC
   view;
 - `macro.lib` is an analog black box with no timing arcs;
@@ -53,7 +57,8 @@ the resulting routed GDS is DRC/LVS/timing clean.
 
 ## What is still required for C signoff
 
-1. Replace abstract pin rectangles with extracted/validated pin geometry.
+1. Keep the GDS met1.pin geometry, and resolve the nwell.4/LU.2/LU.3 latch-up
+   and tap findings in the integrated top.
 2. Re-run macro DRC/LVS against the **renamed, PR-boundary-added** GDS.
 3. Add characterized macro Liberty/SPEF or explicitly black-box timing with a
    documented STA limitation.

@@ -64,8 +64,21 @@ set_false_path -to [get_ports rx_clk_out]
         }
     base_path = pkg / "pnr" / "librelane.yaml"
     config = {}
-    pdk_root = Path(args.pdk_root).resolve() if args.pdk_root else Path(
-        "/home/yanlu/.ciel/ciel/sky130/versions/792ef67037d74c8c51811eab3ce23cf793491296")
+    if args.pdk_root:
+        pdk_root = Path(args.pdk_root).resolve()
+    else:
+        import os
+        env = os.environ.get("PDK_ROOT")
+        if env:
+            pdk_root = Path(env).resolve()
+            if pdk_root.name == "sky130A":
+                pdk_root = pdk_root.parent
+        else:
+            candidates = sorted(Path.home().glob(
+                ".ciel/ciel/sky130/versions/*/sky130A/libs.tech/librelane"))
+            if not candidates:
+                raise SystemExit("set --pdk-root or PDK_ROOT (sky130 version root)")
+            pdk_root = candidates[-1].parents[2]
     import yaml as _yaml
     if base_path.is_file():
         config.update(_yaml.safe_load(base_path.read_text()) or {})

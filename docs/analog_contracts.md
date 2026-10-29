@@ -73,8 +73,9 @@ DC corner sweeps are implemented; noise/MC signoff remains open.
 
 `make analog-views` generates:
 
-- `abstract.lef`: macro size and pin rectangles from GDS text-label
-  coordinates.  This is an **abstract interface LEF**, not extracted metal.
+- `abstract.lef`: macro size and **GDS met1.pin (68/16) rectangles**.  The pin
+  rectangles are now extracted from the GDS, not label-only boxes; the file
+  name remains `abstract.lef` for compatibility.
 - `macro.lib`: analog black-box Liberty with pins and area, **no timing arcs**.
 - `views.json`: bbox, pin coordinates and generation provenance.
 

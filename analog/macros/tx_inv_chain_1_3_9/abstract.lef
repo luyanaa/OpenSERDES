@@ -12,7 +12,7 @@ MACRO tx_inv_chain_1_3_9
     USE POWER ;
     PORT
       LAYER met1 ;
-        RECT 9.375 12.745 9.575 12.945 ;
+        RECT 9.305 12.750 9.610 12.925 ;
     END
   END VDD
   PIN VSS
@@ -20,7 +20,7 @@ MACRO tx_inv_chain_1_3_9
     USE GROUND ;
     PORT
       LAYER met1 ;
-        RECT 8.480 0.005 8.680 0.205 ;
+        RECT 8.450 0.000 8.680 0.195 ;
     END
   END VSS
   PIN IN
@@ -28,7 +28,7 @@ MACRO tx_inv_chain_1_3_9
     USE SIGNAL ;
     PORT
       LAYER met1 ;
-        RECT 0.015 6.330 0.215 6.530 ;
+        RECT 0.005 6.335 0.195 6.535 ;
     END
   END IN
   PIN OUT
@@ -36,7 +36,7 @@ MACRO tx_inv_chain_1_3_9
     USE SIGNAL ;
     PORT
       LAYER met1 ;
-        RECT 20.640 6.305 20.840 6.505 ;
+        RECT 20.585 6.330 20.840 6.505 ;
     END
   END OUT
 END tx_inv_chain_1_3_9

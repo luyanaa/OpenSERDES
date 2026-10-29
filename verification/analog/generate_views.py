@@ -61,6 +61,37 @@ def gds_info(gds: Path) -> dict[str, Any]:
     raise RuntimeError(f"klayout did not emit VIEW_JSON:\n{proc.stdout[-2000:]}")
 
 
+
+PIN_SCRIPT = r'''
+import pya, os, json
+l = pya.Layout(); l.read(os.environ["GDS"]); c = l.top_cell(); c.flatten(True)
+boxes = []
+for li in l.layer_indexes():
+    info = l.get_info(li)
+    if info.layer == 68 and info.datatype == 16:
+        for s in c.shapes(li).each():
+            if s.is_box():
+                b = s.bbox()
+                boxes.append([b.p1.x * l.dbu, b.p1.y * l.dbu,
+                              b.p2.x * l.dbu, b.p2.y * l.dbu])
+print("PIN_JSON=" + json.dumps(boxes))
+'''
+
+
+def gds_pin_shapes(gds: Path) -> list[list[float]]:
+    with tempfile.TemporaryDirectory() as tmp:
+        script = Path(tmp) / "read_pins.py"
+        script.write_text(PIN_SCRIPT)
+        proc = subprocess.run(["klayout", "-b", "-r", str(script)],
+                              text=True, capture_output=True, timeout=120,
+                              env={**__import__("os").environ, "GDS": str(gds)})
+    if proc.returncode != 0:
+        raise RuntimeError(f"klayout pin read failed:\n{proc.stdout}\n{proc.stderr}")
+    for line in proc.stdout.splitlines():
+        if line.startswith("PIN_JSON="):
+            return json.loads(line.split("=", 1)[1])
+    raise RuntimeError(f"klayout no PIN_JSON:\n{proc.stdout[-2000:]}")
+
 def _canonical_label(text: str, aliases: dict[str, str]) -> str | None:
     return aliases.get(text.upper())
 
@@ -78,15 +109,24 @@ def generate(manifest_path: Path, outdir: Path) -> dict[str, Any]:
     info = gds_info(gds)
     x0, y0, x1, y1 = [float(v) for v in info["bbox"]]
     width, height = x1 - x0, y1 - y0
-    pins: dict[str, tuple[float, float]] = {}
+    pin_boxes: dict[str, list[float]] = {}
+    shapes = gds_pin_shapes(gds)
     for lab in info["labels"]:
         canonical = _canonical_label(lab["text"], aliases)
-        if canonical:
-            # KLayout Text.text_dpos is reported in micron coordinates.
-            pins[canonical] = (float(lab["x"]) - x0, float(lab["y"]) - y0)
-    missing = [p for p in ports if p not in pins]
+        if not canonical or not shapes:
+            continue
+        x, y = float(lab["x"]), float(lab["y"])
+        def distance(box):
+            return abs((box[0] + box[2]) / 2 - x) + abs((box[1] + box[3]) / 2 - y)
+        best = min(shapes, key=distance)
+        if distance(best) <= 1.5:
+            pin_boxes[canonical] = [
+                max(0.0, best[0] - x0), max(0.0, best[1] - y0),
+                min(width, best[2] - x0), min(height, best[3] - y0),
+            ]
+    missing = [p for p in ports if p not in pin_boxes]
     if missing:
-        raise RuntimeError(f"{name}: missing GDS labels for pins {missing}")
+        raise RuntimeError(f"{name}: missing met1 pin shapes for pins {missing}")
     outdir.mkdir(parents=True, exist_ok=True)
     lef = outdir / "abstract.lef"
     lib = outdir / "macro.lib"
@@ -97,10 +137,7 @@ def generate(manifest_path: Path, outdir: Path) -> dict[str, Any]:
         "  SYMMETRY X Y ;",
     ]
     for port in ports:
-        x, y = pins[port]
-        half = 0.10
-        xa, ya = max(0.0, x - half), max(0.0, y - half)
-        xb, yb = min(width, x + half), min(height, y + half)
+        xa, ya, xb, yb = pin_boxes[port]
         use = ("POWER" if port == "VDD" else
                "GROUND" if port == "VSS" else "SIGNAL")
         direction = ("INOUT" if port in ("VDD", "VSS") else
@@ -146,9 +183,9 @@ def generate(manifest_path: Path, outdir: Path) -> dict[str, Any]:
         "cell": info["cell"],
         "bbox_um": [x0, y0, x1, y1],
         "size_um": [width, height],
-        "pins_um": {k: list(v) for k, v in pins.items()},
+        "pins_um": {k: list(v) for k, v in pin_boxes.items()},
         "lef": str(lef), "liberty": str(lib),
-        "lef_kind": "abstract-label-pins-not-metal-extracted",
+        "lef_kind": "gds-met1-pin-shapes",
         "liberty_kind": "analog-blackbox-no-timing-arcs",
     }
     (outdir / "views.json").write_text(json.dumps(meta, indent=2) + "\n")

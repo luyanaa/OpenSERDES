@@ -89,7 +89,7 @@
       "format": "gds",
       "status": "available",
       "source_path": "Resistive_FB_inverter/Res_FB_Inv.gds",
-      "note": "top cell renamed to canonical macro name"
+      "note": "Top renamed; PR boundary 235/4 added for LibreLane."
     },
     "canonical_spice": {
       "path": "analog/macros/rx_res_fb_inv/canonical.spice",
@@ -118,8 +118,9 @@
     },
     "lef": {
       "path": "analog/macros/rx_res_fb_inv/abstract.lef",
-      "status": "abstract",
-      "kind": "label-pin-rectangles-not-extracted-metal"
+      "status": "gds-met1-pin-shapes",
+      "kind": "label-pin-rectangles-not-extracted-metal",
+      "note": "Rectangles extracted from GDS met1.pin (68/16) near canonical labels; not label-only."
     },
     "liberty": {
       "path": "analog/macros/rx_res_fb_inv/macro.lib",

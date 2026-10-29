@@ -56,8 +56,11 @@ jobs:
       - name: Analog macro contracts
         run: make analog-contracts PYTHON=python3
 
+      - name: Generate sky130 package for analog integration
+        run: make gen SPEC=spec/soc_sky130.yaml OUT=out/sky130-soc PYTHON=python3
+
       - name: Stage analog macro package views
-        run: make analog-package PYTHON=python3 SOC_E2E_PACKAGE=out/ci-soc
+        run: make analog-package PYTHON=python3 ANALOG_PACKAGE=out/sky130-soc
 
       - name: Generated-top SoC E2E smoke
         run: make soc-e2e PYTHON=python3 SOC_E2E_PACKAGE=out/ci-soc

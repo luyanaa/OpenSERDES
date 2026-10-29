@@ -12,7 +12,7 @@ MACRO rx_res_fb_inv
     USE POWER ;
     PORT
       LAYER met1 ;
-        RECT 5.405 12.765 5.605 12.965 ;
+        RECT 5.415 12.740 5.590 12.935 ;
     END
   END VDD
   PIN VSS
@@ -20,7 +20,7 @@ MACRO rx_res_fb_inv
     USE GROUND ;
     PORT
       LAYER met1 ;
-        RECT 4.750 0.015 4.950 0.215 ;
+        RECT 4.755 0.000 4.930 0.195 ;
     END
   END VSS
   PIN IN
@@ -28,7 +28,7 @@ MACRO rx_res_fb_inv
     USE SIGNAL ;
     PORT
       LAYER met1 ;
-        RECT 0.635 6.335 0.835 6.535 ;
+        RECT 0.645 6.325 0.830 6.515 ;
     END
   END IN
   PIN OUT
@@ -36,7 +36,7 @@ MACRO rx_res_fb_inv
     USE SIGNAL ;
     PORT
       LAYER met1 ;
-        RECT 9.045 6.330 9.245 6.530 ;
+        RECT 9.055 6.355 9.245 6.495 ;
     END
   END OUT
 END rx_res_fb_inv
