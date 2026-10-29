@@ -110,6 +110,23 @@ def lvs(extracted: Path, schematic: Path, pdk: Path, work: Path) -> dict[str, An
     }
 
 
+def pex(gds: Path, pdk: Path, work: Path) -> dict[str, Any]:
+    out = work / "tx_pcell.pex.spice"
+    proc = subprocess.run(
+        [sys.executable, str(ROOT / "verification/analog/magic_pex.py"),
+         "--gds", str(gds), "--cell", "tx_pcell",
+         "--ports", "VDD,VSS,IN,OUT", "--out", str(out),
+         "--workdir", str(work / "pex"), "--pdk-root", str(pdk)],
+        cwd=work, text=True, capture_output=True, timeout=600,
+    )
+    return {
+        "path": str(out) if out.exists() else None,
+        "status": "available" if out.exists() else "missing",
+        "returncode": proc.returncode,
+        "tail": (proc.stdout + proc.stderr)[-2000:],
+    }
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--out", default="build/verify/pcell_tx.json")
@@ -136,6 +153,7 @@ def main() -> int:
     lef, cdl = build_views(gds, work)
     extracted = extract(gds, pdk, work)
     lvs_result = lvs(extracted, cdl, pdk, work)
+    pex_result = pex(gds, pdk, work)
     result = {
         "kind": "pure-pya-pcell-tx-" + "-".join(map(str, stages)),
         "gds": str(gds),
@@ -152,8 +170,9 @@ def main() -> int:
             "evidence": str(work / "drc.json"),
         },
         "lvs": lvs_result,
+        "pex": pex_result,
         "generated_utc": datetime.now(timezone.utc).isoformat(),
-        "note": "DRC, LEF/CDL, and hierarchical LVS evidence only; no PEX/STA signoff claim.",
+        "note": "DRC, LEF/CDL, hierarchical LVS, and Magic RC PEX diagnostic evidence only; no STA/signoff claim.",
     }
     out = ROOT / args.out
     out.parent.mkdir(parents=True, exist_ok=True)

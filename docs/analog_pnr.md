@@ -26,21 +26,24 @@ RX forwarded clock is generated from tx_clk (source-synchronous)
 ```
 
 Latest completed run (LibreLane 3.0.17):
-`build/analog_pnr_sky130/runs/analog_link_newlib`
+`build/analog_pnr_sky130/runs/analog_link_sdcfix`
 
 ```text
 XOR differences: 0
 Magic DRC:       0
 KLayout DRC:     0
 LVS:             0 unmatched devices/nets/pins
-Setup WNS:       +12.893 ns
-Hold WNS:        +0.047 ns (at 25 Mb/s / 40 ns TX UI)
+Setup WNS:       +13.824 ns
+Hold WNS:        +0.164 ns (at 25 Mb/s / 40 ns TX UI)
 PDN:             generated successfully
 ```
 
-The flow also reports a non-gating generated-clock relation warning for
-`rx_clk` and the usual max-slew/max-cap warnings.  They are
-recorded but are not claimed as closed signoff limits.
+The previous `analog_link_newlib` run remains archived.  The `rx_clk`
+generated-clock warning is removed by modeling the forwarded RX clock as a
+primary top-level clock; the SDC no longer pretends an internal tx_clk path
+exists.  The run still reports max-slew and max-cap counts
+(`440` and `13` respectively in the new metrics); they are recorded as open
+violations and are not claimed as closed signoff limits.
 
 ## Macro identities (must not be conflated)
 

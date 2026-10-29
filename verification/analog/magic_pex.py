@@ -91,7 +91,7 @@ def _run_magic(script: str, workdir: Path, pdk_root: Path, rc: Path,
     env = dict(os.environ)
     env["PDK_ROOT"] = str(pdk_root)
     proc = subprocess.run(
-        [magic_bin, "-dnull", "-noconsole", "-rcfile", str(rc), str(script_path)],
+        [magic_bin, "-dnull", "-noconsole", "-rcfile", str(rc), str(script_path.resolve())],
         cwd=workdir, env=env, text=True, capture_output=True, timeout=600,
     )
     if proc.returncode != 0:
@@ -134,6 +134,7 @@ def extract_pex(gds: Path, cell: str, ports: list[str] | None,
                 out: Path, workdir: Path, pdk_root: Path,
                 rc: Path, magic_bin: str, extresist: bool = True) -> dict[str, Any]:
     gds = gds.resolve()
+    workdir = workdir.resolve()
     if not gds.is_file():
         raise FileNotFoundError(gds)
     raw = workdir / f"{cell}.raw.spice"

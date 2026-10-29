@@ -94,7 +94,23 @@ The RX identities are deliberately separate:
   advertised as a feedback macro.
 
 `--layout-gds` also requires physical `diff/poly/li1`; a pin-only abstract GDS
-is rejected.  File hashes in manifests bind GDS, LEF, SPICE, Liberty and PEX.
+is rejected.  Optional `--lef`, `--cdl`, and `--pex` attach explicit PCell
+views; the layout top cell must equal `--name`, otherwise generation fails
+closed.  File hashes in manifests bind GDS, LEF, SPICE, Liberty and PEX.
+
+Example for the verified PCell RX macro:
+
+```bash
+/usr/bin/python3 verification/analog/macro_gen.py --tech sky130 \
+  --topology rx_res_fb_inv --name rx_fb_pcell \
+  --n-parallel 3 --p-parallel 6 --w-finger-um 5 --l-um 0.15 \
+  --fb-w-um 0.55 --fb-l-um 8 \
+  --out build/verify/pcell_rx_macro \
+  --layout-gds build/verify/pcell_rx_fb/rx_fb_pcell.gds \
+  --lef build/verify/pcell_rx_fb/rx_fb_pcell.lef \
+  --cdl build/verify/pcell_rx_fb/rx_fb_pcell.cdl \
+  --pex build/verify/pcell_rx_fb/rx_fb_pcell.pex.spice
+```
 
 ## Pure-pya PCell backend
 

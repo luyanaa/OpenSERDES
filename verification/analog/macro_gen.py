@@ -135,7 +135,9 @@ endmodule
 
 
 def write_macro(outdir: Path, tech: dict, topology: str, name: str,
-                circuit: str, meta: dict, layout_gds: Path | None) -> dict:
+                circuit: str, meta: dict, layout_gds: Path | None,
+                lef_path: Path | None = None, cdl_path: Path | None = None,
+                pex_path: Path | None = None) -> dict:
     outdir.mkdir(parents=True, exist_ok=True)
     layout_physical = False
     layout_audit = None
@@ -148,6 +150,11 @@ def write_macro(outdir: Path, tech: dict, topology: str, name: str,
                 f"(missing {layout_audit.get('missing_physical_layers')}); " 
                 "refusing to advertise it as a signoff view"
             )
+        if layout_audit.get("cell") != name:
+            raise SystemExit(
+                f"{layout_gds}: top cell {layout_audit.get('cell')!r} != requested name {name!r}; "
+                "refusing to attach views to the wrong macro"
+            )
     (outdir / "circuit.spice").write_text(circuit)
     (outdir / "macro.v").write_text(macro_v(name))
     views = {
@@ -157,9 +164,13 @@ def write_macro(outdir: Path, tech: dict, topology: str, name: str,
         "layout": ({"path": str(layout_gds), "status": "available", "format": "gds",
                     "physical": layout_physical, "audit": layout_audit}
                    if layout_gds else {"status": "missing", "physical": False}),
-        "lef": {"status": "missing"},
+        "lef": ({"path": str(lef_path), "status": "available", "format": "lef", "top": name}
+                if lef_path else {"status": "missing"}),
+        "cdl": ({"path": str(cdl_path), "status": "available", "format": "cdl", "top": name}
+                if cdl_path else {"status": "missing"}),
         "liberty": {"status": "missing"},
-        "pex": {"status": "missing"},
+        "pex": ({"path": str(pex_path), "status": "available", "format": "spice", "top": name}
+                if pex_path else {"status": "missing"}),
     }
     manifest = {
         "schema": 1,
@@ -199,9 +210,18 @@ def main() -> int:
     ap.add_argument("--fb-l-um", type=float, default=8.0)
     ap.add_argument("--layout-gds", default=None,
                     help="explicit PDK layout template; omitted means physical views are missing")
+    ap.add_argument("--lef", default=None, help="explicit LEF view for the layout")
+    ap.add_argument("--cdl", default=None, help="explicit CDL/LVS view for the layout")
+    ap.add_argument("--pex", default=None, help="explicit Magic/RC PEX SPICE view")
     args = ap.parse_args()
     tech = load_tech(args.tech)
-    name = args.name or args.topology
+    layout = Path(args.layout_gds) if args.layout_gds else None
+    if args.name:
+        name = args.name
+    elif layout is not None:
+        name = audit_gds(layout).get("cell") or args.topology
+    else:
+        name = args.topology
     if args.topology == "tx_inv_chain":
         stages = [int(x) for x in args.stages.split(",") if x.strip()]
         if not stages or any(x <= 0 for x in stages):
@@ -212,9 +232,13 @@ def main() -> int:
             tech, args.n_parallel, args.p_parallel, args.w_finger_um, args.l_um,
             args.fb_w_um, args.fb_l_um, name,
         )
-    layout = Path(args.layout_gds) if args.layout_gds else None
+    lef = Path(args.lef) if args.lef else None
+    cdl = Path(args.cdl) if args.cdl else None
+    pex = Path(args.pex) if args.pex else None
+    if bool(lef) != bool(cdl):
+        raise SystemExit("--lef and --cdl must be supplied together")
     manifest = write_macro(Path(args.out), tech, args.topology, name,
-                           circuit, meta, layout)
+                           circuit, meta, layout, lef, cdl, pex)
     print(f"generated {name} ({args.tech}/{args.topology}) -> {args.out}")
     print(f"  physical layout: {manifest['views']['layout']['status']}")
     return 0

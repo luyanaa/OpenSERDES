@@ -231,4 +231,6 @@ the intended two-device series PMOS diode chain between `OUT` and `IN`.
 
 The pure-pya device cells use `bulk=None`; PMOS well/body ties are not
 generated.  This is an explicit open item for the PCell backend, not a hidden
-schematic claim.  PEX/STA are not part of this result.
+schematic claim.  `pya_rx_feedback_verify.py` also runs Magic RC PEX as a
+diagnostic (`build/verify/pcell_rx_fb/rx_fb_pcell.pex.spice`); it does not
+establish STA or signoff.
