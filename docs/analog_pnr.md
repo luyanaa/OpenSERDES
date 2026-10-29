@@ -59,6 +59,27 @@ GDS/LEF/black-box Liberty/Verilog views and a `librelane_macros.yaml` fragment,
 but does not claim that the resulting routed GDS is DRC/LVS/timing clean.  The current VPWR/VGND
 attempt also fails at PDN (`PDN-0232/0233`), so power-grid closure is a blocker.
 
+## Physical source inventory
+
+The abstract-GDS finding is not a pin-extraction problem:
+
+| source | GDS layers present | missing physical layers |
+|---|---|---|
+| `Inv_Transmitter.gds` | met1 draw/pin + PR boundary | diff, poly, li1 |
+| `Res_FB_Inv.gds` | nwell/poly-pin/li1/met1 draw+pin + PR boundary | diff |
+
+The real layouts exist only as OpenAccess views
+(`Inverter_Based_Tx/Full_TX/layout/layout.oa` and
+`Resistive_FB_inverter/.../layout.oa`).  The environment has no
+`strmout`/`oa2gds`/OA runtime, so those views could not be streamed to GDS.
+An ALIGN sky130 experiment generated a layout, but its PDK abstraction uses
+different GDS layer numbers and no real nwell/diff stack; it is not acceptable
+sky130 signoff evidence and was not promoted.
+
+A fixed-device Magic/KLayout assembly prototype was DRC-clean for a single
+inverter, but it is not a complete macro and its routing/LVS has not been
+closed; it is not committed as a signoff view.
+
 ## What is still required for C signoff
 
 0. Replace the abstract macro GDS with a physical transistor layout (or export
