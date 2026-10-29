@@ -28,8 +28,11 @@ python3 scripts/gen_analog_pnr_config.py \
   --package out/sky130-soc --out build/analog_pnr_sky130
 ```
 
-The latest completed flow used GDS met1 pin rectangles and ran all 80 stages
-(`analog_link_pins`).  A subsequent VPWR/VGND power-domain experiment stopped
+The source macro GDS views are **abstract-only**: they contain met1/pin shapes
+(and, for RX, nwell/li1 pin shapes) but no `diff`, `poly` or full transistor
+stack.  `verification/analog/gds_audit.py` records this explicitly and the
+macro manifests mark `physical_layout: false`.  The latest completed flow used
+these met1 pin rectangles and ran all 80 stages (`analog_link_pins`).  A subsequent VPWR/VGND power-domain experiment stopped
 at PDN generation because the macro PDN grid had no shapes; that experiment is
 not counted as a completed flow.  The completed run is **not a signoff pass**:
 
@@ -45,19 +48,21 @@ Root causes are explicit:
 - macro LEF pins are now GDS met1.pin rectangles, but the integrated top still
   has nwell tap/latch-up and LVS connectivity errors; these are not closed by
   pin extraction alone;
-- macro GDS integration/PR boundary is not equivalent to the standalone DRC
-  view;
+- the source GDS is not a transistor layout (`diff`/`poly`/`li1` missing), so
+  standalone macro DRC/LVS/PEX cannot be treated as physical signoff;
 - `macro.lib` is an analog black box with no timing arcs;
 - the digital top has no characterized analog macro timing and the original
   macro layouts were not re-hardened for this top-level PDK integration.
 
-The package staging (`make analog-package`) provides the real GDS/LEF/Liberty/
-Verilog views and a `librelane_macros.yaml` fragment, but does not claim that
-the resulting routed GDS is DRC/LVS/timing clean.  The current VPWR/VGND
+The package staging (`make analog-package`) provides the available abstract
+GDS/LEF/black-box Liberty/Verilog views and a `librelane_macros.yaml` fragment,
+but does not claim that the resulting routed GDS is DRC/LVS/timing clean.  The current VPWR/VGND
 attempt also fails at PDN (`PDN-0232/0233`), so power-grid closure is a blocker.
 
 ## What is still required for C signoff
 
+0. Replace the abstract macro GDS with a physical transistor layout (or export
+   the original `layout.oa` to GDS), then re-extract LEF/PEX/LVS views.
 1. Keep the GDS met1.pin geometry, and resolve the nwell.4/LU.2/LU.3 latch-up
    and tap findings in the integrated top.
 2. Re-run macro DRC/LVS against the **renamed, PR-boundary-added** GDS.

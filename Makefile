@@ -55,7 +55,7 @@ RTL   := $(wildcard rtl/*.sv)
 SV2V_DIR := $(BUILD)/sv2v
 SV2V_RTL := $(SV2V_DIR)/rtl.v
 
-.PHONY: all sim lint synth regress gen qualify signoff ppa-import clean si-eye si-bathtub si-jtol si-rtl-jtol verify-link analog-contracts analog-gds analog-views analog-package analog-macro-pex analog-drc analog-rx-dc analog-rx-pvt mixed-signal-e2e rx-pex-digital-e2e soc-e2e soc-e2e-stress analog-lut sky130-lut analog-lut-demo analog-tech-check sky130-pvt pvt-margin pdk-mc xyce-global-mc magic-pex magic-pex-compare sky130-mc pex-compare lib-catalog timing-compare
+.PHONY: all sim lint synth regress gen qualify signoff ppa-import clean si-eye si-bathtub si-jtol si-rtl-jtol verify-link analog-macro-gen analog-contracts analog-gds analog-gds-audit analog-views analog-package analog-macro-pex analog-drc analog-rx-dc analog-rx-pvt mixed-signal-e2e rx-pex-digital-e2e soc-e2e soc-e2e-stress analog-lut sky130-lut analog-lut-demo analog-tech-check sky130-pvt pvt-margin pdk-mc xyce-global-mc magic-pex magic-pex-compare sky130-mc pex-compare lib-catalog timing-compare
 
 all: sim
 
@@ -375,11 +375,25 @@ analog-gds:
 		--src Resistive_FB_inverter/Res_FB_Inv.gds --dst analog/macros/rx_res_fb_inv/layout.gds \
 		--name rx_res_fb_inv
 
+analog-gds-audit: analog-gds
+	$(PYTHON) verification/analog/gds_audit.py \
+		--gds analog/macros/tx_inv_chain_1_3_9/layout.gds \
+		--out $(BUILD)/verify/gds_audit/tx_inv_chain_1_3_9.json
+	$(PYTHON) verification/analog/gds_audit.py \
+		--gds analog/macros/rx_res_fb_inv/layout.gds \
+		--out $(BUILD)/verify/gds_audit/rx_res_fb_inv.json
+
 analog-views: analog-gds
 	$(PYTHON) verification/analog/generate_views.py
 
 analog-package:
 	$(PYTHON) verification/analog/macro_package.py --package $(ANALOG_PACKAGE)
+
+analog-macro-gen:
+	$(PYTHON) verification/analog/macro_gen.py --tech sky130 --topology tx_inv_chain \
+		--out $(BUILD)/verify/analog_gen/tx_inv_chain
+	$(PYTHON) verification/analog/macro_gen.py --tech sky130 --topology rx_res_fb_inv \
+		--out $(BUILD)/verify/analog_gen/rx_res_fb_inv
 
 analog-contracts:
 	$(PYTHON) verification/analog/macro_contract.py --validate \

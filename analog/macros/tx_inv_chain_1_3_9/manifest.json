@@ -98,9 +98,11 @@
       "path": "analog/macros/tx_inv_chain_1_3_9/layout.gds",
       "top": "tx_inv_chain_1_3_9",
       "format": "gds",
-      "status": "available",
+      "status": "abstract-only-no-transistors",
       "source_path": "Inverter_Based_Tx/Inv_Transmitter.gds",
-      "note": "Top renamed; PR boundary 235/4 added for LibreLane."
+      "note": "Top renamed; PR boundary 235/4 added for LibreLane.",
+      "physical": false,
+      "reason": "GDS contains met1/pin abstraction; diff/poly/li1 transistor layers are absent"
     },
     "canonical_spice": {
       "path": "analog/macros/tx_inv_chain_1_3_9/canonical.spice",
@@ -143,16 +145,18 @@
       "status": "available"
     },
     "drc": {
-      "status": "clean",
+      "status": "not-applicable-abstract-layout",
       "tool": "Magic 8.3",
-      "errors": 0,
+      "errors": null,
       "command": "make analog-drc",
-      "note": "DRC only; not LVS/PEX signoff."
+      "note": "No transistor layout is present, so this is not a DRC signoff result."
     },
     "views_json": {
       "path": "analog/macros/tx_inv_chain_1_3_9/views.json",
       "status": "generated"
     }
   },
-  "legacy_names": []
+  "legacy_names": [],
+  "physical_layout": false,
+  "physical_signoff_eligible": false
 }

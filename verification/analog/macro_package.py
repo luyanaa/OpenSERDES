@@ -107,7 +107,8 @@ def stage(package: Path, out_dir: Path) -> dict:
         "combined_lef": str(out_dir / "sky130_analog_macros.lef") if combined.is_file() else None,
         "mixed_signal_top": str(out_dir / "serdes_analog_link.sv") if top.is_file() else None,
         "macros": staged,
-        "note": "abstract LEF + black-box Liberty; no timing arcs, no PnR result.",
+        "note": ("abstract-only GDS/LEF + black-box Liberty; no transistor "
+                 "layers, no timing arcs, no PnR result."),
     }
     (out_dir / "index.json").write_text(json.dumps(index, indent=2) + "\n")
     lib = {
