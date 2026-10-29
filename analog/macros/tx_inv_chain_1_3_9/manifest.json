@@ -95,16 +95,12 @@
       "status": "available"
     },
     "layout": {
-      "path": "Inverter_Based_Tx/Inv_Transmitter.gds",
-      "top": "Inv_Transmitter",
-      "port_order": [
-        "GND",
-        "VDD",
-        "VIN",
-        "VOUT"
-      ],
+      "path": "analog/macros/tx_inv_chain_1_3_9/layout.gds",
+      "top": "tx_inv_chain_1_3_9",
       "format": "gds",
-      "status": "available"
+      "status": "available",
+      "source_path": "Inverter_Based_Tx/Inv_Transmitter.gds",
+      "note": "top cell renamed to canonical macro name"
     },
     "canonical_spice": {
       "path": "analog/macros/tx_inv_chain_1_3_9/canonical.spice",

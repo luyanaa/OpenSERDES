@@ -1,0 +1,30 @@
+name: soc_sky130_8x4_25m
+target: link
+link:
+  payload_width: 8
+  words: 4
+  line_rate_mbps: 25
+  coding: raw
+  bit_order: lsb_first
+tx:
+  architecture: word_streaming
+rx:
+  architecture: source_sync
+  oversample: 1
+  align: comma_per_frame
+  clocking: source_sync
+  ppm: 0
+  sync_pattern: 0xBC
+  sync_len: 8
+tech:
+  tx: sky130
+  rx: sky130
+interface:
+  preset: soc
+  data: axi4_stream
+  control: apb
+  enable_mode: dynamic
+  user_clock_mhz: 50
+constraints:
+  uncertainty_setup_ns: 0.050
+  uncertainty_hold_ns: 0.020

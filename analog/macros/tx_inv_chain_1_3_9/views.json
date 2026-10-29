@@ -1,7 +1,7 @@
 {
   "name": "tx_inv_chain_1_3_9",
-  "gds": "/opt/OpenSERDES/Inverter_Based_Tx/Inv_Transmitter.gds",
-  "cell": "Inv_Transmitter",
+  "gds": "/opt/OpenSERDES/analog/macros/tx_inv_chain_1_3_9/layout.gds",
+  "cell": "tx_inv_chain_1_3_9",
   "bbox_um": [
     0.09,
     0.925,

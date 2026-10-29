@@ -1,22 +1,25 @@
-# LibreLane macro fragment (interface/abstract views, not post-route signoff).
-# Merge into the generated pnr/librelane.yaml only after checking the target
-# LibreLane version's MACROS schema and the actual macro instantiation.
+# LibreLane macro fragment (abstract LEF, black-box Liberty, no timing arcs).
+# Merge only after checking the target LibreLane MACROS schema and the actual
+# macro instantiation.  The combined LEF avoids OpenROAD treating separate
+# macro LEFs as the same abstract library.
 MACROS:
   tx_inv_chain_1_3_9:
     gds:
-      - Inverter_Based_Tx/Inv_Transmitter.gds
+      - analog/macros/tx_inv_chain_1_3_9/layout.gds
     lef:
-      - analog/macros/tx_inv_chain_1_3_9/abstract.lef
-    verilog:
+      - analog/macros/sky130_analog_macros.lef
+    nl:
       - analog/macros/tx_inv_chain_1_3_9/macro.v
     lib:
-      - analog/macros/tx_inv_chain_1_3_9/macro.lib
+      "*":
+        - analog/macros/tx_inv_chain_1_3_9/macro.lib
   rx_res_fb_inv:
     gds:
-      - Resistive_FB_inverter/Res_FB_Inv.gds
+      - analog/macros/rx_res_fb_inv/layout.gds
     lef:
-      - analog/macros/rx_res_fb_inv/abstract.lef
-    verilog:
+      - analog/macros/sky130_analog_macros.lef
+    nl:
       - analog/macros/rx_res_fb_inv/macro.v
     lib:
-      - analog/macros/rx_res_fb_inv/macro.lib
+      "*":
+        - analog/macros/rx_res_fb_inv/macro.lib

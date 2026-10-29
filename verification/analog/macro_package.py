@@ -95,9 +95,17 @@ def stage(package: Path, out_dir: Path) -> dict:
             copied["magic_pex"] = str(target)
         (dst / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
         staged[name] = copied
+    combined = ROOT / "analog/macros/sky130_analog_macros.lef"
+    if combined.is_file():
+        shutil.copy2(combined, out_dir / "sky130_analog_macros.lef")
+    top = ROOT / "analog/rtl/serdes_analog_link.sv"
+    if top.is_file():
+        shutil.copy2(top, out_dir / "serdes_analog_link.sv")
     index = {
         "schema": 1,
         "package": str(package),
+        "combined_lef": str(out_dir / "sky130_analog_macros.lef") if combined.is_file() else None,
+        "mixed_signal_top": str(out_dir / "serdes_analog_link.sv") if top.is_file() else None,
         "macros": staged,
         "note": "abstract LEF + black-box Liberty; no timing arcs, no PnR result.",
     }
@@ -106,9 +114,10 @@ def stage(package: Path, out_dir: Path) -> dict:
         "MACROS": {
             name: {
                 "gds": [f"analog/{name}/layout.gds"],
-                "lef": [f"analog/{name}/abstract.lef"],
-                "verilog": [f"analog/{name}/macro.v"],
-                "lib": [f"analog/{name}/macro.lib"],
+                "lef": [("analog/sky130_analog_macros.lef" if combined.is_file()
+                         else f"analog/{name}/abstract.lef")],
+                "nl": [f"analog/{name}/macro.v"],
+                "lib": {"*": [f"analog/{name}/macro.lib"]},
             }
             for name in staged
         }

@@ -92,7 +92,7 @@ def generate(manifest_path: Path, outdir: Path) -> dict[str, Any]:
     lib = outdir / "macro.lib"
     lines = [
         "VERSION 5.8 ;", 'BUSBITCHARS "[]" ;', 'DIVIDERCHAR "/" ;',
-        f"MACRO {name}", "  CLASS CORE ;", "  ORIGIN 0 0 ;",
+        f"MACRO {name}", "  CLASS BLOCK ;", "  ORIGIN 0 0 ;",
         f"  FOREIGN {name} 0 0 ;", f"  SIZE {width:.3f} BY {height:.3f} ;",
         "  SYMMETRY X Y ;",
     ]
@@ -116,6 +116,16 @@ def generate(manifest_path: Path, outdir: Path) -> dict[str, Any]:
         '  delay_model : table_lookup ;', '  time_unit : "1ns" ;',
         '  voltage_unit : "1V" ;', '  current_unit : "1mA" ;',
         '  capacitive_load_unit (1, pf) ;',
+        '  nom_process : 1.0 ;', '  nom_temperature : 25.0 ;',
+        '  nom_voltage : 1.8 ;',
+        '  slew_lower_threshold_pct_rise : 20.0 ;',
+        '  slew_upper_threshold_pct_rise : 80.0 ;',
+        '  slew_lower_threshold_pct_fall : 20.0 ;',
+        '  slew_upper_threshold_pct_fall : 80.0 ;',
+        '  input_threshold_pct_rise : 50.0 ;',
+        '  input_threshold_pct_fall : 50.0 ;',
+        '  output_threshold_pct_rise : 50.0 ;',
+        '  output_threshold_pct_fall : 50.0 ;',
         f"  cell ({name}) {{", f"    area : {width * height:.4f} ;",
         "    dont_touch : true ;",
     ]
@@ -154,11 +164,28 @@ def main() -> int:
         str(ROOT / "analog/macros/tx_inv_chain_1_3_9/manifest.json"),
         str(ROOT / "analog/macros/rx_res_fb_inv/manifest.json"),
     ]
+    made = []
     for m in manifests:
         path = Path(m)
         outdir = Path(args.outdir) if args.outdir else path.parent
         meta = generate(path, outdir)
+        made.append(Path(meta["lef"]))
         print(f"{meta['name']}: {meta['size_um']} -> {meta['lef']}, {meta['liberty']}")
+    if made:
+        combined = ROOT / "analog/macros/sky130_analog_macros.lef"
+        lines = ["VERSION 5.8 ;", 'BUSBITCHARS "[]" ;', 'DIVIDERCHAR "/" ;']
+        for lef in made:
+            inside = False
+            for line in lef.read_text().splitlines():
+                if line.startswith("MACRO "):
+                    inside = True
+                if inside:
+                    lines.append(line)
+                if inside and line.startswith("END ") and not line.startswith("END LIBRARY"):
+                    inside = False
+        lines.append("END LIBRARY")
+        combined.write_text("\n".join(lines) + "\n")
+        print(f"combined LEF: {combined}")
     return 0
 
 

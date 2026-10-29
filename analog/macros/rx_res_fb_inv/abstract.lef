@@ -2,7 +2,7 @@ VERSION 5.8 ;
 BUSBITCHARS "[]" ;
 DIVIDERCHAR "/" ;
 MACRO rx_res_fb_inv
-  CLASS CORE ;
+  CLASS BLOCK ;
   ORIGIN 0 0 ;
   FOREIGN rx_res_fb_inv 0 0 ;
   SIZE 9.915 BY 16.630 ;
