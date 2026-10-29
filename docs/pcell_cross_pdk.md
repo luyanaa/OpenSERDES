@@ -125,3 +125,9 @@ foundry signoff is claimed.
 The correct generator rule is therefore: PCell availability is a capability
 probe, not a promise that a macro is signoff-ready.  Each PDK still needs a
 device binding (models, ports, LVS/CDL, DRC deck) and a layout template.
+
+## Supplemental model PDKs
+
+FreePDK45/Nangate45 and ETRI050 are model/standard-cell supplements rather than
+additional PCell backends.  Their probes and limitations are recorded in
+`docs/supplemental_pdks.md`.
