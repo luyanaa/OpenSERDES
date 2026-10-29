@@ -106,9 +106,11 @@ set_false_path -to [get_ports rx_clk_out]
         "FP_CORE_UTIL": 30,
         "PL_TARGET_DENSITY": 0.4,
         "MACROS": macros,
+        "VDD_NETS": ["VPWR"],
+        "GND_NETS": ["VGND"],
         "PDN_MACRO_CONNECTIONS": [
-            "u_tx_driver VDD VSS VDD VSS",
-            "u_rx_frontend VDD VSS VDD VSS",
+            "u_tx_driver VPWR VGND VDD VSS",
+            "u_rx_frontend VPWR VGND VDD VSS",
         ],
         "RUN_CTS": True,
     })

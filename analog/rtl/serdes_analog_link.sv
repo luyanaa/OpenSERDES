@@ -13,8 +13,8 @@ module serdes_analog_link #(
     parameter int BIST_PRBS_WIDTH = 7,
     parameter logic [BIST_PRBS_WIDTH-1:0] BIST_SEED = '1
 ) (
-    input  logic VDD,
-    input  logic VSS,
+    input  logic VPWR,
+    input  logic VGND,
     input  logic pclk,
     input  logic presetn,
     input  logic [15:0] paddr,
@@ -80,9 +80,9 @@ module serdes_analog_link #(
     // Both hard macros are inverting.  TX serial data is inverted by the
     // driver; the RX feedback stage inverts it back before digital recovery.
     tx_inv_chain_1_3_9 u_tx_driver (
-        .VDD(VDD), .VSS(VSS), .IN(tx_serial_out), .OUT(tx_pad)
+        .VDD(VPWR), .VSS(VGND), .IN(tx_serial_out), .OUT(tx_pad)
     );
     rx_res_fb_inv u_rx_frontend (
-        .VDD(VDD), .VSS(VSS), .IN(rx_pad), .OUT(rx_serial_in)
+        .VDD(VPWR), .VSS(VGND), .IN(rx_pad), .OUT(rx_serial_in)
     );
 endmodule

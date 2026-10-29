@@ -28,14 +28,14 @@ python3 scripts/gen_analog_pnr_config.py \
   --package out/sky130-soc --out build/analog_pnr_sky130
 ```
 
-The latest flow completed all 80 stages with GDS met1 pin rectangles and
-produced routed GDS/LEF views under
-`build/analog_pnr_sky130/runs/analog_link_pins/final`. It is **not a signoff
-pass**:
+The latest completed flow used GDS met1 pin rectangles and ran all 80 stages
+(`analog_link_pins`).  A subsequent VPWR/VGND power-domain experiment stopped
+at PDN generation because the macro PDN grid had no shapes; that experiment is
+not counted as a completed flow.  The completed run is **not a signoff pass**:
 
 ```text
 3 XOR differences
-98 Magic DRC errors
+98 Magic DRC errors (nwell.4, LU.2, LU.3)
 59 LVS errors
 setup timing violations (no characterized macro timing)
 ```
@@ -43,8 +43,8 @@ setup timing violations (no characterized macro timing)
 Root causes are explicit:
 
 - macro LEF pins are now GDS met1.pin rectangles, but the integrated top still
-  has latch-up/tap and LVS connectivity errors; these are not closed by the pin
-  extraction alone;
+  has nwell tap/latch-up and LVS connectivity errors; these are not closed by
+  pin extraction alone;
 - macro GDS integration/PR boundary is not equivalent to the standalone DRC
   view;
 - `macro.lib` is an analog black box with no timing arcs;
@@ -53,7 +53,8 @@ Root causes are explicit:
 
 The package staging (`make analog-package`) provides the real GDS/LEF/Liberty/
 Verilog views and a `librelane_macros.yaml` fragment, but does not claim that
-the resulting routed GDS is DRC/LVS/timing clean.
+the resulting routed GDS is DRC/LVS/timing clean.  The current VPWR/VGND
+attempt also fails at PDN (`PDN-0232/0233`), so power-grid closure is a blocker.
 
 ## What is still required for C signoff
 
