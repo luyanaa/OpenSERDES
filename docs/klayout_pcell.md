@@ -78,10 +78,11 @@ nfet W=5.00 L=0.15 nf=3   DRC 0
 pfet W=5.00 L=0.15 nf=3   DRC 0
 ```
 
-The subset is intentionally narrow:
+The subset currently supports:
 
-- `bulk=None`, `gate_con_pos=top/bottom`;
-- no guard-ring boolean operations or interdigitated gate patterns;
+- `bulk=None` and `bulk=guard ring`;
+- `interdig=0/1` with a supplied pattern;
+- `gate_con_pos=top/bottom`;
 - RF/high-voltage devices are not claimed.
 
 `external_magic` remains the second backend via the existing Magic gencell/PEX
@@ -105,7 +106,9 @@ LVS is not yet advertised as closed.
 
 `verification/analog/pya_pcell_verify.py` promotes D/G/S labels to a parent
 cell, runs Magic extraction, and compares the extracted one-finger device to
-the PDK subcircuit-style schematic with netgen.
+the PDK subcircuit-style schematic with netgen.  Guard-ring and interdigitated
+geometry variants are DRC-checked; their LVS is not yet part of the one-finger
+contract.
 
 Verified unique match:
 

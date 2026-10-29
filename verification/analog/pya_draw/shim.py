@@ -38,6 +38,7 @@ class Component:
 
 class Ref:
     def __init__(self, comp): self.comp=comp; self.dx=0; self.dy=0
+    def connect(self,*args,**kwargs): return self
     def move(self,p): self.dx+=p[0]; self.dy+=p[1]; return self
     def movex(self,dx): self.dx+=dx; return self
     def movey(self,dy): self.dy+=dy; return self
@@ -76,8 +77,34 @@ def cell(fn=None, **kwargs):
     if fn is None: return lambda f:f
     return fn
 
-def boolean(A,B,operation,layer):
-    raise NotImplementedError('boolean shim not implemented')
+def boolean(A, B, operation, layer):
+    """Boolean for flat box components (guard-ring extraction)."""
+    import pya
+    def flat(comp):
+        out=[]
+        def walk(c,dx=0,dy=0):
+            if isinstance(c, Ref):
+                walk(c.comp,dx+c.dx,dy+c.dy); return
+            for b in getattr(c, "boxes", []): out.append(pya.Box(int(round((b[0]+dx)*1000)),int(round((b[1]+dy)*1000)),
+                                                int(round((b[2]+dx)*1000)),int(round((b[3]+dy)*1000))))
+            for it in c.items:
+                if isinstance(it, ArrayRef):
+                    for r in range(it.rows):
+                        for col in range(it.cols):
+                            walk(it.comp,dx+it.dx+col*it.sx,dy+it.dy+r*it.sy)
+                elif isinstance(it, Ref):
+                    walk(it.comp,dx+it.dx,dy+it.dy)
+        walk(comp)
+        return out
+    fa=flat(A); fb=flat(B)
+    if len(fa) == 1 and len(fb) == 1:
+        ax1,ay1,ax2,ay2 = fa[0].left/1000.0, fa[0].bottom/1000.0, fa[0].right/1000.0, fa[0].top/1000.0
+        bx1,by1,bx2,by2 = fb[0].left/1000.0, fb[0].bottom/1000.0, fb[0].right/1000.0, fb[0].top/1000.0
+        boxes = [(ax1,ay1,bx1,ay2), (bx2,ay1,ax2,ay2), (bx1,ay1,bx2,by1), (bx1,by2,bx2,ay2)]
+    else:
+        raise NotImplementedError("boolean shim supports one rectangle minus one rectangle")
+    c=Component('boolean'); c.layer=layer; c.boxes=boxes
+    return c
 
 def open_component(name): return Component(name)
 def take_component(c, target_cell):

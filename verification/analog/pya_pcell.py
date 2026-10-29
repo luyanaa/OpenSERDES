@@ -26,6 +26,13 @@ class MosPcell(pya.PCellDeclarationHelper):
         self.param("l", self.TypeDouble, "L (um)", default=0.15, unit="um")
         self.param("w", self.TypeDouble, "W (um)", default=5.0, unit="um")
         self.param("nf", self.TypeInt, "Fingers", default=1)
+        self.param("bulk", self.TypeString, "Bulk mode")
+        self.bulk_handle = self.param("bulk", self.TypeString, "Bulk")
+        self.bulk_handle.add_choice("None", "None")
+        self.bulk_handle.add_choice("guard ring", "guard ring")
+        self.bulk_handle.default = "None"
+        self.param("interdig", self.TypeBoolean, "Interdigitated gates", default=False)
+        self.param("patt", self.TypeString, "Interdigitated pattern", default="")
         self.param("gate_con_pos", self.TypeString, "Gate contact position")
         self.gate_handle = self.param("gate_con_pos", self.TypeString, "Gate contact")
         self.gate_handle.add_choice("top", "top")
@@ -45,10 +52,14 @@ class MosPcell(pya.PCellDeclarationHelper):
                  else "sky130_fd_pr__pfet_01v8")
         if self.kind == "nfet":
             draw_nfet(self.cell, l=self.l, w=self.w, nf=self.nf,
-                      type=model, bulk="None", gate_con_pos=self.gate_con_pos)
+                      type=model, bulk=self.bulk,
+                      gate_con_pos=self.gate_con_pos,
+                      interdig=1 if self.interdig else 0, patt=self.patt)
         else:
             draw_pfet(self.cell, l=self.l, w=self.w, nf=self.nf,
-                      type=model, bulk="None", gate_con_pos=self.gate_con_pos)
+                      type=model, bulk=self.bulk,
+                      gate_con_pos=self.gate_con_pos,
+                      interdig=1 if self.interdig else 0, patt=self.patt)
         self._label_terminals()
 
     def _label_terminals(self) -> None:

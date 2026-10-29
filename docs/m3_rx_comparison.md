@@ -45,3 +45,33 @@ The generator should keep both routes:
 - stdcell RX: integration baseline, digital STA/DRC/LVS, no feedback claim;
 - feedback RX: analog route, requires matching physical GDS + LVS/PEX and
   full channel/PVT/MC characterization before automatic selection.
+
+## Same-channel BER rate sweep
+
+Script: `verification/analog/m3_ber_sweep.py`  
+Data: `build/verify/m3_ber_sweep.json`
+
+Same TX PEX, 100 ohm / 16 pF channel, 32-bit frame, tt corner, sample-offset
+search:
+
+| rate (Mb/s) | parallel stdcell errors | feedback PMOS errors |
+|---:|---:|---:|
+| 25 | 0/32 | 0/32 |
+| 100 | 0/32 | 0/32 |
+| 200 | 0/32 | 0/32 |
+| 400 | 0/32 | 0/32 |
+| 800 | 2/32 | 1/32 |
+| 1200 | 12/32 | 5/32 |
+| 1600 | 16/32 | 6/32 |
+
+At 800 Mb/s, ss/ff corner spot checks:
+
+```text
+feedback ss: 1/32, ff: 1/32
+parallel ss: 10/32, ff: 2/32
+```
+
+This is a small-N rate/corner comparison, not a full BER confidence bound.  It
+shows the feedback route has more high-rate margin in this channel, but noise,
+Monte Carlo, and a proper confidence interval are still required before making
+a production selection.
