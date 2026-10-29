@@ -86,6 +86,12 @@ class MosPcell(pya.PCellDeclarationHelper):
             x, y = center(b)
             self.cell.shapes(lab).insert(
                 pya.Text(text, pya.Trans(pya.Vector(int(round(x)), int(round(y))))))
+        if self.bulk == "guard ring":
+            # Guard ring is li1; label the body net for LVS/assembly.
+            lli = layout.layer(67, 5)
+            bb = self.cell.bbox()
+            self.cell.shapes(lli).insert(pya.Text(
+                "B", pya.Trans(pya.Vector(bb.left + 100, (bb.bottom + bb.top) // 2))))
 
 
 def register() -> None:
