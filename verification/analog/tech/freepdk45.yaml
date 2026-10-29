@@ -1,0 +1,36 @@
+name: freepdk45
+status: scaffold
+pdk: freepdk45
+vdd_v: 1.0
+default_corner: tt
+devices:
+  style: subckt
+  nmos: NMOS_VTG
+  pmos: PMOS_VTG
+sizing_um:
+  wn: 0.095
+  wp: 0.27
+  l: 0.05
+model:
+  mode: ngspice
+  root_search:
+  - ${FREEPDK45_ROOT}
+  - ~/.ciel/ciel/freepdk45/versions/*/freepdk45
+  includes:
+  - libs.tech/ngspice/freepdk45.lib
+  section: tt
+stdcell:
+  library: NangateOpenCellLibrary
+  inverter: INV_X1
+  source: libs.ref/nangate45
+pcell:
+  backend: none
+  status: not_available
+  note: >-
+    FreePDK45/Nangate45 is a research, non-manufacturable PDK.  It has no
+    installed KLayout device PCell; it supplements the flow with a standard
+    cell library and ngspice models.  It is not used for macro DRC/LVS signoff.
+probe:
+  runner: verification/analog/freepdk45_probe.py
+  status: model_smoke_verified
+  note: Nangate INV DC transfer is inverting; this does not assert DRC/LVS.

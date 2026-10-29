@@ -1,0 +1,32 @@
+name: etri050
+status: scaffold
+pdk: ETRI050
+vdd_v: 5.0
+default_corner: typical
+devices:
+  style: subckt
+  nmos: nmos4
+  pmos: pmos4
+sizing_um:
+  wn: 5.0
+  wp: 10.0
+  l: 0.6
+model:
+  mode: ngspice
+  root_search:
+  - ${ETRI050_ROOT}
+  - /grid/ETRI050
+  includes:
+  - libs.tech/models/05cmos_model_260210.lib
+  section: MOS
+pcell:
+  backend: none
+  status: not_available
+  note: >-
+    ETRI050 is a vendor 0.5 um analog 5 V PDK with ngspice models and KLayout
+    DRC/LVS decks.  This repository has only a model smoke probe; no analog
+    PCell or macro layout binding is installed.
+probe:
+  runner: verification/analog/etri050_probe.py
+  status: model_smoke_verified
+  note: nmos4/pmos4 inverter DC transfer is inverting at VDD=5 V.

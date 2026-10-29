@@ -55,7 +55,7 @@ RTL   := $(wildcard rtl/*.sv)
 SV2V_DIR := $(BUILD)/sv2v
 SV2V_RTL := $(SV2V_DIR)/rtl.v
 
-.PHONY: all sim lint synth regress gen qualify signoff ppa-import clean si-eye si-bathtub si-jtol si-rtl-jtol verify-link analog-pcell-probe analog-pcell-inv analog-pcell-tx analog-pcell-tx-verify analog-pcell-tx-views analog-stdcell-gen analog-macro-gen analog-contracts analog-gds analog-gds-audit analog-views analog-package analog-macro-pex analog-drc analog-rx-dc analog-rx-pvt mixed-signal-e2e rx-pex-digital-e2e soc-e2e soc-e2e-stress analog-lut sky130-lut analog-lut-demo analog-tech-check sky130-pvt pvt-margin pdk-mc xyce-global-mc magic-pex magic-pex-compare sky130-mc pex-compare lib-catalog timing-compare
+.PHONY: all sim lint synth regress gen qualify signoff ppa-import clean si-eye si-bathtub si-jtol si-rtl-jtol verify-link analog-pcell-probe analog-pcell-inv analog-pcell-tx analog-pcell-tx-verify analog-pcell-tx-views analog-pcell-rx-fb analog-pcell-rx-fb-verify analog-pcell-rx-fb-views analog-freepdk45-probe analog-etri050-probe analog-stdcell-gen analog-macro-gen analog-contracts analog-gds analog-gds-audit analog-views analog-package analog-macro-pex analog-drc analog-rx-dc analog-rx-pvt mixed-signal-e2e rx-pex-digital-e2e soc-e2e soc-e2e-stress analog-lut sky130-lut analog-lut-demo analog-tech-check sky130-pvt pvt-margin pdk-mc xyce-global-mc magic-pex magic-pex-compare sky130-mc pex-compare lib-catalog timing-compare
 
 all: sim
 
@@ -412,6 +412,26 @@ analog-pcell-tx-views:
 		LEF_OUT=$(BUILD)/verify/pcell_tx/tx_pcell.lef \
 		CDL_OUT=$(BUILD)/verify/pcell_tx/tx_pcell.cdl \
 		klayout -b -r verification/analog/pya_tx_array_views.py
+
+analog-pcell-rx-fb:
+	OUT=$(BUILD)/verify/pcell_rx_fb/rx_fb_pcell.gds klayout -b -r verification/analog/pya_rx_feedback.py
+
+analog-pcell-rx-fb-verify:
+	$(PYTHON) verification/analog/pya_rx_feedback_verify.py \
+		--out $(BUILD)/verify/pcell_rx_fb.json --workdir $(BUILD)/verify/pcell_rx_fb
+
+analog-pcell-rx-fb-views:
+	@test -f $(BUILD)/verify/pcell_rx_fb/rx_fb_pcell.gds || $(MAKE) analog-pcell-rx-fb
+	IN=$(BUILD)/verify/pcell_rx_fb/rx_fb_pcell.gds \
+		LEF_OUT=$(BUILD)/verify/pcell_rx_fb/rx_fb_pcell.lef \
+		CDL_OUT=$(BUILD)/verify/pcell_rx_fb/rx_fb_pcell.cdl \
+		klayout -b -r verification/analog/pya_rx_feedback_views.py
+
+analog-freepdk45-probe:
+	$(PYTHON) verification/analog/freepdk45_probe.py
+
+analog-etri050-probe:
+	$(PYTHON) verification/analog/etri050_probe.py
 
 analog-stdcell-gen:
 	$(PYTHON) verification/analog/stdcell_macro_gen.py --tech sky130 --topology tx_inv_chain \

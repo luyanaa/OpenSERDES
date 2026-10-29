@@ -183,3 +183,38 @@ This is a PCell array topology, not yet the C std-cell
 `inv_1 -> inv_4 -> inv_16` physical macro.  LEF/CDL views are generated and
 the CDL is LVS-matched to the extracted layout; PEX and the RX feedback array
 remain open.  No signoff claim is made.
+
+## RX nonlinear-feedback PCell
+
+`verification/analog/pya_rx_feedback.py` builds the PCell RX macro:
+
+```text
+3 unit inverters              (3 N / 3 P, W=5/L=0.15)
++ 3 parallel PMOS devices     (3 P, W=5/L=0.15)
+= 3 N / 6 P inverting core
++ 2 series diode-connected PMOS feedback devices (W=0.55/L=8)
+```
+
+Reproducible headless evidence:
+
+```sh
+make analog-pcell-rx-fb-verify
+```
+
+Result:
+
+```text
+Magic DRC: 0
+netgen LVS: Circuits match uniquely
+bbox: 23.860 x 10.650 um (database units -305,-380;23555,10270)
+LEF: build/verify/pcell_rx_fb/rx_fb_pcell.lef
+CDL: build/verify/pcell_rx_fb/rx_fb_pcell.cdl
+```
+
+The extracted hierarchy has three `rx_inv` instances, three extra
+`rx_pfet_w5` instances, and two `rx_pfet_fb` instances.  The feedback path is
+the intended two-device series PMOS diode chain between `OUT` and `IN`.
+
+The pure-pya device cells use `bulk=None`; PMOS well/body ties are not
+generated.  This is an explicit open item for the PCell backend, not a hidden
+schematic claim.  PEX/STA are not part of this result.
