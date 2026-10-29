@@ -80,6 +80,8 @@ def main() -> int:
                         "ber": r["ber"],
                         "ber_ci95": [ci_low, ci_high],
                         "offset_ns": r["sample_offset_ns"],
+                        "eye_width_ns": r.get("eye_width_ns"),
+                        "eye_height_v": r.get("eye_height_v"),
                         "out_swing_v": [r["out_min_v"], r["out_max_v"]],
                     })
                 except Exception as exc:  # noqa: BLE001

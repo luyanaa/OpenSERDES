@@ -98,18 +98,28 @@ wrdata {wave.resolve()} v(VIN) v(VOUT) v(RXIN) v(OUT)
     # over the middle bits.  This is a characterization search, not a CDR.
     best = None
     ui = ui_ns
+    offset_errors = []
     for offset_ns in np.linspace(0.0, 0.9 * ui, 19):
         samples = []
-        valid = True
+        sample_v = []
         for i, bit in enumerate(bits):
             ts = (i + 0.5) * ui + offset_ns
             v = float(np.interp(ts, t, out))
-            samples.append(1 if v > 0.9 else 0)
+            sample_v.append(v)
+            samples.append(1 if v > (vin_high / 2.0) else 0)
         # The chain has two inverting stages: expected output is non-inverted.
         errs = sum(1 for a, b in zip(samples, bits) if a != b)
+        offset_errors.append(errs)
         if best is None or errs < best[0]:
-            best = (errs, offset_ns, samples)
-    errs, off, samples = best
+            best = (errs, offset_ns, samples, sample_v)
+    errs, off, samples, sample_v = best
+    good_offsets = [o for o, e in zip(np.linspace(0.0, 0.9 * ui, 19), offset_errors)
+                    if e == errs]
+    eye_width_ns = max(good_offsets) - min(good_offsets) if len(good_offsets) > 1 else 0.0
+    high_v = [v for v, b in zip(sample_v, bits) if b == 1]
+    low_v = [v for v, b in zip(sample_v, bits) if b == 0]
+    eye_height_v = (float(np.median(high_v)) - float(np.median(low_v))
+                    if high_v and low_v else 0.0)
     return {
         "tx_pex": str(tx),
         "rx_pex": str(rx),
@@ -120,6 +130,8 @@ wrdata {wave.resolve()} v(VIN) v(VOUT) v(RXIN) v(OUT)
         "errors": int(errs),
         "ber": float(errs) / len(bits),
         "sample_offset_ns": float(off),
+        "eye_width_ns": float(eye_width_ns),
+        "eye_height_v": float(eye_height_v),
         "txout_min_v": float(np.min(txout)),
         "txout_max_v": float(np.max(txout)),
         "rxin_min_v": float(np.min(rxin)),
