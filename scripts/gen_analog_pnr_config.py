@@ -147,16 +147,6 @@ set_false_path -to [get_ports rx_clk_out]
         "PL_RESIZER_HOLD_SLACK_MARGIN": 0.10,
         "GRT_RESIZER_SETUP_SLACK_MARGIN": 0.0,
         "GRT_RESIZER_HOLD_SLACK_MARGIN": 0.10,
-        # Repair to the actual electrical limits instead of accepting the
-        # default +20% slew/cap margin.  These are implementation constraints,
-        # not a relaxation of the signoff limits.
-        "DESIGN_REPAIR_MAX_SLEW_PCT": 0,
-        "DESIGN_REPAIR_MAX_CAP_PCT": 0,
-        # A second post-global-route repair sees the routed parasitics and
-        # closes marginal slew/cap excursions without relaxing the limits.
-        "RUN_POST_GRT_DESIGN_REPAIR": True,
-        "GRT_DESIGN_REPAIR_MAX_SLEW_PCT": 0,
-        "GRT_DESIGN_REPAIR_MAX_CAP_PCT": 0,
     })
     # OpenROAD treats separate LEF files as one 'abstract' library; use the
     # combined file to avoid dropping the second hard macro.
