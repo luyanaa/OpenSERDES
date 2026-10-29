@@ -50,9 +50,10 @@ create_clock -name pclk -period $PCLK_PERIOD_NS [get_ports pclk]
 create_clock -name s_axis_aclk -period $PCLK_PERIOD_NS [get_ports s_axis_aclk]
 create_clock -name m_axis_aclk -period $PCLK_PERIOD_NS [get_ports m_axis_aclk]
 create_clock -name tx_clk -period $TX_PERIOD_NS [get_ports tx_clk]
-# Source-synchronous RX: forwarded clock is phase-related to TX, not an
-# independent asynchronous domain.
-create_generated_clock -name rx_clk -source [get_ports tx_clk] -divide_by 1 [get_ports rx_clk]
+# rx_clk is a forwarded, top-level source-synchronous clock.  It is a real
+# input port, so it must be a primary clock; a generated clock sourced from
+# tx_clk would require an internal tx_clk -> rx_clk path that does not exist.
+create_clock -name rx_clk -period $TX_PERIOD_NS [get_ports rx_clk]
 set_clock_groups -asynchronous -group [get_clocks pclk] -group [get_clocks s_axis_aclk] -group [get_clocks m_axis_aclk]
 set_clock_uncertainty -setup 0.050 [get_clocks {pclk s_axis_aclk m_axis_aclk tx_clk rx_clk}]
 set_clock_uncertainty -hold 0.020 [get_clocks {pclk s_axis_aclk m_axis_aclk tx_clk rx_clk}]
@@ -64,6 +65,10 @@ set_input_delay -clock pclk 0.1 [get_ports {paddr* psel penable pwrite pwdata*}]
 set_output_delay -clock pclk 0.2 [get_ports {pready prdata* pslverr csr_regs*}]
 set_input_delay -clock rx_clk 0.1 [get_ports rx_pad]
 set_output_delay -clock tx_clk 0.2 [get_ports tx_pad]
+# Explicit port transition/load so max-slew/max-cap checks do not inherit
+# tool defaults at the package boundary.
+set_input_transition 0.10 [all_inputs]
+set_load 0.05 [all_outputs]
 set_false_path -from [get_ports {presetn s_axis_aresetn m_axis_aresetn tx_rst_n rx_rst_n}]
 set_false_path -to [get_ports rx_clk_out]
 """.replace("__USER_NS__", f"{user_ns:.6f}").replace("__TX_NS__", f"{ui_ns:.6f}"))

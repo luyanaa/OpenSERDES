@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
-"""Build a PCell-device TX inverter array (1 -> 3 -> 9) in pure pya.
+"""Build a PCell-device TX inverter array in pure pya.
 
 Run inside KLayout:
-  OUT=/tmp/tx_pcell.gds klayout -b -r verification/analog/pya_tx_array.py
+  OUT=/tmp/tx_pcell.gds TX_STAGES=1,3,9 \\
+    klayout -b -r verification/analog/pya_tx_array.py
 
-The unit inverter is the DRC/LVS-verified cell from pya_inverter_probe.py.
-This script only adds hierarchical placement and upper-metal interconnect; it
-does not claim LVS/PEX signoff until the extracted top-level netlist is checked.
+``TX_STAGES`` selects the number of parallel unit inverters in each stage.
+The default 1/3/9 is the original prototype; ``1,4,16`` is the C-compatible
+stage ratio.  The unit inverter is the DRC/LVS-verified cell from
+pya_inverter_probe.py.  This script only adds hierarchical placement and
+upper-metal interconnect; it does not claim PEX/STA signoff.
 """
 from __future__ import annotations
 
@@ -33,14 +36,23 @@ def via(cell, layer, x, y, size):
     box(cell, layer, x - half, y - half, x + half, y + half)
 
 
-def build_tx(ly, name: str = "tx_pcell"):
+def parse_stages(spec: str | None = None) -> tuple[int, int, int]:
+    spec = spec or os.environ.get("TX_STAGES", "1,3,9")
+    parts = [int(v) for v in spec.replace(":", ",").split(",") if v.strip()]
+    if len(parts) != 3 or any(v < 1 for v in parts):
+        raise ValueError(f"TX_STAGES must be three positive counts, got {spec!r}")
+    return tuple(parts)  # type: ignore[return-value]
+
+
+def build_tx(ly, name: str = "tx_pcell", stages: tuple[int, int, int] = (1, 3, 9)):
     inv = build_inverter(ly, "tx_inv", label_ports=False)
     top = ly.create_cell(name)
 
-    # 1 -> 3 -> 9 fanout; 4.5 um pitch leaves room for upper-metal routes.
+    n1, n2, n3 = stages
+    # 4.0 um stage-2 / 4.5 um stage-3 pitch leaves room for upper-metal routes.
     stage1 = [0]
-    stage2 = [4500, 8500, 12500]
-    stage3 = [17000 + i * 4500 for i in range(9)]
+    stage2 = [4500 + i * 4000 for i in range(n2)]
+    stage3 = [stage2[-1] + 4500 + i * 4500 for i in range(n3)]
     for x in stage1 + stage2 + stage3:
         top.insert(pya.CellInstArray(inv, pya.Trans(pya.Vector(x, 0))))
 
@@ -101,7 +113,7 @@ def build_tx(ly, name: str = "tx_pcell"):
 def main() -> int:
     out = Path(os.environ.get("OUT", "/tmp/openserdes_pcell_tx.gds"))
     ly = pya.Layout()
-    top = build_tx(ly)
+    top = build_tx(ly, stages=parse_stages())
     out.parent.mkdir(parents=True, exist_ok=True)
     ly.write(str(out))
     print(f"wrote {out} bbox={top.bbox().to_s()}")

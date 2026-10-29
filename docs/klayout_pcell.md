@@ -171,7 +171,7 @@ LEF: build/verify/pcell_tx/tx_pcell.lef
 CDL: build/verify/pcell_tx/tx_pcell.cdl
 ```
 
-The verified schematic is the same 13-inverter hierarchy:
+The default 1/3/9 hierarchy is:
 
 ```text
 stage 1: 1 inverter
@@ -179,7 +179,21 @@ stage 2: 3 parallel inverters
 stage 3: 9 parallel inverters
 ```
 
-This is a PCell array topology, not yet the C std-cell
+The C-compatible stage ratio is also generated and verified:
+
+```sh
+make analog-pcell-tx-1-4-16-verify
+```
+
+```text
+stage 1: 1 inverter
+stage 2: 4 parallel inverters
+stage 3: 16 parallel inverters
+Magic DRC: 0
+netgen LVS: Circuits match uniquely
+```
+
+This is a PCell array topology, not a transistor-level copy of the C std-cell
 `inv_1 -> inv_4 -> inv_16` physical macro.  LEF/CDL views are generated and
 the CDL is LVS-matched to the extracted layout; PEX and the RX feedback array
 remain open.  No signoff claim is made.

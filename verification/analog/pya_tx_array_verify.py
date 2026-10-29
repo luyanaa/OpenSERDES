@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
-"""Build and verify the pure-pya PCell TX 1/3/9 inverter array.
+"""Build and verify a pure-pya PCell TX inverter array.
 
 Evidence produced:
-  - Magic DRC on the flattened top cell
+  - Magic DRC on the top cell
   - Magic extraction with explicit top-level ports
-  - netgen LVS against the 1 -> 3 -> 9 inverter schematic
+  - netgen LVS against the selected stage-count schematic
 
-This is layout-vs-schematic and DRC evidence only.  It is not PEX, STA, or a
-mixed-signal signoff result.
+``--stages 1,4,16`` selects the C-compatible ratio.  This is
+layout-vs-schematic and DRC evidence only; it is not PEX, STA, or a mixed-signal
+signoff result.
 """
 from __future__ import annotations
 
@@ -114,7 +115,13 @@ def main() -> int:
     ap.add_argument("--out", default="build/verify/pcell_tx.json")
     ap.add_argument("--workdir", default="build/verify/pcell_tx")
     ap.add_argument("--pdk-root", default=None)
+    ap.add_argument("--stages", default=None, help="three stage counts, e.g. 1,4,16")
     args = ap.parse_args()
+    if args.stages:
+        os.environ["TX_STAGES"] = args.stages
+    stages = tuple(int(v) for v in os.environ.get("TX_STAGES", "1,3,9").split(","))
+    if len(stages) != 3 or any(v < 1 for v in stages):
+        raise SystemExit(f"bad stage counts: {stages!r}")
 
     pdk = find_pdk_root(args.pdk_root)
     work = ROOT / args.workdir
@@ -130,7 +137,7 @@ def main() -> int:
     extracted = extract(gds, pdk, work)
     lvs_result = lvs(extracted, cdl, pdk, work)
     result = {
-        "kind": "pure-pya-pcell-tx-1-3-9",
+        "kind": "pure-pya-pcell-tx-" + "-".join(map(str, stages)),
         "gds": str(gds),
         "gds_sha256": sha256(gds),
         "lef": str(lef),
@@ -138,7 +145,7 @@ def main() -> int:
         "cdl": str(cdl),
         "cdl_sha256": sha256(cdl),
         "bbox_dbu": build["bbox"],
-        "topology": "13 unit inverters: 1 -> 3 -> 9",
+        "topology": f"{sum(stages)} unit inverters: {stages[0]} -> {stages[1]} -> {stages[2]}",
         "drc": {
             "clean": drc["clean"],
             "errors": drc["drc_errors"],

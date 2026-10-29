@@ -55,7 +55,7 @@ RTL   := $(wildcard rtl/*.sv)
 SV2V_DIR := $(BUILD)/sv2v
 SV2V_RTL := $(SV2V_DIR)/rtl.v
 
-.PHONY: all sim lint synth regress gen qualify signoff ppa-import clean si-eye si-bathtub si-jtol si-rtl-jtol verify-link analog-pcell-probe analog-pcell-inv analog-pcell-tx analog-pcell-tx-verify analog-pcell-tx-views analog-pcell-rx-fb analog-pcell-rx-fb-verify analog-pcell-rx-fb-views analog-freepdk45-probe analog-etri050-probe analog-stdcell-gen analog-macro-gen analog-contracts analog-gds analog-gds-audit analog-views analog-package analog-macro-pex analog-drc analog-rx-dc analog-rx-pvt mixed-signal-e2e rx-pex-digital-e2e soc-e2e soc-e2e-stress analog-lut sky130-lut analog-lut-demo analog-tech-check sky130-pvt pvt-margin pdk-mc xyce-global-mc magic-pex magic-pex-compare sky130-mc pex-compare lib-catalog timing-compare
+.PHONY: all sim lint synth regress gen qualify signoff ppa-import clean si-eye si-bathtub si-jtol si-rtl-jtol verify-link analog-pcell-probe analog-pcell-inv analog-pcell-tx analog-pcell-tx-verify analog-pcell-tx-views analog-pcell-tx-1-4-16 analog-pcell-tx-1-4-16-verify analog-pcell-rx-fb analog-pcell-rx-fb-verify analog-pcell-rx-fb-views analog-freepdk45-probe analog-etri050-probe analog-stdcell-gen analog-macro-gen analog-contracts analog-gds analog-gds-audit analog-views analog-package analog-macro-pex analog-drc analog-rx-dc analog-rx-pvt mixed-signal-e2e rx-pex-digital-e2e soc-e2e soc-e2e-stress analog-lut sky130-lut analog-lut-demo analog-tech-check sky130-pvt pvt-margin pdk-mc xyce-global-mc magic-pex magic-pex-compare sky130-mc pex-compare lib-catalog timing-compare
 
 all: sim
 
@@ -412,6 +412,13 @@ analog-pcell-tx-views:
 		LEF_OUT=$(BUILD)/verify/pcell_tx/tx_pcell.lef \
 		CDL_OUT=$(BUILD)/verify/pcell_tx/tx_pcell.cdl \
 		klayout -b -r verification/analog/pya_tx_array_views.py
+
+analog-pcell-tx-1-4-16:
+	TX_STAGES=1,4,16 OUT=$(BUILD)/verify/pcell_tx_1_4_16/tx_pcell.gds klayout -b -r verification/analog/pya_tx_array.py
+
+analog-pcell-tx-1-4-16-verify:
+	$(PYTHON) verification/analog/pya_tx_array_verify.py --stages 1,4,16 \
+		--out $(BUILD)/verify/pcell_tx_1_4_16.json --workdir $(BUILD)/verify/pcell_tx_1_4_16
 
 analog-pcell-rx-fb:
 	OUT=$(BUILD)/verify/pcell_rx_fb/rx_fb_pcell.gds klayout -b -r verification/analog/pya_rx_feedback.py

@@ -7,7 +7,7 @@ Run inside KLayout:
     klayout -b -r verification/analog/pya_tx_array_views.py
 
 The LEF pin rectangles are derived from the actual GDS bounding box.  The CDL
-uses the same 1 -> 3 -> 9 inverter hierarchy as pya_tx_array_verify.py.
+uses the same stage counts as pya_tx_array.py (``TX_STAGES``, default 1/3/9).
 """
 from __future__ import annotations
 
@@ -25,6 +25,14 @@ ly.read(str(src))
 top = ly.cell("tx_pcell")
 if top is None:
     raise SystemExit(f"tx_pcell not found in {src}")
+stages_spec = os.environ.get("TX_STAGES", "1,3,9")
+stages = tuple(int(v) for v in stages_spec.replace(":", ",").split(",") if v.strip())
+if len(stages) != 3:
+    raise SystemExit(f"TX_STAGES must have three counts, got {stages_spec!r}")
+stage2 = [4500 + i * 4000 for i in range(stages[1])]
+stage3 = [stage2[-1] + 4500 + i * 4500 for i in range(stages[2])]
+rail_end = stage3[-1] + 3600
+
 bb = top.bbox()
 x0, y0 = bb.left, bb.bottom
 w, h = (bb.right - bb.left) / 1000.0, (bb.top - bb.bottom) / 1000.0
@@ -52,7 +60,7 @@ MACRO tx_pcell
     USE POWER ;
     PORT
       LAYER met1 ;
-        RECT {rect(0, 6000, 56600, 6120)} ;
+        RECT {rect(0, 6000, rail_end, 6120)} ;
     END
   END VDD
   PIN VSS
@@ -60,7 +68,7 @@ MACRO tx_pcell
     USE GROUND ;
     PORT
       LAYER met1 ;
-        RECT {rect(0, 0, 56600, 120)} ;
+        RECT {rect(0, 0, rail_end, 120)} ;
     END
   END VSS
   PIN IN
@@ -76,35 +84,35 @@ MACRO tx_pcell
     USE SIGNAL ;
     PORT
       LAYER met3 ;
-        RECT {rect(17950, 4850, 54050, 4950)} ;
+        RECT {rect(stage3[0] + 950, 4850, stage3[-1] + 1050, 4950)} ;
     END
   END OUT
 END tx_pcell
 END LIBRARY
 """
 
-cdl = """* Pure-pya PCell TX array: 1 -> 3 -> 9 unit inverters
-.SUBCKT tx_pcell VDD VSS IN OUT
-Xinv0 IN VDD n1 VSS VSUBS tx_inv
-Xinv1 n1 VDD n2 VSS VSUBS tx_inv
-Xinv2 n1 VDD n2 VSS VSUBS tx_inv
-Xinv3 n1 VDD n2 VSS VSUBS tx_inv
-Xinv4 n2 VDD OUT VSS VSUBS tx_inv
-Xinv5 n2 VDD OUT VSS VSUBS tx_inv
-Xinv6 n2 VDD OUT VSS VSUBS tx_inv
-Xinv7 n2 VDD OUT VSS VSUBS tx_inv
-Xinv8 n2 VDD OUT VSS VSUBS tx_inv
-Xinv9 n2 VDD OUT VSS VSUBS tx_inv
-Xinv10 n2 VDD OUT VSS VSUBS tx_inv
-Xinv11 n2 VDD OUT VSS VSUBS tx_inv
-Xinv12 n2 VDD OUT VSS VSUBS tx_inv
-.ENDS
-
-.SUBCKT tx_inv G VDD D VSS VSUBS
-Xn D G VSS VSUBS sky130_fd_pr__nfet_01v8 w=5 l=0.15
-Xp D G VDD body sky130_fd_pr__pfet_01v8 w=5 l=0.15
-.ENDS
-"""
+lines = [f"* Pure-pya PCell TX array: {stages[0]} -> {stages[1]} -> {stages[2]} unit inverters",
+         ".SUBCKT tx_pcell VDD VSS IN OUT"]
+index = 0
+for _ in range(stages[0]):
+    lines.append(f"Xinv{index} IN VDD n1 VSS VSUBS tx_inv")
+    index += 1
+for _ in range(stages[1]):
+    lines.append(f"Xinv{index} n1 VDD n2 VSS VSUBS tx_inv")
+    index += 1
+for _ in range(stages[2]):
+    lines.append(f"Xinv{index} n2 VDD OUT VSS VSUBS tx_inv")
+    index += 1
+lines += [
+    ".ENDS",
+    "",
+    ".SUBCKT tx_inv G VDD D VSS VSUBS",
+    "Xn D G VSS VSUBS sky130_fd_pr__nfet_01v8 w=5 l=0.15",
+    "Xp D G VDD body sky130_fd_pr__pfet_01v8 w=5 l=0.15",
+    ".ENDS",
+    "",
+]
+cdl = "\n".join(lines)
 
 lef_out.parent.mkdir(parents=True, exist_ok=True)
 cdl_out.parent.mkdir(parents=True, exist_ok=True)
