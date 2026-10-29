@@ -87,7 +87,7 @@ M0 d g s b pfet_01v8_hvt w={w} l={l}
             if src.is_file():
                 shutil.copy2(src, dst / "schematic.sp")
                 copied["schematic"] = str(dst / "schematic.sp")
-        for view_name in ("macro_v", "lef", "liberty", "views_json"):
+        for view_name in ("macro_v", "lef", "liberty", "views_json", "cdl"):
             view = views.get(view_name, {})
             rel = view.get("path")
             if not rel:
