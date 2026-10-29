@@ -95,3 +95,25 @@ The RX identities are deliberately separate:
 
 `--layout-gds` also requires physical `diff/poly/li1`; a pin-only abstract GDS
 is rejected.  File hashes in manifests bind GDS, LEF, SPICE, Liberty and PEX.
+
+## Pure-pya PCell backend
+
+`verification/analog/pya_pcell.py` ports the supported subset of the PDK
+`draw_fet.py` to KLayout's native `pya` API:
+
+- supported: `nfet/pfet 01v8`, arbitrary W/L, `nf==1..N`, `bulk=None`,
+  gate contact top/bottom;
+- unsupported: guard-ring boolean operations, interdigitated patterns,
+  RF devices; these fail rather than silently approximating.
+
+The port uses `verification/analog/pya_draw/` and a small pya-backed
+`gdsfactory` compatibility shim.  A headless probe can be run with:
+
+```bash
+GDS=<sky130_fd_pr.gds> OUT=/tmp/probe.gds \
+  klayout -b -r verification/analog/klayout_pcell_probe.py
+```
+
+The separate `external_magic` path remains available as a second backend
+(`magic_pex.py` / `Magic gencell`) for devices whose geometry is not covered by
+the pure-pya subset.
