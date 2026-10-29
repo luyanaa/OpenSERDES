@@ -87,3 +87,16 @@ The subset is intentionally narrow:
 `external_magic` remains the second backend via the existing Magic gencell/PEX
 flow.  Device-level LVS labels/ports for the pure-pya PCell still need to be
 added before using it as a complete macro generator backend.
+
+### Terminal labels
+
+The pure-pya PCell now adds `D/G/S` labels on the generated met1 terminals.
+Magic extraction produces one transistor for the `W=5/L=0.15 nf=1` case:
+
+```text
+X0 D G S VSUBS sky130_fd_pr__nfet_01v8 w=5 l=0.15
+```
+
+The top-level cell still needs explicit Magic port promotion before a strict
+top-level LVS pin match; the geometry/DRC portion is complete, device-level
+LVS is not yet advertised as closed.

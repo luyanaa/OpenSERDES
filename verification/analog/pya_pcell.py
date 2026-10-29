@@ -49,6 +49,32 @@ class MosPcell(pya.PCellDeclarationHelper):
         else:
             draw_pfet(self.cell, l=self.l, w=self.w, nf=self.nf,
                       type=model, bulk="None", gate_con_pos=self.gate_con_pos)
+        self._label_terminals()
+
+    def _label_terminals(self) -> None:
+        """Put D/G/S labels on the generated met1 terminals for extraction."""
+        layout = self.cell.layout()
+        layer = layout.layer(68, 20)
+        lab = layout.layer(68, 5)
+        boxes = []
+        for shape in self.cell.shapes(layer).each():
+            if shape.is_box():
+                b = shape.box
+                boxes.append((b.left, b.bottom, b.right, b.top))
+        if not boxes:
+            raise RuntimeError("pure-pya MOS produced no met1 terminals")
+        # The gate contact is the terminal with the largest y center.
+        center = lambda b: ((b[0] + b[2]) / 2, (b[1] + b[3]) / 2)
+        gate = max(boxes, key=lambda b: center(b)[1])
+        lower = [b for b in boxes if b is not gate]
+        if len(lower) < 2:
+            raise RuntimeError("pure-pya MOS needs source and drain met1 terminals")
+        src = min(lower, key=lambda b: center(b)[0])
+        drain = max(lower, key=lambda b: center(b)[0])
+        for text, b in (("S", src), ("D", drain), ("G", gate)):
+            x, y = center(b)
+            self.cell.shapes(lab).insert(
+                pya.Text(text, pya.Trans(pya.Vector(int(round(x)), int(round(y))))))
 
 
 def register() -> None:

@@ -90,12 +90,12 @@ def take_component(c, target_cell):
         layer=getattr(c,'layer',(68,20))
         for b in c.boxes: emit_box(b[0]+dx,b[1]+dy,b[2]+dx,b[3]+dy,layer)
         for it in c.items:
-            if isinstance(it,Ref):
-                walk(it.comp,dx+it.dx,dy+it.dy)
-            elif isinstance(it,ArrayRef):
+            if isinstance(it,ArrayRef):
                 for r in range(it.rows):
                     for col in range(it.cols):
                         walk(it.comp,dx+it.dx+col*it.sx,dy+it.dy+r*it.sy)
+            elif isinstance(it,Ref):
+                walk(it.comp,dx+it.dx,dy+it.dy)
             elif isinstance(it,Label):
                 li=target_cell.layout().layer(int(it.layer[0]),int(it.layer[1]))
                 target_cell.shapes(li).insert(pya.Text(it.text,pya.Trans(pya.Vector(int(round((it.pos[0]+it.dx+dx)*1000)),int(round((it.pos[1]+it.dy+dy)*1000))))))
