@@ -100,3 +100,22 @@ X0 D G S VSUBS sky130_fd_pr__nfet_01v8 w=5 l=0.15
 The top-level cell still needs explicit Magic port promotion before a strict
 top-level LVS pin match; the geometry/DRC portion is complete, device-level
 LVS is not yet advertised as closed.
+
+## Device-level LVS probe
+
+`verification/analog/pya_pcell_verify.py` promotes D/G/S labels to a parent
+cell, runs Magic extraction, and compares the extracted one-finger device to
+the PDK subcircuit-style schematic with netgen.
+
+Verified unique match:
+
+```text
+nfet W=5.00 L=0.15 nf=1   LVS match uniquely
+pfet W=5.00 L=0.15 nf=1   LVS match uniquely
+pfet W=0.55 L=8.00 nf=1   LVS match uniquely
+```
+
+`nf=3` geometry is DRC-clean but its multi-finger extracted topology does not
+yet match the scalar parallel schematic; it remains geometry-only until the
+gate/source/drain finger connection pattern is corrected.  Arbitrary W/L with
+`nf=1` is the current LVS-closed PCell contract.
