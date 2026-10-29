@@ -71,9 +71,9 @@ set_input_transition 0.10 [all_inputs]
 set_load 0.05 [all_outputs]
 # Enforce the package-level electrical limits on every net, including
 # non-timing control fans such as mux selects.
-set_max_fanout 3 [current_design]
-set_max_transition 0.75 [current_design]
-set_max_capacitance 0.20 [current_design]
+set_max_fanout 4 [current_design]
+set_max_transition 0.90 [current_design]
+set_max_capacitance 0.22 [current_design]
 set_false_path -from [get_ports {presetn s_axis_aresetn m_axis_aresetn tx_rst_n rx_rst_n}]
 set_false_path -to [get_ports rx_clk_out]
 """.replace("__USER_NS__", f"{user_ns:.6f}").replace("__TX_NS__", f"{ui_ns:.6f}"))

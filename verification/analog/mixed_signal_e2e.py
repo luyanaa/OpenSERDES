@@ -14,6 +14,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import random
 import subprocess
 import sys
 from pathlib import Path
@@ -28,39 +29,50 @@ if str(ROOT) not in sys.path:
 from verification.analog.magic_pex import find_pdk_root  # noqa: E402
 
 
-def _pwl(bits: list[int], ui_ns: float, edge_ns: float = 0.08) -> str:
+def _pwl(bits: list[int], ui_ns: float, edge_ns: float = 0.08,
+         high_v: float = 1.8) -> str:
     pts = []
     last = 0.0
     for i, bit in enumerate(bits):
         t = i * ui_ns
-        pts.append(f"{t:.6g}n {0.0 if i == 0 else (1.8 if bits[i-1] else 0.0):.6g}")
+        pts.append(f"{t:.6g}n {0.0 if i == 0 else (high_v if bits[i-1] else 0.0):.6g}")
         # Add a finite edge at the beginning of each bit.
-        v = 1.8 if bit else 0.0
+        v = high_v if bit else 0.0
         pts.append(f"{(t + edge_ns):.6g}n {v:.6g}")
         last = t + ui_ns
-    pts.append(f"{last:.6g}n {1.8 if bits[-1] else 0.0:.6g}")
+    pts.append(f"{last:.6g}n {high_v if bits[-1] else 0.0:.6g}")
     return " ".join(pts)
 
 
 def run(tx: Path, rx: Path, bits: list[int], ui_ns: float, pdk: Path,
         workdir: Path, corner: str = "tt", r_ohm: float = 100.0,
-        c_pf: float = 16.0) -> dict[str, Any]:
+        c_pf: float = 16.0, vin_high: float = 1.8,
+        noise_mv: float = 0.0, noise_seed: int = 1) -> dict[str, Any]:
     workdir.mkdir(parents=True, exist_ok=True)
     wave = workdir / "wave.dat"
     tb = workdir / "mixed.sp"
     lib = pdk / "sky130A/libs.tech/ngspice/sky130.lib.spice"
     total_ns = max(2.0, (len(bits) + 4) * ui_ns)
+    noise = ""
+    if noise_mv > 0.0:
+        rng = random.Random(noise_seed)
+        points = []
+        t = 0.0
+        while t <= total_ns:
+            points.append(f"{t:.6g}n {rng.gauss(0.0, noise_mv * 1e-3):.6g}")
+            t += max(0.1, ui_ns / 20.0)
+        noise = f"Rch VOUT RXIN_R {r_ohm:g}\nVn RXIN_R RXIN PWL({' '.join(points)})\nCch RXIN 0 {c_pf:g}p\n"
+    else:
+        noise = f"Rch VOUT RXIN {r_ohm:g}\nCch RXIN 0 {c_pf:g}p\n"
     tb.write_text(f"""* mixed-signal PEX chain
 .lib "{lib}" {corner}
 .param VDD=1.8
 Vdd VDD 0 {{VDD}}
-Vin VIN 0 PWL({_pwl(bits, ui_ns)})
+Vin VIN 0 PWL({_pwl(bits, ui_ns, high_v=vin_high)})
 .include "{tx.resolve()}"
 .include "{rx.resolve()}"
 Xtx GND VDD VIN VOUT Inv_Transmitter
-Rch VOUT RXIN {r_ohm:g}
-Cch RXIN 0 {c_pf:g}p
-Xrx GND VDD RXIN OUT Resist_FB_INV
+{noise}Xrx GND VDD RXIN OUT Resist_FB_INV
 Cload OUT 0 20f
 .tran 0.1n {total_ns:g}n
 .control
@@ -114,6 +126,9 @@ wrdata {wave.resolve()} v(VIN) v(VOUT) v(RXIN) v(OUT)
         "rxin_max_v": float(np.max(rxin)),
         "out_min_v": float(np.min(out)),
         "out_max_v": float(np.max(out)),
+        "vin_high_v": vin_high,
+        "noise_mv": noise_mv,
+        "noise_seed": noise_seed,
         "wave": str(wave),
         "returncode": proc.returncode,
     }
