@@ -1,30 +1,22 @@
-# IHP SG13G2 analog LUT configuration scaffold.
-#
-# The digital tech profile exists (tech/ihp-sg13g2), but the analog TX/RX
-# migration has not been done.  Do not use for a capability claim.
 name: ihp_sg13g2
 status: scaffold
 pdk: ihp-sg13g2
 vdd_v: 1.2
 default_corner: tt
-
 devices:
   style: subckt
   nmos: TBD_ihp_nmos
   pmos: TBD_ihp_pmos
-
 sizing_um:
   wn: 0.15
-  wp: 0.30
+  wp: 0.3
   l: 0.13
-
 model:
   mode: pm3
   root_search:
-    - ${IHP_ROOT}
-    - ~/.ciel/ciel/ihp-sg13/versions/*/ihp-sg13g2/libs.ref/ihp-sg13g2
+  - ${IHP_ROOT}
+  - ~/.ciel/ciel/ihp-sg13/versions/*/ihp-sg13g2/libs.ref/ihp-sg13g2
   includes: []
-
 pex:
   status: scaffold
   magic:
@@ -34,4 +26,9 @@ pex:
   klayout:
     tech_rel: TBD
     lyp_rel: TBD
-  note: "Analog device migration and model-card verification are not done."
+  note: Analog device migration and model-card verification are not done.
+pcell:
+  backend: cni_pycell
+  library: SG13_dev
+  device: nmos/pmos
+  status: geometry_verified

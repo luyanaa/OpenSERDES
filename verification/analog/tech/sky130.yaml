@@ -1,80 +1,71 @@
-# sky130 schematic-level analog LUT configuration.
 name: sky130
 status: supported
 pdk: sky130
 vdd_v: 1.8
 default_corner: tt
-corners: [tt, ss, ff, sf, fs]
-
+corners:
+- tt
+- ss
+- ff
+- sf
+- fs
 devices:
   style: subckt
   nmos: sky130_fd_pr__nfet_01v8
   pmos: sky130_fd_pr__pfet_01v8
-
 sizing_um:
   wn: 0.65
-  wp: 1.40
+  wp: 1.4
   l: 0.15
-
 model:
-  # PM3 flow: parameters + device subckt files from sky130_fd_pr/latest.
   mode: pm3
   root_search:
-    - ${SKY130_ROOT}
-    - ~/.ciel/ciel/sky130/versions/*/skywater-pdk/libraries/sky130_fd_pr/latest
-    - ${PDK_ROOT}/../skywater-pdk/libraries/sky130_fd_pr/latest
-  # {corner} is substituted by the extractor (tt/ss/ff/sf/fs).
+  - ${SKY130_ROOT}
+  - ~/.ciel/ciel/sky130/versions/*/skywater-pdk/libraries/sky130_fd_pr/latest
+  - ${PDK_ROOT}/../skywater-pdk/libraries/sky130_fd_pr/latest
   includes:
-    - models/parameters/invariant.spice
-    - cells/nfet_01v8/sky130_fd_pr__nfet_01v8__{corner}.pm3.spice
-    - cells/pfet_01v8/sky130_fd_pr__pfet_01v8__{corner}.pm3.spice
-
-# Magic RC extraction is the supported PEX flow (see
-# verification/analog/magic_pex.py).  These paths let the extractor find the
-# PDK tech without hard-coding a version hash.
+  - models/parameters/invariant.spice
+  - cells/nfet_01v8/sky130_fd_pr__nfet_01v8__{corner}.pm3.spice
+  - cells/pfet_01v8/sky130_fd_pr__pfet_01v8__{corner}.pm3.spice
 mc:
-  # The sky130 ngspice library wires Spectre mismatch variables through
-  # mc_mm_switch; ngspice evaluates AGAUSS per device and honors `set seed`.
-  # Global process (mc_pr_switch) is not wired in this PDK/library and remains
-  # unavailable.  Do not call behavioral offset injection PDK Monte Carlo.
   status: partial
   pdk_mismatch: available_ngspice
   pdk_global: available_xyce
   runner_ngspice: verification/analog/pdk_mc.py
   runner_xyce: verification/analog/xyce_global_mc.py
-  reason: >-
-    True per-device PDK mismatch is available via mc_mm_switch=1 and a seeded
-    ngspice run.  Global-process MC is available in Xyce by declaring the
-    critical.spice process variables as .global_param before .lib mc and
-    sampling them with .SAMPLING; ngspice's library-scope parameters do not
-    expose the global process.  Behavioral offsets remain separate.
+  reason: True per-device PDK mismatch is available via mc_mm_switch=1 and a seeded
+    ngspice run.  Global-process MC is available in Xyce by declaring the critical.spice
+    process variables as .global_param before .lib mc and sampling them with .SAMPLING;
+    ngspice's library-scope parameters do not expose the global process.  Behavioral
+    offsets remain separate.
   behavioral:
-    sigma_nmos_v: 0.020
-    sigma_pmos_v: 0.020
-
+    sigma_nmos_v: 0.02
+    sigma_pmos_v: 0.02
 pex:
   status: available
   magic:
     tech: sky130A
     rcfile_rel: sky130A/libs.tech/magic/sky130A.magicrc
     tech_file_rel: sky130A/libs.tech/magic/sky130A.tech
-    pdk_root_rel: .          # relative to the version directory
+    pdk_root_rel: .
     extractor: extresist
   klayout:
     tech_rel: sky130A/libs.tech/klayout/tech/sky130A.lyt
     lyp_rel: sky130A/libs.tech/klayout/tech/sky130A.lyp
-  note: >-
-    Magic RC extraction is implemented in verification/analog/magic_pex.py;
-    the legacy Calibre RVE files are not translated.  PEX comparison is
-    explicit (make magic-pex-compare), not part of the schematic LUT flow.
-    No DRC/LVS signoff is implied.
-
-# Verified standard-cell binding used by the C soft integration and the
-# portable stdcell macro backend.  Port names are connected by the target flow;
-# unsupported PDKs must not substitute an unverified cell here.
+  note: Magic RC extraction is implemented in verification/analog/magic_pex.py; the
+    legacy Calibre RVE files are not translated.  PEX comparison is explicit (make
+    magic-pex-compare), not part of the schematic LUT flow. No DRC/LVS signoff is
+    implied.
 stdcell:
   library: sky130_fd_sc_hd
   inv_1: sky130_fd_sc_hd__inv_1
   inv_4: sky130_fd_sc_hd__inv_4
   inv_16: sky130_fd_sc_hd__inv_16
-  power_pins: [VPWR, VGND]
+  power_pins:
+  - VPWR
+  - VGND
+pcell:
+  backend: pure_pya
+  library: openserdes_sky130
+  device: mos
+  status: geometry_verified
