@@ -90,8 +90,12 @@ The intervals overlap; this is **not** a statistically resolved route
 selection.  A 32-bit ss/ff spot check at 800 Mb/s gives:
 
 ```text
-ss: feedback 1/32, parallel 13/32
-ff: feedback 1/32, parallel 1/32
+800 Mb/s:
+  ss: feedback 1/32, parallel 13/32
+  ff: feedback 1/32, parallel 1/32
+1200 Mb/s (128-bit PRBS-7):
+  ss: feedback 32/128, parallel 50/128, PCell feedback 31/128
+  ff: feedback 22/128, parallel 29/128, PCell feedback 22/128
 ```
 
 Noise, input sensitivity, eye margin, full voltage/temperature PVT/MC, and a
