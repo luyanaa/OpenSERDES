@@ -101,3 +101,20 @@ selection.  A 32-bit ss/ff spot check at 800 Mb/s gives:
 Noise, input sensitivity, eye margin, full voltage/temperature PVT/MC, and a
 much larger error-count campaign remain open.  No production selection is
 claimed.
+
+## Noise spot check
+
+`verification/analog/m3_noise_sweep.py` injects a deterministic Gaussian
+series voltage source (sigma 0 or 100 mV, seed 7) into the same 100 ohm /
+16 pF channel and uses the same 32-bit frame.
+
+| rate (Mb/s) | noise (mV) | parallel errors | feedback errors | PCell feedback errors |
+|---:|---:|---:|---:|---:|
+| 800 | 0 | 2/32 | 1/32 | 1/32 |
+| 800 | 100 | 4/32 | 1/32 | 1/32 |
+| 1200 | 0 | 12/32 | 5/32 | 5/32 |
+| 1200 | 100 | 10/32 | 5/32 | 5/32 |
+
+This is a small-N deterministic screening check, not a noise-margin or
+production BER claim.  PCell feedback again tracks the original feedback PEX.
+Input sensitivity, eye masks, and Monte Carlo remain open.
