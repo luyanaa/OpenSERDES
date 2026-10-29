@@ -51,3 +51,22 @@ binding and contract generation, while physical signoff stays fail-closed.
 - No PDK without a supported device binding and layout template is silently
   substituted with an ideal resistor or a generic inverter.
 - The generated `macro.v` is a black box; timing must not be inferred from it.
+
+## Stdcell reuse backend
+
+`verification/analog/stdcell_macro_gen.py` is the reusable stdcell backend:
+
+```bash
+make analog-stdcell-gen
+```
+
+- TX: `inv_1 -> inv_4 -> inv_16`
+- RX: `inv_4`
+- Device names come from the tech YAML `stdcell` block.
+- It emits a netlist only; layout/LEF/Liberty/PEX are owned by the target
+  standard-cell flow.
+- Unsupported PDKs fail closed instead of substituting a cell.
+
+The C integration uses this backend as soft macros, so DRC/LVS/STA are closed
+in one standard-cell hierarchy.  The hard macro views are generated separately
+and are not silently treated as timing-characterized macros.

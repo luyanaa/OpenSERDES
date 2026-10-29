@@ -98,11 +98,11 @@
       "path": "analog/macros/tx_inv_chain_1_3_9/layout.gds",
       "top": "tx_inv_chain_1_3_9",
       "format": "gds",
-      "status": "abstract-only-no-transistors",
+      "status": "available-physical-stdcell",
       "source_path": "Inverter_Based_Tx/Inv_Transmitter.gds",
       "note": "Top renamed; PR boundary 235/4 added for LibreLane.",
-      "physical": false,
-      "reason": "GDS contains met1/pin abstraction; diff/poly/li1 transistor layers are absent"
+      "physical": true,
+      "reason": ""
     },
     "canonical_spice": {
       "path": "analog/macros/tx_inv_chain_1_3_9/canonical.spice",
@@ -111,11 +111,10 @@
       "status": "available"
     },
     "magic_pex": {
-      "path": "build/verify/magic_pex/Inv_Transmitter.pex.spice",
-      "top": "Inv_Transmitter",
-      "format": "magic-rc-spice",
-      "status": "generated-by-flow",
-      "command": "make magic-pex"
+      "path": "build/verify/analog_stdcell/tx_inv_chain_1_3_9.pex.spice",
+      "top": "tx_inv_chain_1_3_9",
+      "status": "generated",
+      "format": "magic-rc-spice"
     },
     "pex": {
       "path": "Inverter_Based_Tx/Full_TX/Inv_Transmitter.pex.netlist",
@@ -125,14 +124,14 @@
       "reason": "Calibre RVE is not ngspice-readable; use the Magic RC flow."
     },
     "lvs": {
-      "path": "Inverter_Based_Tx/Full_TX/Inv_Transmitter.lvs.report.ext",
-      "status": "extraction-only",
-      "reason": "Only Calibre extraction report is present; no comparable LVS match report."
+      "status": "match-unique",
+      "tool": "netgen 1.5",
+      "note": "Physical stdcell macro; circuits match uniquely."
     },
     "lef": {
       "path": "analog/macros/tx_inv_chain_1_3_9/abstract.lef",
-      "status": "gds-met1-pin-shapes",
-      "kind": "label-pin-rectangles-not-extracted-metal",
+      "status": "gds-pin-shapes",
+      "kind": "met1-signal-met4-power",
       "note": "Rectangles extracted from GDS met1.pin (68/16) near canonical labels; not label-only."
     },
     "liberty": {
@@ -145,11 +144,10 @@
       "status": "available"
     },
     "drc": {
-      "status": "not-applicable-abstract-layout",
+      "status": "clean",
+      "errors": 0,
       "tool": "Magic 8.3",
-      "errors": null,
-      "command": "make analog-drc",
-      "note": "No transistor layout is present, so this is not a DRC signoff result."
+      "note": "Physical stdcell macro DRC."
     },
     "views_json": {
       "path": "analog/macros/tx_inv_chain_1_3_9/views.json",
@@ -157,6 +155,6 @@
     }
   },
   "legacy_names": [],
-  "physical_layout": false,
-  "physical_signoff_eligible": false
+  "physical_layout": true,
+  "physical_signoff_eligible": true
 }

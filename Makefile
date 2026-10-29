@@ -55,7 +55,7 @@ RTL   := $(wildcard rtl/*.sv)
 SV2V_DIR := $(BUILD)/sv2v
 SV2V_RTL := $(SV2V_DIR)/rtl.v
 
-.PHONY: all sim lint synth regress gen qualify signoff ppa-import clean si-eye si-bathtub si-jtol si-rtl-jtol verify-link analog-macro-gen analog-contracts analog-gds analog-gds-audit analog-views analog-package analog-macro-pex analog-drc analog-rx-dc analog-rx-pvt mixed-signal-e2e rx-pex-digital-e2e soc-e2e soc-e2e-stress analog-lut sky130-lut analog-lut-demo analog-tech-check sky130-pvt pvt-margin pdk-mc xyce-global-mc magic-pex magic-pex-compare sky130-mc pex-compare lib-catalog timing-compare
+.PHONY: all sim lint synth regress gen qualify signoff ppa-import clean si-eye si-bathtub si-jtol si-rtl-jtol verify-link analog-stdcell-gen analog-macro-gen analog-contracts analog-gds analog-gds-audit analog-views analog-package analog-macro-pex analog-drc analog-rx-dc analog-rx-pvt mixed-signal-e2e rx-pex-digital-e2e soc-e2e soc-e2e-stress analog-lut sky130-lut analog-lut-demo analog-tech-check sky130-pvt pvt-margin pdk-mc xyce-global-mc magic-pex magic-pex-compare sky130-mc pex-compare lib-catalog timing-compare
 
 all: sim
 
@@ -388,6 +388,12 @@ analog-views: analog-gds
 
 analog-package:
 	$(PYTHON) verification/analog/macro_package.py --package $(ANALOG_PACKAGE)
+
+analog-stdcell-gen:
+	$(PYTHON) verification/analog/stdcell_macro_gen.py --tech sky130 --topology tx_inv_chain \
+		--out $(BUILD)/verify/analog_stdcell_gen/tx_inv_chain
+	$(PYTHON) verification/analog/stdcell_macro_gen.py --tech sky130 --topology rx_res_fb_inv \
+		--out $(BUILD)/verify/analog_stdcell_gen/rx_res_fb_inv
 
 analog-macro-gen:
 	$(PYTHON) verification/analog/macro_gen.py --tech sky130 --topology tx_inv_chain \

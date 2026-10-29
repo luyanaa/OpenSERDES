@@ -16,7 +16,7 @@ library (sky130_analog_blackbox) {
   output_threshold_pct_rise : 50.0 ;
   output_threshold_pct_fall : 50.0 ;
   cell (tx_inv_chain_1_3_9) {
-    area : 269.7738 ;
+    area : 123.5400 ;
     dont_touch : true ;
     pin (VDD) {
       direction : inout ;

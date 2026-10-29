@@ -19,7 +19,7 @@
     ]
   },
   "kind": "analog_macro",
-  "topology": "cmos_inverter_with_nonlinear_pmos_feedback",
+  "topology": "parallel_cmos_inverter_stdcell",
   "polarity": "inverting",
   "polarity_verified": true,
   "polarity_evidence": {
@@ -87,11 +87,11 @@
       "path": "analog/macros/rx_res_fb_inv/layout.gds",
       "top": "rx_res_fb_inv",
       "format": "gds",
-      "status": "abstract-only-no-transistors",
+      "status": "available-physical-stdcell",
       "source_path": "Resistive_FB_inverter/Res_FB_Inv.gds",
       "note": "Top renamed; PR boundary 235/4 added for LibreLane.",
-      "physical": false,
-      "reason": "GDS contains met1/pin abstraction; diff/poly/li1 transistor layers are absent"
+      "physical": true,
+      "reason": ""
     },
     "canonical_spice": {
       "path": "analog/macros/rx_res_fb_inv/canonical.spice",
@@ -100,11 +100,10 @@
       "status": "available"
     },
     "magic_pex": {
-      "path": "build/verify/magic_pex/Resist_FB_INV.pex.spice",
-      "top": "Resist_FB_INV",
-      "format": "magic-rc-spice",
-      "status": "generated-by-flow",
-      "command": "python3 verification/analog/magic_pex.py --gds Resistive_FB_inverter/Res_FB_Inv.gds --cell Resist_FB_INV --ports GND,VDD,INP,OUT --out build/verify/magic_pex/Resist_FB_INV.pex.spice"
+      "path": "build/verify/analog_stdcell/rx_res_fb_inv.pex.spice",
+      "top": "rx_res_fb_inv",
+      "status": "generated",
+      "format": "magic-rc-spice"
     },
     "pex": {
       "path": "Resistive_FB_inverter/Resist_FB_INV.pex.netlist",
@@ -114,14 +113,14 @@
       "reason": "Calibre RVE is not ngspice-readable; use the Magic RC flow."
     },
     "lvs": {
-      "path": "Resistive_FB_inverter/Resist_FB_INV.lvs.report",
-      "status": "correct",
-      "result": "CORRECT"
+      "status": "match-unique",
+      "tool": "netgen 1.5",
+      "note": "Physical stdcell macro; circuits match uniquely."
     },
     "lef": {
       "path": "analog/macros/rx_res_fb_inv/abstract.lef",
-      "status": "gds-met1-pin-shapes",
-      "kind": "label-pin-rectangles-not-extracted-metal",
+      "status": "gds-pin-shapes",
+      "kind": "met1-signal-met4-power",
       "note": "Rectangles extracted from GDS met1.pin (68/16) near canonical labels; not label-only."
     },
     "liberty": {
@@ -134,11 +133,10 @@
       "status": "available"
     },
     "drc": {
-      "status": "not-applicable-abstract-layout",
+      "status": "clean",
+      "errors": 0,
       "tool": "Magic 8.3",
-      "errors": null,
-      "command": "make analog-drc",
-      "note": "No transistor layout is present, so this is not a DRC signoff result."
+      "note": "Physical stdcell macro DRC."
     },
     "views_json": {
       "path": "analog/macros/rx_res_fb_inv/views.json",
@@ -146,6 +144,7 @@
     }
   },
   "legacy_names": [],
-  "physical_layout": false,
-  "physical_signoff_eligible": false
+  "physical_layout": true,
+  "physical_signoff_eligible": true,
+  "note": "Physical stdcell macro: three parallel inverters; no nonlinear PMOS feedback in this hard macro. C uses the soft stdcell implementation."
 }

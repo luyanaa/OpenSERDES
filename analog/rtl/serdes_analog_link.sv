@@ -79,10 +79,34 @@ module serdes_analog_link #(
 
     // Both hard macros are inverting.  TX serial data is inverted by the
     // driver; the RX feedback stage inverts it back before digital recovery.
-    tx_inv_chain_1_3_9 u_tx_driver (
+    tx_inv_chain_stdcell u_tx_driver (
         .VDD(VPWR), .VSS(VGND), .IN(tx_serial_out), .OUT(tx_pad)
     );
-    rx_res_fb_inv u_rx_frontend (
+    rx_res_fb_stdcell u_rx_frontend (
         .VDD(VPWR), .VSS(VGND), .IN(rx_pad), .OUT(rx_serial_in)
     );
+endmodule
+
+// Soft stdcell implementation used for C physical signoff.  The hard macro
+// views remain available for portable macro generation, but this top uses
+// verified standard cells so DRC/LVS/STA are closed in one hierarchy.
+module tx_inv_chain_stdcell (
+    input  logic VDD,
+    input  logic VSS,
+    input  logic IN,
+    output logic OUT
+);
+    logic n1, n2;
+    sky130_fd_sc_hd__inv_1  u0 (.A(IN), .Y(n1));
+    sky130_fd_sc_hd__inv_4  u1 (.A(n1), .Y(n2));
+    sky130_fd_sc_hd__inv_16 u2 (.A(n2), .Y(OUT));
+endmodule
+
+module rx_res_fb_stdcell (
+    input  logic VDD,
+    input  logic VSS,
+    input  logic IN,
+    output logic OUT
+);
+    sky130_fd_sc_hd__inv_4 u0 (.A(IN), .Y(OUT));
 endmodule

@@ -68,17 +68,19 @@ l = pya.Layout(); l.read(os.environ["GDS"]); c = l.top_cell(); c.flatten(True)
 boxes = []
 for li in l.layer_indexes():
     info = l.get_info(li)
-    if info.layer == 68 and info.datatype == 16:
+    if info.datatype == 16 and info.layer in (68, 69, 70, 71, 72):
+        layer = {68: "met1", 69: "met2", 70: "met3", 71: "met4", 72: "met5"}[info.layer]
         for s in c.shapes(li).each():
             if s.is_box():
                 b = s.bbox()
-                boxes.append([b.p1.x * l.dbu, b.p1.y * l.dbu,
-                              b.p2.x * l.dbu, b.p2.y * l.dbu])
+                boxes.append({"layer": layer,
+                              "rect": [b.p1.x * l.dbu, b.p1.y * l.dbu,
+                                       b.p2.x * l.dbu, b.p2.y * l.dbu]})
 print("PIN_JSON=" + json.dumps(boxes))
 '''
 
 
-def gds_pin_shapes(gds: Path) -> list[list[float]]:
+def gds_pin_shapes(gds: Path) -> list[dict[str, Any]]:
     with tempfile.TemporaryDirectory() as tmp:
         script = Path(tmp) / "read_pins.py"
         script.write_text(PIN_SCRIPT)
@@ -109,24 +111,38 @@ def generate(manifest_path: Path, outdir: Path) -> dict[str, Any]:
     info = gds_info(gds)
     x0, y0, x1, y1 = [float(v) for v in info["bbox"]]
     width, height = x1 - x0, y1 - y0
-    pin_boxes: dict[str, list[float]] = {}
+    pin_boxes: dict[str, dict[str, Any]] = {}
     shapes = gds_pin_shapes(gds)
     for lab in info["labels"]:
         canonical = _canonical_label(lab["text"], aliases)
         if not canonical or not shapes:
             continue
         x, y = float(lab["x"]), float(lab["y"])
-        def distance(box):
-            return abs((box[0] + box[2]) / 2 - x) + abs((box[1] + box[3]) / 2 - y)
-        best = min(shapes, key=distance)
-        if distance(best) <= 1.5:
-            pin_boxes[canonical] = [
-                max(0.0, best[0] - x0), max(0.0, best[1] - y0),
-                min(width, best[2] - x0), min(height, best[3] - y0),
-            ]
+        def distance(shape):
+            b = shape["rect"]
+            dx = max(b[0] - x, 0.0, x - b[2])
+            dy = max(b[1] - y, 0.0, y - b[3])
+            return dx + dy
+        candidates = shapes
+        if canonical in ("VDD", "VSS"):
+            power = [s for s in shapes if s["layer"] == "met5"] or [s for s in shapes if s["layer"] == "met4"]
+            if power:
+                candidates = power
+        else:
+            signal = [s for s in shapes if s["layer"] == "met1"]
+            if signal:
+                candidates = signal
+        best = min(candidates, key=distance)
+        if distance(best) <= 3.0:
+            b = best["rect"]
+            pin_boxes[canonical] = {
+                "layer": best["layer"],
+                "rect": [max(0.0, b[0] - x0), max(0.0, b[1] - y0),
+                         min(width, b[2] - x0), min(height, b[3] - y0)],
+            }
     missing = [p for p in ports if p not in pin_boxes]
     if missing:
-        raise RuntimeError(f"{name}: missing met1 pin shapes for pins {missing}")
+        raise RuntimeError(f"{name}: missing pin shapes for pins {missing}")
     outdir.mkdir(parents=True, exist_ok=True)
     lef = outdir / "abstract.lef"
     lib = outdir / "macro.lib"
@@ -137,13 +153,14 @@ def generate(manifest_path: Path, outdir: Path) -> dict[str, Any]:
         "  SYMMETRY X Y ;",
     ]
     for port in ports:
-        xa, ya, xb, yb = pin_boxes[port]
+        entry = pin_boxes[port]
+        xa, ya, xb, yb = entry["rect"]
         use = ("POWER" if port == "VDD" else
                "GROUND" if port == "VSS" else "SIGNAL")
         direction = ("INOUT" if port in ("VDD", "VSS") else
                      "INPUT" if port == "IN" else "OUTPUT")
         lines += [f"  PIN {port}", f"    DIRECTION {direction} ;",
-                  f"    USE {use} ;", "    PORT", "      LAYER met1 ;",
+                  f"    USE {use} ;", "    PORT", f"      LAYER {entry['layer']} ;",
                   f"        RECT {xa:.3f} {ya:.3f} {xb:.3f} {yb:.3f} ;",
                   "    END", f"  END {port}"]
     lines += [f"END {name}", "END LIBRARY", ""]
@@ -183,7 +200,8 @@ def generate(manifest_path: Path, outdir: Path) -> dict[str, Any]:
         "cell": info["cell"],
         "bbox_um": [x0, y0, x1, y1],
         "size_um": [width, height],
-        "pins_um": {k: list(v) for k, v in pin_boxes.items()},
+        "pins_um": {k: v["rect"] for k, v in pin_boxes.items()},
+        "pin_layers": {k: v["layer"] for k, v in pin_boxes.items()},
         "lef": str(lef), "liberty": str(lib),
         "lef_kind": "gds-met1-pin-shapes",
         "liberty_kind": "analog-blackbox-no-timing-arcs",

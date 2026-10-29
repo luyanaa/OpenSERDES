@@ -68,3 +68,13 @@ pex:
     the legacy Calibre RVE files are not translated.  PEX comparison is
     explicit (make magic-pex-compare), not part of the schematic LUT flow.
     No DRC/LVS signoff is implied.
+
+# Verified standard-cell binding used by the C soft integration and the
+# portable stdcell macro backend.  Port names are connected by the target flow;
+# unsupported PDKs must not substitute an unverified cell here.
+stdcell:
+  library: sky130_fd_sc_hd
+  inv_1: sky130_fd_sc_hd__inv_1
+  inv_4: sky130_fd_sc_hd__inv_4
+  inv_16: sky130_fd_sc_hd__inv_16
+  power_pins: [VPWR, VGND]
