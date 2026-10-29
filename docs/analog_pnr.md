@@ -22,7 +22,7 @@ The SDC is derived from `spec/soc_sky130.yaml`:
 ```text
 line rate 25 Mb/s -> TX UI 40 ns
 user clock 50 MHz -> pclk / AXI 20 ns
-RX forwarded clock is generated from tx_clk (source-synchronous)
+RX forwarded clock is a primary top-level clock at the TX UI period (source-synchronous)
 ```
 
 Latest completed run (LibreLane 3.0.17):
