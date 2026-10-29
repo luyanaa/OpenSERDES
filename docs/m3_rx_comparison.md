@@ -135,3 +135,21 @@ offsets at the best error count) and a vertical eye height.  128-bit PRBS-7:
 
 This is a sampled eye proxy, not a full bathtub/eye-mask or jitter
 decomposition.  PCell feedback again matches the original feedback route.
+
+## Input-swing spot check
+
+`verification/analog/m3_sensitivity.py` sweeps the input high level at
+800 Mb/s with the same 32-bit frame and 3-route wrappers.
+
+```text
+Vin high   feedback   parallel   PCell feedback
+0.6 V      16/32      16/32      16/32
+0.9 V       8/32      12/32       8/32
+1.2 V       1/32       2/32       1/32
+1.8 V       1/32       2/32       1/32
+```
+
+This frame does not produce a zero-error point at 1.8 V, so it cannot establish
+a minimum sensitivity; it only shows the PCell route tracks the original
+feedback route.  A proper sensitivity test needs a longer frame and controlled
+sampling/CDR conditions and remains open.
