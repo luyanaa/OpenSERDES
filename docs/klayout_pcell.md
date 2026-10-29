@@ -122,3 +122,30 @@ pfet W=0.55 L=8.00 nf=1   LVS match uniquely
 yet match the scalar parallel schematic; it remains geometry-only until the
 gate/source/drain finger connection pattern is corrected.  Arbitrary W/L with
 `nf=1` is the current LVS-closed PCell contract.
+
+## Unit inverter from PCell devices
+
+`verification/analog/pya_inverter_probe.py` builds a two-device inverter from
+the pure-pya PCell devices (N and P, W=5/L=0.15) and routes:
+
+- gates via a met2 bridge;
+- drains via met2/met3 to OUT;
+- sources to VSS/VDD rails;
+- IN/OUT/VDD/VSS labels.
+
+Headless result:
+
+```text
+Magic DRC: 0
+netgen LVS: Circuits match uniquely
+```
+
+Extracted topology:
+
+```text
+Xpfet_dev_0 IN OUT VDD pfet_dev
+Xnfet_dev_0 IN OUT VSS VSUBS nfet_dev
+```
+
+This is the unit primitive; TX 1/3/9 and RX feedback assembly still need
+arrayed device banks and macro-level PDN/LEF/CDL views.

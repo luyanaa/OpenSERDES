@@ -25,8 +25,8 @@ user clock 50 MHz -> pclk / AXI 20 ns
 RX forwarded clock is generated from tx_clk (source-synchronous)
 ```
 
-Latest completed run:
-`build/analog_pnr_sky130/runs/analog_link_signoff`
+Latest completed run (LibreLane 3.0.17):
+`build/analog_pnr_sky130/runs/analog_link_newlib`
 
 ```text
 XOR differences: 0
@@ -38,7 +38,8 @@ Hold WNS:        +0.047 ns (at 25 Mb/s / 40 ns TX UI)
 PDN:             generated successfully
 ```
 
-The flow still reports non-gating max-slew and max-cap warnings.  They are
+The flow also reports a non-gating generated-clock relation warning for
+`rx_clk` and the usual max-slew/max-cap warnings.  They are
 recorded but are not claimed as closed signoff limits.
 
 ## Macro identities (must not be conflated)
