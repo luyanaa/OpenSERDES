@@ -71,7 +71,29 @@ feedback ss: 1/32, ff: 1/32
 parallel ss: 10/32, ff: 2/32
 ```
 
-This is a small-N rate/corner comparison, not a full BER confidence bound.  It
-shows the feedback route has more high-rate margin in this channel, but noise,
-Monte Carlo, and a proper confidence interval are still required before making
-a production selection.
+This is a small-N rate/corner comparison.  `m3_ber_sweep.py` now reports a
+Wilson 95% interval with every error count; the original 32-bit intervals are
+too wide for a production BER claim.
+
+A 128-bit PRBS-7 rerun at the two marginal rates gives:
+
+| rate (Mb/s) | parallel errors / BER [95% CI] | feedback errors / BER [95% CI] | PCell feedback errors / BER [95% CI] |
+|---:|---:|---:|---:|
+| 800 | 21/128 = 0.164 [0.110, 0.238] | 14/128 = 0.109 [0.066, 0.175] | 14/128 = 0.109 [0.066, 0.175] |
+| 1200 | 38/128 = 0.297 [0.225, 0.381] | 26/128 = 0.203 [0.143, 0.281] | 26/128 = 0.203 [0.143, 0.281] |
+
+The PCell RX PEX (3N/6P + two series feedback PMOS) reproduces the original
+feedback route at these points.  This is a topology/electrical consistency
+check, not an independent process-variation result.
+
+The intervals overlap; this is **not** a statistically resolved route
+selection.  A 32-bit ss/ff spot check at 800 Mb/s gives:
+
+```text
+ss: feedback 1/32, parallel 13/32
+ff: feedback 1/32, parallel 1/32
+```
+
+Noise, input sensitivity, eye margin, full voltage/temperature PVT/MC, and a
+much larger error-count campaign remain open.  No production selection is
+claimed.
