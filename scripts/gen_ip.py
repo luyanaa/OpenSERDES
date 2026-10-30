@@ -73,7 +73,7 @@ DESIGN_FILES = {
         "serdes_rx_axis_digital.sv",
     ],
     "serdes_soc_wrapper": [
-        "apb_csr.sv", "bist_snapshot.sv", "cdc_sync.sv", "serdes_bist.sv",
+        "apb_csr.sv", "bist_snapshot.sv", "cdc_sync.sv", "cdc_snapshot.sv", "serdes_bist.sv",
         "prbs_gen.sv", "prbs_check.sv", "prbs_word_gen.sv", "prbs_word_check.sv",
         "axis_tx_adapter.sv", "serializer_stream.sv",
         "axis_crc_inserter.sv", "axis_crc_checker.sv", "crc_frame.sv",
@@ -84,7 +84,7 @@ DESIGN_FILES = {
         "serdes_rx_axis_digital.sv", "serdes_soc_wrapper.sv",
     ],
     "serdes_soc_cdc_wrapper": [
-        "apb_csr.sv", "async_fifo.sv", "cdc_sync.sv",
+        "apb_csr.sv", "async_fifo.sv", "cdc_sync.sv", "cdc_snapshot.sv",
         "bist_snapshot.sv", "serdes_bist.sv", "prbs_gen.sv", "prbs_check.sv",
         "axis_tx_adapter.sv", "serializer_stream.sv", "axis_rx_adapter.sv",
         "axis_crc_inserter.sv", "axis_crc_checker.sv", "crc_frame.sv",

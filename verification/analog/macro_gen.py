@@ -187,7 +187,7 @@ def write_macro(outdir: Path, tech: dict, topology: str, name: str,
     layout_physical = False
     layout_audit = None
     if layout_gds is not None:
-        layout_audit = audit_gds(layout_gds)
+        layout_audit = audit_gds(layout_gds, tech["name"])
         layout_physical = bool(layout_audit.get("physical"))
         if not layout_physical:
             raise SystemExit(

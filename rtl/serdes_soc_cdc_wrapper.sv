@@ -172,7 +172,7 @@ module serdes_soc_cdc_wrapper #(
         .DATA_WIDTH(32),
         .ADDR_WIDTH(16),
         .STATUS_IDX(7),
-        .RO_MASK(16'b0111_1100_0000_0000)
+        .RO_MASK(16'b1111_1100_0000_0000)
     ) u_csr (
         .pclk(pclk),
         .presetn(presetn),
@@ -368,7 +368,9 @@ module serdes_soc_cdc_wrapper #(
     // The checker input never feeds tx_serial_out, so there is no loop.
     // -------------------------------------------------------------------------
     logic bist_serial_out, bist_check_in, rx_serial_in_tx;
-    logic bist_error, bist_error_pulse_tx, bist_error_pulse_rx;
+    /* verilator lint_off UNUSEDSIGNAL */
+    logic bist_error, bist_error_pulse_tx;
+    /* verilator lint_on UNUSEDSIGNAL */
     logic [31:0] bist_error_count, bist_bit_count;
     logic [TRAIN_ERROR_WIDTH-1:0] bist_train_error_count;
     logic bist_running;
@@ -401,17 +403,43 @@ module serdes_soc_cdc_wrapper #(
         .bit_count(bist_bit_count)
     );
 
-    cdc_sync #(.WIDTH(1)) u_bist_error_pulse_rx (
-        .clk(rx_clk), .rst_n(rx_rst_n),
-        .d(bist_error_pulse_tx), .q(bist_error_pulse_rx)
+    // The BIST error event is a single tx_clk-cycle pulse; passing it through a
+    // plain 2FF synchronizer can drop it entirely when tx_clk/rx_clk are
+    // asynchronous.  Instead the cumulative 32-bit error_count is carried to
+    // rx_clk through a coherent snapshot and the RX domain integrates the
+    // delta, which cannot lose an event (the count is monotonic).  A decrease
+    // (BIST clear/restart) resets the local accumulator.
+    logic                      bist_err_snap_valid;
+    logic [31:0]               bist_error_count_rx;
+    logic [31:0]               bist_error_count_rx_d;
+
+    cdc_snapshot #(.WIDTH(32)) u_bist_err_cnt_rx (
+        .dclk(rx_clk), .drst_n(rx_rst_n),
+        .valid(bist_err_snap_valid), .data_o(bist_error_count_rx),
+        .sclk(tx_clk), .srst_n(tx_rst_n),
+        .data_i(bist_error_count)
     );
+
     always_ff @(posedge rx_clk or negedge rx_rst_n) begin
-        if (!rx_rst_n)
+        if (!rx_rst_n) begin
+            bist_error_count_rx_d <= '0;
             bist_train_error_count <= '0;
-        else if (rx_clear_pulse | rx_flush_pulse)
+        end else if (rx_clear_pulse | rx_flush_pulse) begin
+            bist_error_count_rx_d  <= bist_error_count_rx;
             bist_train_error_count <= '0;
-        else if (bist_error_pulse_rx)
-            bist_train_error_count <= bist_train_error_count + 1'b1;
+        end else begin
+            bist_error_count_rx_d <= bist_error_count_rx;
+            if (!bist_err_snap_valid) begin
+                bist_error_count_rx_d  <= bist_error_count_rx;
+                bist_train_error_count <= '0;
+            end else if (bist_error_count_rx < bist_error_count_rx_d) begin
+                // BIST counters cleared/restarted in tx_clk domain.
+                bist_train_error_count <= '0;
+            end else begin
+                bist_train_error_count <= bist_train_error_count +
+                    TRAIN_ERROR_WIDTH'(bist_error_count_rx - bist_error_count_rx_d);
+            end
+        end
     end
     /* verilator lint_off UNUSEDSIGNAL */
     logic [TRAIN_ERROR_WIDTH-1:0] train_error_total;
@@ -438,22 +466,61 @@ module serdes_soc_cdc_wrapper #(
         .running_i(bist_running)
     );
 
-    // APB read-only view: BIST registers (bits 10-12) and training telemetry
-    // (bit 13 = best_errors[7:0], bit 14 = lock/busy/retrain/phase).
+    // -------------------------------------------------------------------------
+    // Training + CRC telemetry snapshot, rx_clk -> pclk.
+    //
+    // The training FSM and the CRC sticky flag live in the rx_clk domain while
+    // the APB read path is pclk.  Feeding those bits straight into the APB read
+    // mux tears and violates CDC.  Pack them into one status word and bring it
+    // across with a coherent snapshot.  Layout (packed low):
+    //   [0]                locked
+    //   [1]                busy
+    //   [2]                retrain
+    //   [3 +: P]           phase
+    //   [3+P +: P]         best_phase
+    //   [3+2P +: E]        best_errors
+    //   [3+2P+E]           crc_error_sticky
+    // The whole word (3 + 2*PHASE_CTRL_W + TRAIN_ERROR_WIDTH + 1) fits in 32
+    // bits for any supported configuration.
+    // -------------------------------------------------------------------------
+    localparam int TRAIN_STAT_W = 3 + 2*PHASE_CTRL_W + TRAIN_ERROR_WIDTH + 1;
+    logic [TRAIN_STAT_W-1:0] train_stat_rx;
+    logic [TRAIN_STAT_W-1:0] train_stat_p;
+    logic                  train_stat_valid;
+
+    assign train_stat_rx = {rx_crc_error_sticky, train_best_errors,
+                            train_best_phase, train_phase,
+                            train_retrain, train_busy, train_locked};
+
+    cdc_snapshot #(.WIDTH(TRAIN_STAT_W)) u_train_stat (
+        .dclk(pclk), .drst_n(presetn),
+        .valid(train_stat_valid), .data_o(train_stat_p),
+        .sclk(rx_clk), .srst_n(rx_rst_n),
+        .data_i(train_stat_rx)
+    );
+
+    // APB read-only view: BIST registers (CSR10-12) and coherent telemetry.
+    //   CSR13 = training best_errors (from snapshot, coherent).
+    //   CSR14 = training status {retrain,busy,locked, phase, best_phase}.
+    //   CSR15 = { [1]=train snapshot valid, [0]=crc_error_sticky }.
+    // The CRC flag lives in its own CSR so the phase/best_phase fields can
+    // never collide with it regardless of PHASE_CTRL_W.
     always_comb begin
         csr_ro = '0;
         csr_ro[10] = bist_error_count_snap;
         csr_ro[11] = bist_bit_count_snap;
         csr_ro[12] = {24'b0, BIST_WIDTH_CODE, bist_inject_p, bist_loopback_p,
                       bist_snap_valid, bist_running_snap, bist_error_snap};
-        csr_ro[13] = 32'(train_best_errors);
+        csr_ro[13] = 32'(train_stat_p[3 + 2*PHASE_CTRL_W +: TRAIN_ERROR_WIDTH]);
         csr_ro[14] = '0;
-        csr_ro[14][0] = train_locked;
-        csr_ro[14][1] = train_busy;
-        csr_ro[14][2] = train_retrain;
-        csr_ro[14][3 +: PHASE_CTRL_W] = train_phase;
-        csr_ro[14][3 + PHASE_CTRL_W +: PHASE_CTRL_W] = train_best_phase;
-        csr_ro[14][7] = rx_crc_error_sticky;
+        csr_ro[14][0] = train_stat_p[0];
+        csr_ro[14][1] = train_stat_p[1];
+        csr_ro[14][2] = train_stat_p[2];
+        csr_ro[14][3 +: PHASE_CTRL_W]               = train_stat_p[3 +: PHASE_CTRL_W];
+        csr_ro[14][3 + PHASE_CTRL_W +: PHASE_CTRL_W] = train_stat_p[3 + PHASE_CTRL_W +: PHASE_CTRL_W];
+        csr_ro[15] = '0;
+        csr_ro[15][0] = train_stat_p[TRAIN_STAT_W-1];   // crc_error_sticky
+        csr_ro[15][1] = train_stat_valid;               // snapshot fresh
     end
 
     // -------------------------------------------------------------------------
