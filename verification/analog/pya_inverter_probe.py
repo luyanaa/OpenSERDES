@@ -43,17 +43,17 @@ def box(top, layer, x1, y1, x2, y2):
 
 
 def build_inverter(ly, name: str = "inv", x: int = 0, y: int = 0,
-                   label_ports: bool = True):
+                   label_ports: bool = True, bulk: str = "None"):
     """Create one DRC/LVS-oriented inverter cell at (x, y) in database units."""
     n = ly.create_cell(f"{name}_nfet")
     draw_nfet(n, l=0.15, w=5.0, nf=1, type="sky130_fd_pr__nfet_01v8",
-              bulk="None", gate_con_pos="top")
-    if label_ports:
+              bulk=bulk, gate_con_pos="top")
+    if label_ports and bulk != "bulk tie":
         _labels(n)
     p = ly.create_cell(f"{name}_pfet")
     draw_pfet(p, l=0.15, w=5.0, nf=1, type="sky130_fd_pr__pfet_01v8",
-              bulk="None", gate_con_pos="top")
-    if label_ports:
+              bulk=bulk, gate_con_pos="top")
+    if label_ports and bulk != "bulk tie":
         _labels(p)
     top = ly.create_cell(name)
     top.insert(pya.CellInstArray(n, pya.Trans(pya.Vector(x, y))))
@@ -78,6 +78,12 @@ def build_inverter(ly, name: str = "inv", x: int = 0, y: int = 0,
     # sources / rails
     box(top, m1, 0.035, 0.0, 0.265, 0.195); box(top, m1, 2.535, 4.805, 2.650, 6.0)
     box(top, m1, 0.0, 0.0, 3.0, 0.12); box(top, m1, 0.0, 6.0, 3.0, 6.12)
+    if bulk == "bulk tie":
+        # Extend the local rails over the body taps and tie them explicitly.
+        box(top, m1, 3.0, 0.0, 3.95, 0.12)
+        box(top, m1, 3.0, 6.0, 3.95, 6.12)
+        top.shapes(m1).insert(pya.Box(1180, 0, 1410, 195))
+        top.shapes(m1).insert(pya.Box(3650, 4805, 3880, 6120))
     if label_ports:
         top.shapes(ly.layer(68, 5)).insert(pya.Text("VSS", pya.Trans(pya.Vector(x + 100, y + 60))))
         top.shapes(ly.layer(68, 5)).insert(pya.Text("VDD", pya.Trans(pya.Vector(x + 100, y + 6060))))

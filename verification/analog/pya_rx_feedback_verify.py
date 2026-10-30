@@ -33,10 +33,12 @@ def sha256(path: Path) -> str:
     return h.hexdigest()
 
 
-def build_gds(gds: Path, work: Path) -> dict[str, Any]:
+def build_gds(gds: Path, work: Path, drop_body: bool = False) -> dict[str, Any]:
     gds.parent.mkdir(parents=True, exist_ok=True)
     env = dict(os.environ)
     env["OUT"] = str(gds)
+    if drop_body:
+        env["DROP_BODY_TIE"] = "1"
     proc = subprocess.run(
         ["klayout", "-b", "-r", str(ROOT / "verification/analog/pya_rx_feedback.py")],
         cwd=work, env=env, text=True, capture_output=True, timeout=300,
@@ -142,6 +144,18 @@ def main() -> int:
     extracted = extract(gds, pdk, work)
     lvs_result = lvs(extracted, cdl, pdk, work)
     pex_result = pex(gds, pdk, work)
+    neg_work = work / "negative"
+    neg_work.mkdir(parents=True, exist_ok=True)
+    neg_gds = neg_work / "rx_fb_pcell.gds"
+    build_gds(neg_gds, neg_work, drop_body=True)
+    neg_extracted = extract(neg_gds, pdk, neg_work)
+    neg_lvs = lvs(neg_extracted, cdl, pdk, neg_work)
+    negative = {
+        "gds": str(neg_gds),
+        "lvs_match": neg_lvs["match"],
+        "rejected": not neg_lvs["match"],
+        "tail": neg_lvs["tail"][-1200:],
+    }
     result = {
         "kind": "pure-pya-pcell-rx-feedback",
         "gds": str(gds),
@@ -160,7 +174,8 @@ def main() -> int:
         "lvs": lvs_result,
         "pex": pex_result,
         "generated_utc": datetime.now(timezone.utc).isoformat(),
-        "note": "DRC, LEF/CDL, hierarchical LVS, and Magic RC PEX diagnostic evidence only; no STA/signoff claim. This RX macro still uses bulk=None; device-level bulk-tie support exists, but macro-level body routing is an open item.",
+        "negative_control": negative,
+        "note": "DRC, LEF/CDL, hierarchical LVS, and Magic RC PEX diagnostic evidence only; no STA/signoff claim. The RX macro now ties device bodies to VDD/VSS and the negative control removes the body straps.",
     }
     out = ROOT / args.out
     out.parent.mkdir(parents=True, exist_ok=True)

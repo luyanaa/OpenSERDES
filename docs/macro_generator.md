@@ -129,8 +129,9 @@ Example for the verified PCell RX macro:
   RF devices; these fail rather than silently approximating.
 - `bulk tie` adds an n/p tap and met1 body strap; headless device LVS
   (`pya_pcell_verify.py --bulk 'bulk tie'`) matches pfet and nfet with an
-  explicit `B` terminal.  The RX macro still uses `bulk=None`; macro-level
-  body-tie integration remains open.
+  explicit `B` terminal.  The sky130 RX macro now uses bulk-tied devices with
+  macro-level VDD/VSS body straps and a met2 `net06` bridge; see
+  `docs/klayout_pcell.md`.
 
 The port uses `verification/analog/pya_draw/` and a small pya-backed
 `gdsfactory` compatibility shim.  A headless probe can be run with:

@@ -49,7 +49,7 @@ MACRO rx_fb_pcell
     USE POWER ;
     PORT
       LAYER met1 ;
-        RECT {rect(0, 6000, 23555, 6120)} ;
+        RECT {rect(0, 6000, bb.right - x0, 6120)} ;
     END
   END VDD
   PIN VSS
@@ -57,7 +57,7 @@ MACRO rx_fb_pcell
     USE GROUND ;
     PORT
       LAYER met1 ;
-        RECT {rect(0, 0, 23555, 120)} ;
+        RECT {rect(0, 0, bb.right - x0, 120)} ;
     END
   END VSS
   PIN IN
@@ -82,27 +82,27 @@ END LIBRARY
 
 cdl = """* Pure-pya PCell RX: 3N/6P inverter + two series PMOS feedback devices
 .SUBCKT rx_fb_pcell VSS VDD OUT IN
-Xinv0 IN VDD OUT VSS VSUBS rx_inv
-Xinv1 IN VDD OUT VSS VSUBS rx_inv
-Xinv2 IN VDD OUT VSS VSUBS rx_inv
-Xp0 OUT IN VDD rx_pfet_w5
-Xp1 OUT IN VDD rx_pfet_w5
-Xp2 OUT IN VDD rx_pfet_w5
-Xfb0 net06 VB IN net06 rx_pfet_fb
-Xfb1 OUT VB net06 OUT rx_pfet_fb
+Xinv0 OUT IN VDD VSS rx_inv
+Xinv1 OUT IN VDD VSS rx_inv
+Xinv2 OUT IN VDD VSS rx_inv
+Xp0 IN OUT VDD VDD rx_pfet_w5
+Xp1 IN OUT VDD VDD rx_pfet_w5
+Xp2 IN OUT VDD VDD rx_pfet_w5
+Xfb0 net06 IN VDD net06 rx_pfet_fb
+Xfb1 OUT net06 VDD OUT rx_pfet_fb
 .ENDS
 
-.SUBCKT rx_inv G VDD D VSS VSUBS
-Xn D G VSS VSUBS sky130_fd_pr__nfet_01v8 w=5 l=0.15
-Xp D G VDD body sky130_fd_pr__pfet_01v8 w=5 l=0.15
+.SUBCKT rx_inv OUT IN VDD VSS
+Xn OUT IN VSS VSS sky130_fd_pr__nfet_01v8 w=5 l=0.15
+Xp OUT IN VDD VDD sky130_fd_pr__pfet_01v8 w=5 l=0.15
 .ENDS
 
-.SUBCKT rx_pfet_w5 D G S
-Xp D G S body sky130_fd_pr__pfet_01v8 w=5 l=0.15
+.SUBCKT rx_pfet_w5 G D B S
+Xp D G S B sky130_fd_pr__pfet_01v8 w=5 l=0.15
 .ENDS
 
-.SUBCKT rx_pfet_fb G BODY D S
-Xp D G S BODY sky130_fd_pr__pfet_01v8 w=0.55 l=8
+.SUBCKT rx_pfet_fb G D B S
+Xp D G S B sky130_fd_pr__pfet_01v8 w=0.55 l=8
 .ENDS
 """
 

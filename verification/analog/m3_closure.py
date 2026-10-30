@@ -148,7 +148,7 @@ def main() -> int:
             "Phase is trained and frozen; it is not a CDR loop.",
             "Validation frames are short (64 bits per case in the default campaign).",
             "PVT and mismatch are spot checks, not full signoff matrices.",
-            "PCell feedback route still lacks closed macro-level body tie/LVS.",
+            "M3 holdout PEX predates the sky130 RX macro body-tie closure; BER was not rerun on the new PEX.",
             "Digital boundary is one 4-word frame at 400 Mb/s, not a CDR loop.",
             "No production/SoC BER qualification is claimed.",
         ],

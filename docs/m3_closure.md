@@ -80,7 +80,7 @@ Open limitations:
 - independent holdout is open-loop and short (64 validation bits/case);
 - no CDR-conditioned sensitivity campaign;
 - PVT/local-mismatch/bathtub are 32-bit spot checks;
-- PCell feedback still lacks macro-level body tie/LVS and is not signoff-eligible;
+- The M3 holdout uses the pre-body-tie PCell PEX; the sky130 RX body-tie macro is now physically closed, but M3 BER was not rerun on the new PEX;
 - no global-process Monte Carlo for the M3 transient chain;
 - no production/SoC BER or full eye-mask claim.
 

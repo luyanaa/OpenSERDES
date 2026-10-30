@@ -229,12 +229,17 @@ The extracted hierarchy has three `rx_inv` instances, three extra
 `rx_pfet_w5` instances, and two `rx_pfet_fb` instances.  The feedback path is
 the intended two-device series PMOS diode chain between `OUT` and `IN`.
 
-The pure-pya device cells now support `bulk tie`; headless Magic/netgen probes
+The pure-pya device cells support `bulk tie`; headless Magic/netgen probes
 match both `pfet W=5/L=0.15` and `nfet W=5/L=0.15` with explicit G/D/S/B
-ports; Magic DRC is 0 for both.  The negative control `--drop-body-label` intentionally removes the B
-label and fails LVS.  The RX feedback macro itself still builds with
-`bulk=None`, so its well/body ties remain an explicit open item, not a hidden
-schematic claim.
-`pya_rx_feedback_verify.py` also runs Magic RC PEX as a diagnostic
-(`build/verify/pcell_rx_fb/rx_fb_pcell.pex.spice`); it does not establish STA
-or signoff.
+ports; Magic DRC is 0 for both.  The negative control `--drop-body-label`
+intentionally removes the B label and fails LVS.
+
+The RX feedback macro is now **macro-level body-tie closed**:
+`rx_fb_pcell` uses bulk-tied devices, straps NMOS bodies to VSS and PMOS bodies
+to VDD, separates the two L=8 feedback devices, and routes the `net06`
+feedback bridge on met2 so it cannot short the first feedback body tap.  The
+result is Magic DRC 0, hierarchical netgen LVS match (8 instances, 5 nets), and
+Magic RC PEX with 11 devices / 0 R / 6 C.  A negative build with the body
+straps removed fails LVS.  Evidence: `build/verify/pcell_rx_fb.json` and
+`build/verify/pcell_rx_fb/`.  This is still diagnostic PCell evidence, not STA
+or production signoff.
