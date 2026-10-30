@@ -13,8 +13,8 @@ actuator, and is included in the package's verification evidence.
 | Link-training FSM | `rtl/link_training_fsm.sv` | RTL verified (`tb/tb_link_training_fsm.sv`) | optional `TRAINING_ENABLE` in `serdes_digital_top` and `serdes_soc_cdc_wrapper`; APB CSR 13/14 telemetry; external error count required |
 | Framed CRC | `rtl/crc_frame.sv` | RTL verified (`tb/tb_crc_frame.sv`) | primitive |
 | AXIS CRC insert/check | `rtl/axis_crc_inserter.sv`, `rtl/axis_crc_checker.sv` | RTL verified (`tb/tb_axis_crc.sv`) | optional `CRC_ENABLE` in the AXIS TX/RX endpoints; `tuser` marks payload end, `tlast` marks final CRC |
-| 8b10b encoder/decoder | `rtl/pcs_8b10b_tx.sv`, `rtl/pcs_8b10b_rx.sv` | RTL verified (`tb/tb_pcs_8b10b.sv`) | standalone PCS wrappers; all 256 data bytes + K28.5 |
-| 64b66b blocks | `rtl/pcs_64b66b.sv` | RTL verified (`tb/tb_64b66b.sv`) | data + control-header blocks; 66-to-64 gearbox (`tb/tb_64b66b_gearbox.sv`) |
+| 8b10b encoder/decoder | `rtl/pcs_8b10b_tx.sv`, `rtl/pcs_8b10b_rx.sv` | RTL verified (`tb/tb_pcs_8b10b.sv`) | generated `serdes_8b10b_top`, 10-bit line words, external alignment |
+| 64b66b blocks | `rtl/pcs_64b66b.sv` | RTL verified (`tb/tb_64b66b.sv`) | generated `serdes_64b66b_top`, 66-bit line words, external alignment |
 
 ### `link_training_fsm`
 
@@ -86,9 +86,9 @@ is verified but not connected; `none` means no implementation exists.
 | Capability | Options | Current status | Evidence |
 |---|---|---|---|
 | Line coding | `raw` | integrated RTL | existing serializer/deserializer |
-| Line coding | `8b10b` | RTL_STANDALONE (256 data + K28.5) | `rtl/encoder_8b10b.sv`, `rtl/decoder_8b10b.sv` |
-| Line coding | `64b66b` | RTL_STANDALONE data block only; no control/gearbox | `rtl/pcs_64b66b.sv` |
-| Line coding | generator selection | none; rejects both | `test_generator_contracts.py` |
+| Line coding | `8b10b` | generated package (`serdes_8b10b_top`) | 10-bit line path; external alignment |
+| Line coding | `64b66b` | generated package (`serdes_64b66b_top`) | 66-bit line path; external alignment |
+| Line coding | generator selection | accepts width/align-gated coded link packages | `test_generator_contracts.py` |
 | Framing | `none`, `sync_word` | integrated comma alignment | `rtl/comma_align.sv` |
 | Framing / CRC | `crc16`, `crc32` | RTL_STANDALONE | `rtl/axis_crc_inserter.sv`, `rtl/axis_crc_checker.sv` |
 | Training | `phase_threshold` | RTL_OPTIONAL (top parameter, external error count) | `rtl/link_training_fsm.sv` |
@@ -166,19 +166,19 @@ block is wired into the generated design and has package-level evidence.
 3. Missing actuators must be `none`, not a synthesized fake phase/threshold
    control.  In particular, do not connect `phase_sel` to a CDR that has no
    phase input.
-4. `coding: 8b10b` and `coding: 64b66b` remain rejected by the generator until
-   the verified encoder/decoder primitives are integrated into the selected
-   serializer data path (including the 10-bit 8b10b serializer and 66-bit
-   block distribution/lane alignment) and package-level tests exist.  The
-   standalone blocks are not sufficient to change the link-level coding claim.
+4. `coding: 8b10b` / `coding: 64b66b` are now generated as coding-layer
+   packages with 10-bit / 66-bit line words.  External block/character
+   alignment is still the integrator's responsibility; full IEEE control-field
+   and lane-distribution semantics remain a separate PCS task.
 5. Analog macros are separate capability objects.  A closed GF180/IHP macro
    does not by itself prove a digital training axis or a link-level PCS.
 
 ## Next implementation slices
 
-1. Connect `train_error_count` to the SoC PRBS checker and expose training
-   telemetry through `apb_csr`; only then allow `training: phase_threshold` in
-   the generator.
+1. `serdes_soc_cdc_wrapper` now adds a synchronized BIST `error_pulse` to the
+   external training error count and exposes APB CSR 13/14 telemetry; the
+   generator still does not expose `training: phase_threshold` as a package
+   option.
 2. Add an integrated AXIS CRC mode (including `tuser` plumbing) to the SoC
    wrapper and decide the on-wire CRC order/sequence-ID contract.
 3. Add 64b66b control blocks, block distribution and a gearbox; only then

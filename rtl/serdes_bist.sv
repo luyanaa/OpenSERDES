@@ -15,6 +15,7 @@ module serdes_bist #(
     output logic        serial_out,
     input  logic        serial_in,
     output logic        error,
+    output logic        error_pulse,
     output logic [31:0] error_count,
     output logic [31:0] bit_count
 );
@@ -34,6 +35,7 @@ module serdes_bist #(
         .enable(start),
         .bit_in(serial_in),
         .error(error),
+        .error_pulse(error_pulse),
         .error_count(error_count),
         .bit_count(bit_count)
     );

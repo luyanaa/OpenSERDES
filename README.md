@@ -171,11 +171,11 @@ AXIS CRC 插入/检查原语。插入器把 CRC beats 追加在 payload 之后�
 
 ### `rtl/encoder_8b10b.sv` / `rtl/decoder_8b10b.sv`
 
-8b/10b 编解码器，已验证全部 256 个数据字节和 K28.5 round-trip。实现改编自 MIT 许可的 `libsv`，来源和许可证见 `docs/third_party.md`。`pcs_8b10b_tx/rx` 提供带 valid/error 的 PCS wrapper；generator 仍拒绝 `coding: 8b10b`，直到 10-bit serializer 数据路径完成集成。
+8b/10b 编解码器，已验证全部 256 个数据字节和 K28.5 round-trip。实现改编自 MIT 许可的 `libsv`，来源和许可证见 `docs/third_party.md`。`pcs_8b10b_tx/rx` 提供带 valid/error 的 PCS wrapper；`serdes_8b10b_top` 把 8-bit payload 编码到 10-bit line word，generator 在 `payload_width: 8`、`target: link`、`align: external` 时接受 `coding: 8b10b`。
 
 ### `rtl/pcs_64b66b.sv`
 
-64b/66b 原语：2-bit sync header + 64-bit self-synchronous scrambler payload，支持 data/control block header、非法 sync 拒绝，以及 66-to-64-bit gearbox。尚未实现完整 control-field 编码、block distribution、lane alignment 和完整 IEEE PCS；generator 仍拒绝 `coding: 64b66b`。
+64b/66b 原语：2-bit sync header + 64-bit self-synchronous scrambler payload，支持 data/control block header、非法 sync 拒绝，以及 66-to-64-bit gearbox。`serdes_64b66b_top` 把 64-bit payload 编码到 66-bit line word；generator 在 `payload_width: 64`、`target: link`、`align: external` 时接受 `coding: 64b66b`。完整 IEEE control-field、lane distribution 仍是独立 PCS 工作。
 
 ### `rtl/receiver_sampler.sv`
 

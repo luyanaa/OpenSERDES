@@ -163,6 +163,9 @@ $(BUILD)/tb_pcs_8b10b: tb/tb_pcs_8b10b.sv rtl/pcs_8b10b_tx.sv rtl/pcs_8b10b_rx.s
 $(BUILD)/tb_soc_cdc_training: tb/tb_soc_cdc_training.sv $(RTL) | $(BUILD)
 	$(IVERILOG) -g2012 -Wall -o $@ $^
 
+$(BUILD)/tb_soc_cdc_crc: tb/tb_soc_cdc_crc.sv $(RTL) | $(BUILD)
+	$(IVERILOG) -g2012 -Wall -o $@ $^
+
 $(BUILD)/tb_crc_tx_endpoint: tb/tb_crc_tx_endpoint.sv $(RTL) | $(BUILD)
 	$(IVERILOG) -g2012 -Wall -o $@ $^
 
@@ -223,6 +226,9 @@ SIM_BINS := $(BUILD)/tb_serializer_lsb $(BUILD)/tb_serializer_msb \
             $(BUILD)/tb_apb_csr $(BUILD)/tb_async_fifo \
             $(BUILD)/tb_link_training_fsm $(BUILD)/tb_crc_frame \
             $(BUILD)/tb_axis_crc $(BUILD)/tb_8b10b $(BUILD)/tb_64b66b \
+            $(BUILD)/tb_64b66b_gearbox $(BUILD)/tb_pcs_8b10b \
+            $(BUILD)/tb_crc_tx_endpoint $(BUILD)/tb_crc_rx_endpoint \
+            $(BUILD)/tb_soc_cdc_training $(BUILD)/tb_soc_cdc_crc \
             $(BUILD)/tb_serdes_training \
             $(BUILD)/tb_axis_tx_adapter $(BUILD)/tb_axis_rx_adapter \
             $(BUILD)/tb_serdes_tx_axis $(BUILD)/tb_serdes_rx_axis \
@@ -265,6 +271,7 @@ sim: $(SIM_BINS)
 	$(VVP) $(BUILD)/tb_crc_tx_endpoint
 	$(VVP) $(BUILD)/tb_crc_rx_endpoint
 	$(VVP) $(BUILD)/tb_soc_cdc_training
+	$(VVP) $(BUILD)/tb_soc_cdc_crc
 	$(VVP) $(BUILD)/tb_serdes_training
 	$(VVP) $(BUILD)/tb_axis_tx_adapter
 	$(VVP) $(BUILD)/tb_axis_rx_adapter
@@ -282,6 +289,8 @@ sim: $(SIM_BINS)
 
 lint:
 	$(VERILATOR) --lint-only -Wall --top-module serdes_digital_top $(RTL)
+	$(VERILATOR) --lint-only -Wall --top-module serdes_8b10b_top $(RTL)
+	$(VERILATOR) --lint-only -Wall --top-module serdes_64b66b_top $(RTL)
 	$(VERILATOR) --lint-only -Wall --top-module serdes_tx_digital $(RTL)
 	$(VERILATOR) --lint-only -Wall --top-module serdes_tx_stream_digital $(RTL)
 	$(VERILATOR) --lint-only -Wall --top-module serdes_rx_digital $(RTL)

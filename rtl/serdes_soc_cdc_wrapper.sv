@@ -56,6 +56,10 @@ module serdes_soc_cdc_wrapper #(
     parameter logic [SYNC_LEN-1:0] SYNC_PATTERN = 'hBC,
     parameter int ADAPT_FRAC_BITS = 12,
     parameter int FIFO_DEPTH  = 16,
+    parameter bit CRC_ENABLE  = 1'b0,
+    parameter int CRC_WIDTH   = 16,
+    parameter logic [CRC_WIDTH-1:0] CRC_POLY = 16'h1021,
+    parameter logic [CRC_WIDTH-1:0] CRC_INIT = '1,
     parameter int BIST_PRBS_WIDTH = 7,
     parameter logic [BIST_PRBS_WIDTH-1:0] BIST_SEED = '1,
     parameter int OVERSAMPLE = 1,
@@ -125,8 +129,9 @@ module serdes_soc_cdc_wrapper #(
     output logic [TRAIN_ERROR_WIDTH-1:0]      train_best_errors
 );
 
-    localparam int TX_WORDS = WORDS + 1;
-    localparam int RX_WORDS = WORDS;
+    localparam int CRC_BYTES = (CRC_WIDTH + DATA_WIDTH - 1) / DATA_WIDTH;
+    localparam int TX_WORDS = WORDS + 1 + (CRC_ENABLE ? CRC_BYTES : 0);
+    localparam int RX_WORDS = WORDS + (CRC_ENABLE ? CRC_BYTES : 0);
 
     // PRBS width reported in BIST_STATUS[7:5].
     localparam logic [2:0] BIST_WIDTH_CODE = (BIST_PRBS_WIDTH == 7)  ? 3'b001 :
@@ -261,6 +266,8 @@ module serdes_soc_cdc_wrapper #(
     logic tx_busy, tx_frame_done, tx_frame_error;
     logic tx_done_sticky;
     logic tx_core_enable, tx_core_serial_out, tx_core_serial_valid;
+    logic tx_adapter_ready, tx_pipe_tvalid, tx_pipe_tlast;
+    logic [DATA_WIDTH-1:0] tx_pipe_tdata;
 
     assign s_axis_tready  = ~tx_fifo_wfull;
     assign tx_fifo_winc   = s_axis_tvalid && ~tx_fifo_wfull;
@@ -285,6 +292,30 @@ module serdes_soc_cdc_wrapper #(
         .rempty(tx_fifo_rempty)
     );
 
+    generate
+        if (CRC_ENABLE) begin : g_tx_crc
+            /* verilator lint_off PINCONNECTEMPTY */
+            axis_crc_inserter #(
+                .DATA_WIDTH(DATA_WIDTH), .CRC_WIDTH(CRC_WIDTH),
+                .POLY(CRC_POLY), .INIT(CRC_INIT)
+            ) u_tx_crc (
+                .clk(tx_clk), .rst_n(tx_rst_n), .enable(tx_core_enable),
+                .s_axis_tvalid(tx_fifo_valid), .s_axis_tready(tx_fifo_ready),
+                .s_axis_tdata(tx_fifo_rdata[DATA_WIDTH-1:0]),
+                .s_axis_tlast(tx_fifo_rdata[DATA_WIDTH]),
+                .m_axis_tvalid(tx_pipe_tvalid), .m_axis_tready(tx_adapter_ready),
+                .m_axis_tdata(tx_pipe_tdata), .m_axis_tlast(tx_pipe_tlast),
+                .m_axis_tuser(), .crc_word()
+            );
+            /* verilator lint_on PINCONNECTEMPTY */
+        end else begin : g_tx_no_crc
+            assign tx_fifo_ready = tx_adapter_ready;
+            assign tx_pipe_tvalid = tx_fifo_valid;
+            assign tx_pipe_tdata  = tx_fifo_rdata[DATA_WIDTH-1:0];
+            assign tx_pipe_tlast  = tx_fifo_rdata[DATA_WIDTH];
+        end
+    endgenerate
+
     axis_tx_adapter #(
         .DATA_WIDTH(DATA_WIDTH),
         .WORDS(TX_WORDS)
@@ -292,10 +323,10 @@ module serdes_soc_cdc_wrapper #(
         .clk(tx_clk),
         .rst_n(tx_rst_n),
         .clear(tx_clear_pulse),
-        .s_axis_tvalid(tx_fifo_valid),
-        .s_axis_tready(tx_fifo_ready),
-        .s_axis_tdata(tx_fifo_rdata[DATA_WIDTH-1:0]),
-        .s_axis_tlast(tx_fifo_rdata[DATA_WIDTH]),
+        .s_axis_tvalid(tx_pipe_tvalid),
+        .s_axis_tready(tx_adapter_ready),
+        .s_axis_tdata(tx_pipe_tdata),
+        .s_axis_tlast(tx_pipe_tlast),
         .in_valid(tx_in_valid),
         .in_ready(tx_in_ready),
         .in_word(tx_in_word),
@@ -337,8 +368,9 @@ module serdes_soc_cdc_wrapper #(
     // The checker input never feeds tx_serial_out, so there is no loop.
     // -------------------------------------------------------------------------
     logic bist_serial_out, bist_check_in, rx_serial_in_tx;
-    logic bist_error;
+    logic bist_error, bist_error_pulse_tx, bist_error_pulse_rx;
     logic [31:0] bist_error_count, bist_bit_count;
+    logic [TRAIN_ERROR_WIDTH-1:0] bist_train_error_count;
     logic bist_running;
 
     assign tx_serial_out   = bist_enable_tx ? bist_serial_out : tx_core_serial_out;
@@ -364,9 +396,27 @@ module serdes_soc_cdc_wrapper #(
         .serial_out(bist_serial_out),
         .serial_in(bist_check_in),
         .error(bist_error),
+        .error_pulse(bist_error_pulse_tx),
         .error_count(bist_error_count),
         .bit_count(bist_bit_count)
     );
+
+    cdc_sync #(.WIDTH(1)) u_bist_error_pulse_rx (
+        .clk(rx_clk), .rst_n(rx_rst_n),
+        .d(bist_error_pulse_tx), .q(bist_error_pulse_rx)
+    );
+    always_ff @(posedge rx_clk or negedge rx_rst_n) begin
+        if (!rx_rst_n)
+            bist_train_error_count <= '0;
+        else if (rx_clear_pulse | rx_flush_pulse)
+            bist_train_error_count <= '0;
+        else if (bist_error_pulse_rx)
+            bist_train_error_count <= bist_train_error_count + 1'b1;
+    end
+    /* verilator lint_off UNUSEDSIGNAL */
+    logic [TRAIN_ERROR_WIDTH-1:0] train_error_total;
+    assign train_error_total = train_error_count + bist_train_error_count;
+    /* verilator lint_on UNUSEDSIGNAL */
 
     logic bist_snap_valid, bist_error_snap, bist_running_snap;
     logic [31:0] bist_error_count_snap, bist_bit_count_snap;
@@ -403,6 +453,7 @@ module serdes_soc_cdc_wrapper #(
         csr_ro[14][2] = train_retrain;
         csr_ro[14][3 +: PHASE_CTRL_W] = train_phase;
         csr_ro[14][3 + PHASE_CTRL_W +: PHASE_CTRL_W] = train_best_phase;
+        csr_ro[14][7] = rx_crc_error_sticky;
     end
 
     // -------------------------------------------------------------------------
@@ -413,6 +464,11 @@ module serdes_soc_cdc_wrapper #(
     logic rx_lock, rx_lock_stale, rx_frame_locked, rx_frame_overflow;
     logic rx_axis_tvalid, rx_axis_tready, rx_axis_tlast;
     logic [DATA_WIDTH-1:0] rx_axis_tdata;
+    /* verilator lint_off UNUSEDSIGNAL */
+    logic rx_adapter_tvalid, rx_adapter_tready, rx_adapter_tlast, rx_adapter_tuser;
+    /* verilator lint_on UNUSEDSIGNAL */
+    logic [DATA_WIDTH-1:0] rx_adapter_tdata;
+    logic rx_crc_error, rx_crc_error_sticky;
     logic [DATA_WIDTH:0] rx_fifo_wdata, rx_fifo_rdata;
     logic rx_fifo_wfull, rx_fifo_rempty, rx_fifo_winc, rx_fifo_rinc;
     logic rx_frame_seen_sticky;
@@ -440,7 +496,7 @@ module serdes_soc_cdc_wrapper #(
             ) u_train (
                 .clk(rx_clk), .rst_n(rx_rst_n),
                 .enable(rx_enable_rx), .start(train_start),
-                .error_count(train_error_count),
+                .error_count(train_error_total),
                 .phase_sel(phase_offset), .thresh_sel(),
                 .phase_we(), .thresh_we(),
                 .busy(train_busy), .locked(train_locked), .retrain(train_retrain),
@@ -493,24 +549,57 @@ module serdes_soc_cdc_wrapper #(
         .rx_freq_trim(rx_freq_trim)
     );
 
-    /* verilator lint_off PINCONNECTEMPTY */
     axis_rx_adapter #(
         .DATA_WIDTH(DATA_WIDTH),
-        .WORDS(RX_WORDS)
+        .WORDS(RX_WORDS),
+        .PAYLOAD_WORDS(WORDS)
     ) u_rx_axis (
         .clk(rx_clk),
         .rst_n(rx_rst_n),
         .clear(rx_clear_pulse | rx_flush_pulse),
         .par_valid(rx_frame_valid),
         .par_data(rx_par_data),
-        .m_axis_tvalid(rx_axis_tvalid),
-        .m_axis_tready(rx_axis_tready),
-        .m_axis_tdata(rx_axis_tdata),
-        .m_axis_tlast(rx_axis_tlast),
-        .m_axis_tuser(),
+        .m_axis_tvalid(rx_adapter_tvalid),
+        .m_axis_tready(rx_adapter_tready),
+        .m_axis_tdata(rx_adapter_tdata),
+        .m_axis_tlast(rx_adapter_tlast),
+        .m_axis_tuser(rx_adapter_tuser),
         .frame_overflow(rx_frame_overflow)
     );
-    /* verilator lint_on PINCONNECTEMPTY */
+
+    generate
+        if (CRC_ENABLE) begin : g_rx_crc
+            /* verilator lint_off PINCONNECTEMPTY */
+            axis_crc_checker #(
+                .DATA_WIDTH(DATA_WIDTH), .CRC_WIDTH(CRC_WIDTH),
+                .POLY(CRC_POLY), .INIT(CRC_INIT)
+            ) u_rx_crc (
+                .clk(rx_clk), .rst_n(rx_rst_n), .enable(rx_core_enable),
+                .s_axis_tvalid(rx_adapter_tvalid), .s_axis_tready(rx_adapter_tready),
+                .s_axis_tdata(rx_adapter_tdata), .s_axis_tlast(rx_adapter_tlast),
+                .s_axis_tuser(rx_adapter_tuser),
+                .m_axis_tvalid(rx_axis_tvalid), .m_axis_tready(rx_axis_tready),
+                .m_axis_tdata(rx_axis_tdata), .m_axis_tlast(rx_axis_tlast),
+                .crc_error(rx_crc_error), .crc_ok()
+            );
+            /* verilator lint_on PINCONNECTEMPTY */
+        end else begin : g_rx_no_crc
+            assign rx_adapter_tready = rx_axis_tready;
+            assign rx_axis_tvalid = rx_adapter_tvalid;
+            assign rx_axis_tdata  = rx_adapter_tdata;
+            assign rx_axis_tlast  = rx_adapter_tlast;
+            assign rx_crc_error   = 1'b0;
+        end
+    endgenerate
+
+    always_ff @(posedge rx_clk or negedge rx_rst_n) begin
+        if (!rx_rst_n)
+            rx_crc_error_sticky <= 1'b0;
+        else if (rx_flush_pulse | rx_clear_pulse)
+            rx_crc_error_sticky <= 1'b0;
+        else if (rx_crc_error)
+            rx_crc_error_sticky <= 1'b1;
+    end
 
     assign rx_fifo_winc  = rx_axis_tvalid && ~rx_fifo_wfull;
     assign rx_fifo_wdata = {rx_axis_tlast, rx_axis_tdata};

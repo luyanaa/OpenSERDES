@@ -27,6 +27,21 @@ ARCH_DB_PATH = ROOT / "tech" / "arch_db.yaml"
 
 # Source dependencies for each generated design.
 DESIGN_FILES = {
+    "serdes_8b10b_top": [
+        "serializer.sv", "deserializer_word.sv", "deserializer.sv",
+        "cdr_sync.sv", "cdr_oversampling.sv", "cdr_adaptive.sv",
+        "comma_align.sv", "receiver_sampler.sv", "reset_sync.sv",
+        "serdes_tx_digital.sv", "serdes_rx_digital.sv",
+        "pcs_8b10b_tx.sv", "pcs_8b10b_rx.sv",
+        "encoder_8b10b.sv", "decoder_8b10b.sv", "serdes_8b10b_top.sv",
+    ],
+    "serdes_64b66b_top": [
+        "serializer.sv", "deserializer_word.sv", "deserializer.sv",
+        "cdr_sync.sv", "cdr_oversampling.sv", "cdr_adaptive.sv",
+        "comma_align.sv", "receiver_sampler.sv", "reset_sync.sv",
+        "serdes_tx_digital.sv", "serdes_rx_digital.sv", "pcs_64b66b.sv",
+        "serdes_64b66b_top.sv",
+    ],
     "serdes_digital_top": [
         "serializer.sv", "deserializer_word.sv", "deserializer.sv",
         "cdr_sync.sv", "cdr_oversampling.sv", "cdr_adaptive.sv",
@@ -43,7 +58,7 @@ DESIGN_FILES = {
     ],
     "serdes_tx_axis_digital": [
         "axis_tx_adapter.sv", "serializer_stream.sv", "reset_sync.sv",
-        "serdes_tx_axis_digital.sv",
+        "axis_crc_inserter.sv", "crc_frame.sv", "serdes_tx_axis_digital.sv",
     ],
     "serdes_rx_digital": [
         "deserializer_word.sv", "deserializer.sv", "cdr_sync.sv",
@@ -54,12 +69,14 @@ DESIGN_FILES = {
         "deserializer_word.sv", "deserializer.sv", "cdr_sync.sv",
         "cdr_oversampling.sv", "cdr_adaptive.sv", "comma_align.sv",
         "receiver_sampler.sv", "reset_sync.sv", "serdes_rx_digital.sv",
-        "axis_rx_adapter.sv", "serdes_rx_axis_digital.sv",
+        "axis_rx_adapter.sv", "axis_crc_checker.sv", "crc_frame.sv",
+        "serdes_rx_axis_digital.sv",
     ],
     "serdes_soc_wrapper": [
         "apb_csr.sv", "bist_snapshot.sv", "cdc_sync.sv", "serdes_bist.sv",
         "prbs_gen.sv", "prbs_check.sv", "prbs_word_gen.sv", "prbs_word_check.sv",
         "axis_tx_adapter.sv", "serializer_stream.sv",
+        "axis_crc_inserter.sv", "axis_crc_checker.sv", "crc_frame.sv",
         "serdes_tx_axis_digital.sv", "axis_rx_adapter.sv",
         "deserializer_word.sv", "deserializer.sv", "cdr_sync.sv",
         "cdr_oversampling.sv", "cdr_adaptive.sv", "comma_align.sv",
@@ -70,6 +87,7 @@ DESIGN_FILES = {
         "apb_csr.sv", "async_fifo.sv", "cdc_sync.sv",
         "bist_snapshot.sv", "serdes_bist.sv", "prbs_gen.sv", "prbs_check.sv",
         "axis_tx_adapter.sv", "serializer_stream.sv", "axis_rx_adapter.sv",
+        "axis_crc_inserter.sv", "axis_crc_checker.sv", "crc_frame.sv",
         "deserializer_word.sv", "deserializer.sv", "cdr_sync.sv",
         "cdr_oversampling.sv", "cdr_adaptive.sv", "comma_align.sv",
         "receiver_sampler.sv", "reset_sync.sv", "serdes_rx_digital.sv",
@@ -116,7 +134,7 @@ CAPABILITY_CHOICES = {
     "fec": {"none", "block", "rs", "bch"},
 }
 CAPABILITY_INTEGRATED = {
-    "coding": {"raw": True},
+    "coding": {"raw": True, "8b10b": True, "64b66b": True},
     "framing": {"none": True, "sync_word": True},
     "training": {"none": True},
     "clock_source": {"source_sync": True, "independent": True},
@@ -386,12 +404,6 @@ def validate(spec: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
     coding = str(link.get("coding", "raw")).lower()
     if coding not in CODING_FACTOR:
         fail(f"link.coding must be one of {sorted(CODING_FACTOR)}")
-    if coding != "raw":
-        fail(
-            f"link.coding={coding!r} is not implemented: no encoder/decoder, "
-            "training or framing exists for it. Only coding: raw is allowed "
-            "until those blocks are implemented and verified."
-        )
     factor = CODING_FACTOR[coding]
     payload_rate = link.get("payload_rate_mbps")
     line_rate = link.get("line_rate_mbps")
@@ -662,6 +674,22 @@ def validate(spec: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
             f"({sync_len} != {width}); the comma is a full word, not a byte "
             "inside a wider word"
         )
+    if coding != "raw" and target == "link" and preset == "soc":
+        fail("coded links are not available through the SoC AXIS/APB wrapper; use preset: minimal")
+    if coding == "64b66b":
+        if target != "link":
+            fail("coding: 64b66b is currently supported only for target: link")
+        if width != 64:
+            fail("coding: 64b66b requires link.payload_width: 64")
+        if align != "external":
+            fail("coding: 64b66b requires rx.align: external (block alignment is external)")
+    if coding == "8b10b":
+        if target != "link":
+            fail("coding: 8b10b is currently supported only for target: link")
+        if width != 8:
+            fail("coding: 8b10b requires link.payload_width: 8")
+        if align != "external":
+            fail("coding: 8b10b requires rx.align: external (10-bit comma framing is external)")
 
     # Optional capability selection.  Defaults describe what this generator
     # actually integrates today.  A requested standalone block is rejected;
@@ -797,6 +825,10 @@ def build_plan(cfg: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
             design = "serdes_soc_wrapper"
         elif soc_cdc:
             design = "serdes_soc_cdc_wrapper"
+        elif cfg["coding"] == "8b10b":
+            design = "serdes_8b10b_top"
+        elif cfg["coding"] == "64b66b":
+            design = "serdes_64b66b_top"
         else:
             design = "serdes_digital_top"
     elif cfg["target"] == "tx":
@@ -814,7 +846,8 @@ def build_plan(cfg: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
         "WORDS": cfg["words"],
         "LSB_FIRST": 1 if cfg["lsb_first"] else 0,
     }
-    if design in ("serdes_tx_digital", "serdes_digital_top"):
+    if design in ("serdes_tx_digital", "serdes_digital_top",
+                  "serdes_8b10b_top", "serdes_64b66b_top"):
         params["CAPTURE_MODE"] = int(tx_arch.get("capture_mode", 0))
     if design in ("serdes_soc_wrapper", "serdes_soc_cdc_wrapper"):
         params.update({
@@ -825,7 +858,8 @@ def build_plan(cfg: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
         })
     if design == "serdes_soc_cdc_wrapper":
         params["FIFO_DEPTH"] = 16
-    if design in ("serdes_rx_digital", "serdes_rx_axis_digital", "serdes_digital_top"):
+    if design in ("serdes_rx_digital", "serdes_rx_axis_digital", "serdes_digital_top",
+                  "serdes_8b10b_top", "serdes_64b66b_top"):
         params.update({
             "OVERSAMPLE": cfg["oversample"],
             "SYNC_STAGES": 3,
@@ -909,7 +943,7 @@ def digital_capability_report(cfg: dict[str, Any], plan: dict[str, Any]) -> dict
         "coding": {
             "selected": cfg["coding"],
             "implementation": "rtl",
-            "integrated": cfg["coding"] == "raw",
+            "integrated": cfg["coding"] in ("raw", "8b10b", "64b66b"),
         },
         "framing": {
             "selected": framing,

@@ -351,6 +351,7 @@ module serdes_soc_wrapper #(
         .serial_in(bist_check_in),
         .error(bist_error),
         .error_count(bist_error_count),
+        .error_pulse(),
         .bit_count(bist_bit_count)
     );
 

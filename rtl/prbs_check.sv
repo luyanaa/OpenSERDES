@@ -11,6 +11,7 @@ module prbs_check #(
     input  logic        enable,
     input  logic        bit_in,
     output logic        error,
+    output logic        error_pulse,
     output logic [31:0] error_count,
     output logic [31:0] bit_count
 );
@@ -37,6 +38,7 @@ module prbs_check #(
     assign expected = state_q[WIDTH-1];
 
     assign error       = error_q;
+    assign error_pulse = enable && (bit_in !== expected);
     assign error_count = error_count_q;
     assign bit_count   = bit_count_q;
 

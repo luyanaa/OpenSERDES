@@ -62,11 +62,49 @@ class TestGeneratorContracts(unittest.TestCase):
             )
             return proc.returncode, proc.stdout + proc.stderr
 
-    def test_non_raw_coding_is_rejected(self) -> None:
-        spec = _base_spec(coding="8b10b")
+    def _coded_spec(self, coding: str, width: int) -> dict:
+        return {
+            "name": f"contract_{coding}",
+            "target": "link",
+            "link": {
+                "payload_width": width,
+                "words": 2,
+                "line_rate_mbps": 25,
+                "coding": coding,
+                "bit_order": "lsb_first",
+            },
+            "tx": {"architecture": "word_group_capture"},
+            "rx": {
+                "architecture": "source_sync", "oversample": 1,
+                "align": "external", "clocking": "source_sync", "ppm": 0,
+            },
+            "tech": {"tx": "sky130", "rx": "sky130"},
+            "interface": {"preset": "minimal", "data": "valid_ready",
+                          "control": "native", "cdc": "none"},
+        }
+
+    def test_8b10b_coded_link_is_generated(self) -> None:
+        code, text = self._run(self._coded_spec("8b10b", 8))
+        self.assertEqual(code, 0, text)
+        with tempfile.TemporaryDirectory() as tmp:
+            pass
+
+    def test_64b66b_coded_link_is_generated(self) -> None:
+        code, text = self._run(self._coded_spec("64b66b", 64))
+        self.assertEqual(code, 0, text)
+
+    def test_8b10b_requires_external_alignment(self) -> None:
+        spec = self._coded_spec("8b10b", 8)
+        spec["rx"]["align"] = "comma_per_frame"
         code, text = self._run(spec)
         self.assertEqual(code, 2)
-        self.assertIn("not implemented", text)
+        self.assertIn("external", text)
+
+    def test_64b66b_requires_64_bit_payload(self) -> None:
+        spec = self._coded_spec("64b66b", 32)
+        code, text = self._run(spec)
+        self.assertEqual(code, 2)
+        self.assertIn("payload_width", text)
 
     def test_non_single_edge_sampler_is_fail_closed(self) -> None:
         spec = _base_spec()
