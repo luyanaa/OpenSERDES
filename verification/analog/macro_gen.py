@@ -36,10 +36,13 @@ def load_tech(name: str) -> dict:
     if not path.is_file():
         raise SystemExit(f"unknown tech {name!r}: {path} not found")
     data = yaml.safe_load(path.read_text()) or {}
-    if data.get("status") != "supported":
+    caps = data.get("capabilities") or {}
+    if not caps.get("macro_generation", False):
         raise SystemExit(
-            f"tech {name}: status={data.get('status')!r}; "
-            "macro generation is fail-closed until device models/layout are verified"
+            f"tech {name}: capabilities.macro_generation=false; macro generation "
+            "is fail-closed until the device -> PCell -> DRC/LVS -> PEX -> "
+            "electrical-characterization backend is available. status is not a "
+            "substitute for physical evidence."
         )
     dev = data.get("devices", {})
     if str(dev.get("nmos", "")).startswith("TBD") or str(dev.get("pmos", "")).startswith("TBD"):
@@ -48,14 +51,17 @@ def load_tech(name: str) -> dict:
 
 
 def _mos(xname: str, d: str, g: str, s: str, b: str, model: str,
-         w: float, l: float, nf: int = 1) -> str:
-    return f"X{xname} {d} {g} {s} {b} {model} w={w:g}u l={l:g}u nf={nf}"
+         w: float, l: float, nf: int = 1, finger_param: str = "nf") -> str:
+    # IHP's SG13G2 subcircuit uses ``ng`` for the finger count; sky130 and
+    # gf180mcu use ``nf``.  Keep this PDK-specific instead of hardcoding nf.
+    return f"X{xname} {d} {g} {s} {b} {model} w={w:g}u l={l:g}u {finger_param}={nf}"
 
 
 def tx_chain(tech: dict, stages: list[int], w_finger_um: float,
              l_um: float, name: str = "tx_inv_chain") -> tuple[str, dict]:
     nmos = tech["devices"]["nmos"]
     pmos = tech["devices"]["pmos"]
+    fp = tech.get("devices", {}).get("finger_param", "nf")
     lines = [f"* Generated {tech['name']} TX inverter chain", f".subckt {name} VDD VSS IN OUT"]
     prev = "IN"
     for i, npar in enumerate(stages):
@@ -63,10 +69,10 @@ def tx_chain(tech: dict, stages: list[int], w_finger_um: float,
         out = "OUT" if i == len(stages) - 1 else f"n{i}"
         for k in range(npar):
             lines.append(_mos(f"MN{i}_{k}", out, prev, "VSS", "VSS", nmos,
-                              w_finger_um, l_um))
+                              w_finger_um, l_um, finger_param=fp))
         for k in range(ppar):
             lines.append(_mos(f"MP{i}_{k}", out, prev, "VDD", "VDD", pmos,
-                              w_finger_um, l_um))
+                              w_finger_um, l_um, finger_param=fp))
         prev = out
     lines.append(".ends")
     meta = {
@@ -86,17 +92,20 @@ def rx_feedback(tech: dict, n_parallel: int, p_parallel: int,
                 name: str = "rx_res_fb_inv") -> tuple[str, dict]:
     nmos = tech["devices"]["nmos"]
     pmos = tech["devices"]["pmos"]
+    fp = tech.get("devices", {}).get("finger_param", "nf")
     lines = [f"* Generated {tech['name']} RX feedback inverter",
              f".subckt {name} VDD VSS IN OUT"]
     for k in range(n_parallel):
         lines.append(_mos(f"MN{k}", "OUT", "IN", "VSS", "VSS", nmos,
-                          w_finger_um, l_um))
+                          w_finger_um, l_um, finger_param=fp))
     for k in range(p_parallel):
         lines.append(_mos(f"MP{k}", "OUT", "IN", "VDD", "VDD", pmos,
-                          w_finger_um, l_um))
+                          w_finger_um, l_um, finger_param=fp))
     # Two series diode-connected long-channel PMOS: OUT -> net06 -> IN.
-    lines.append(_mos("MFB1", "OUT", "OUT", "fb", "VDD", pmos, fb_w_um, fb_l_um))
-    lines.append(_mos("MFB0", "fb", "fb", "IN", "VDD", pmos, fb_w_um, fb_l_um))
+    lines.append(_mos("MFB1", "OUT", "OUT", "fb", "VDD", pmos, fb_w_um, fb_l_um,
+                      finger_param=fp))
+    lines.append(_mos("MFB0", "fb", "fb", "IN", "VDD", pmos, fb_w_um, fb_l_um,
+                      finger_param=fp))
     lines.append(".ends")
     meta = {
         "topology": "rx_res_fb_inv",
@@ -289,7 +298,7 @@ def main() -> int:
     if args.name:
         name = args.name
     elif layout is not None:
-        name = audit_gds(layout).get("cell") or args.topology
+        name = audit_gds(layout, tech["name"]).get("cell") or args.topology
     else:
         name = args.topology
     if args.topology == "tx_inv_chain":

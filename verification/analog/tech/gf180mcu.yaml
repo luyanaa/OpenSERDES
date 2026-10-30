@@ -7,6 +7,7 @@ devices:
   style: subckt
   nmos: nfet_03v3
   pmos: pfet_03v3
+  finger_param: nf
 sizing_um:
   wn: 1.0
   wp: 1.0
@@ -116,8 +117,47 @@ macros:
       X: 11
       body_nets: [VSS, VDD]
       note: >-
-        Magic extract/extresist with cthresh 0.  R=0 is real for this
-        single-M1-rail macro; this is not full RC parasitic signoff.
+        Magic extract/extresist with cthresh 0.  The emitted netlist has
+        R=0, but a known 1x100 um MET1 calibration line shows extresist
+        computes Rnode=9.0 ohm while emitting only 0.0005 ohm.  Therefore
+        this is a device-plus-C extraction, not a trusted full-RC netlist.
+    post_pex_analog:
+      status: PARTIAL
+      script: verification/analog/gf180_rx_postpex.py
+      evidence: build/verify/gf180_rx_macro/postpex.json
+      testbench: "VDD=3.3 V, VIN DC=1.65 V, AC=1 V, 1.65->2.5 V pulse, 1 Hz-1 GHz noise"
+      dc:
+        v_out_v: 0.4434998
+        i_vdd_a: -0.00168929
+        i_vin_a: 1.65e-12
+      ac:
+        gain_1k_db: 6.267270441
+        gain_1m_db: 6.267270008
+        gain_100m_db: 6.266317600
+        input_cap_1m_f: 1.0250223e-13
+      transient:
+        vout_min_v: -0.0130818875
+        vout_max_v: 0.446561096
+        vout_final_v: 0.443499797
+      noise:
+        onoise_total_v: 1.79862e-4
+      known_resistor:
+        structure: "1 um x 100 um MET1 line"
+        expected_ohm: 9.0
+        magic_rnode_ohm: 9.0
+        emitted_spice_ohm: 0.0005
+        wire_r_emitted: false
+      checks:
+        dc_op_converged: true
+        ac_completed: true
+        transient_completed: true
+        noise_completed: true
+        known_rnode_matches_geometry: true
+        metal_line_r_emitted: false
+      note: >-
+        DC/AC/transient/noise complete, but the known-resistor emission
+        gate fails. Do not claim POST_PEX_ANALOG_CHARACTERIZED or use R=0
+        as proof of zero wire resistance.
     negative_control: >-
       Removing the first PMOS bulk-to-VDD strap makes its body float and
       KLayout LVS fails.
@@ -128,3 +168,13 @@ macros:
       primitive-M schematic (11 M devices) because the PDK LVS schematic
       reader does not flatten X-inverter blocks; the hierarchical CDL with
       8 block instances is shipped alongside it.
+
+capabilities:
+  schematic: true
+  macro_generation: false
+  pcell_layout: verified
+  drc: verified
+  lvs: verified
+  pex: verified_extraction_only
+  post_pex_analog: partial
+  macro_package: false

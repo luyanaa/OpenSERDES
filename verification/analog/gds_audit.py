@@ -28,12 +28,30 @@ print("AUDIT_JSON=" + json.dumps({"cell": c.name, "layers": layers,
                                            c.bbox().p2.x, c.bbox().p2.y]}))
 """
 
-# sky130 layer map used by the macros in this repo
-PHYSICAL_REQUIRED = {(65, 20): "diff", (66, 20): "poly", (67, 20): "li1"}
-ABSTRACT_HINTS = {(68, 16): "met1.pin"}
+# PDK-specific physical layer maps.  A GDS is never judged with another
+# process's layer numbers: the same (65,20) can mean different things in a
+# different stack.
+TECH_LAYERS = {
+    "sky130": {
+        "required": {(65, 20): "diff", (66, 20): "poly", (67, 20): "li1"},
+        "abstract_hints": {(68, 16): "met1.pin"},
+    },
+    "gf180mcu": {
+        "required": {(22, 0): "comp", (30, 0): "poly2", (34, 0): "metal1"},
+        "abstract_hints": {(34, 10): "metal1.label"},
+    },
+    "ihp_sg13g2": {
+        "required": {(1, 0): "active", (5, 0): "gatpoly", (8, 0): "metal1"},
+        "abstract_hints": {(8, 2): "metal1.label"},
+    },
+}
 
 
-def audit(gds: Path) -> dict:
+def audit(gds: Path, tech: str = "sky130") -> dict:
+    if tech not in TECH_LAYERS:
+        raise ValueError(f"unknown PDK layer map {tech!r}; choose from {sorted(TECH_LAYERS)}")
+    required = TECH_LAYERS[tech]["required"]
+    abstract_hints = TECH_LAYERS[tech]["abstract_hints"]
     with tempfile.TemporaryDirectory() as td:
         script = Path(td) / "audit.py"
         script.write_text(SCRIPT)
@@ -50,10 +68,13 @@ def audit(gds: Path) -> dict:
     else:
         raise RuntimeError("klayout audit produced no JSON")
     present = {(x["layer"], x["datatype"]): x["count"] for x in data["layers"]}
-    missing = [name for key, name in PHYSICAL_REQUIRED.items() if not present.get(key)]
+    missing = [name for key, name in required.items() if not present.get(key)]
     data["physical"] = not missing
     data["missing_physical_layers"] = missing
     data["abstract_only"] = bool(missing)
+    data["tech"] = tech
+    data["required_layers"] = {f"{k[0]}/{k[1]}": v for k, v in required.items()}
+    data["abstract_hints"] = {f"{k[0]}/{k[1]}": v for k, v in abstract_hints.items()}
     data["gds"] = str(gds)
     return data
 
@@ -62,8 +83,10 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--gds", required=True)
     ap.add_argument("--out", required=True)
+    ap.add_argument("--tech", default="sky130",
+                    choices=sorted(TECH_LAYERS))
     args = ap.parse_args()
-    data = audit(Path(args.gds))
+    data = audit(Path(args.gds), args.tech)
     Path(args.out).parent.mkdir(parents=True, exist_ok=True)
     Path(args.out).write_text(json.dumps(data, indent=2) + "\n")
     print(json.dumps({k: data[k] for k in ("gds", "cell", "physical", "missing_physical_layers")}))

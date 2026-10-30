@@ -13,6 +13,7 @@ devices:
   style: subckt
   nmos: sky130_fd_pr__nfet_01v8
   pmos: sky130_fd_pr__pfet_01v8
+  finger_param: nf
 sizing_um:
   wn: 0.65
   wp: 1.4
@@ -69,3 +70,13 @@ pcell:
   library: openserdes_sky130
   device: mos
   status: geometry_verified
+
+capabilities:
+  schematic: true
+  macro_generation: true
+  pcell_layout: verified
+  drc: verified
+  lvs: verified
+  pex: available
+  post_pex_analog: partial
+  macro_package: verified_for_selected_macros

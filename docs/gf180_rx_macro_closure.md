@@ -18,9 +18,13 @@ nonlinear-feedback inverter matching the electrical intent of the sky130
 ports                    VSS VDD OUT IN
 ```
 
-The result is **PASS** for this placement and size set.  It is not a full-chip
-or foundry signoff, not an arbitrary-W/L claim, and not a full RC parasitic
-signoff (`R=0` in this single-M1-rail macro; see PEX note).
+The DRC/LVS/PEX extraction result is **PASS** for this placement and size set.
+The post-PEX analog characterization is **PARTIAL**: DC, AC, transient and
+noise simulations complete, but the known-resistor calibration shows that
+Magic's GF180 `extresist` reports a 9.0 ohm MET1 line and emits only its
+0.0005 ohm contact resistance into SPICE.  Therefore the macro PEX `R=0`
+cannot be treated as proof of zero wire resistance.  This is not a full-chip
+or foundry signoff and not an arbitrary-W/L claim.
 
 No sky130, M3, Makefile, IHP or `pya_pcell*` files were modified by this lane.
 The only technology config changed is
@@ -141,18 +145,63 @@ ext2spice extresist on
 ext2spice -o <raw>
 ```
 
-The raw netlist contains 11 MOS devices and 10 capacitors.  `R=0` because this
-macro's connections are Metal1/Metal2/Metal3 straps with no resistive
-extraction segments; this is a real result for the geometry, not a claim that
-the macro has no parasitic resistance.  The four labelled ports are VSS, VDD,
-OUT and IN, and every device body node is VSS or VDD.
+The raw netlist contains 11 MOS devices, 0 resistors and 10 capacitors.  The
+`R=0` result is **not** accepted as proof that the macro has no wire
+resistance.  A known 1 um x 100 um MET1 line was extracted with the same deck:
+Magic reports `Rnode = 9.0 ohm` (the expected 90 mOhm/sq x 100 squares), but
+the emitted SPICE netlist contains only `0.0005 ohm` of contact resistance.
+The wire resistance is therefore computed internally but not emitted.  This
+makes the current GF180 PEX a device-plus-C extraction, not a trustworthy
+full-RC signoff.  The four labelled ports are VSS, VDD, OUT and IN, and every
+device body node is VSS or VDD.
+
+## Post-PEX analog characterization
+
+`verification/analog/gf180_rx_postpex.py` consumes the same
+`gf180_rx_macro.raw.spice` and runs a fixed testbench with VDD=3.3 V,
+VIN DC=1.65 V, AC=1 V, a 1.65->2.5 V pulse, and a 1 Hz-1 GHz noise analysis.
+The extracted netlist has 11 devices, 0 R and 10 C.
+
+| Measurement | Result |
+|---|---|
+| DC operating point | `V(OUT)=0.443500 V`, `I(VDD)=-1.68929 mA` |
+| DC sweep | 0-3.3 V; mid-supply trip near VIN=1.5 V |
+| AC gain at 1 kHz / 1 MHz / 100 MHz | 6.267 / 6.267 / 6.266 dB |
+| Input capacitance at 1 MHz | `1.0250e-13 F` |
+| Transient (4 ns) | `V(OUT)` min -0.0131 V, max 0.4466 V, final 0.4435 V |
+| Integrated output noise (1 Hz-1 GHz) | `1.79862e-4 V` |
+| Known 1x100 um MET1 line | expected 9.0 ohm; Magic Rnode 9.0 ohm; emitted 0.0005 ohm |
+
+Status is `POST_PEX_ANALOG_PARTIAL`, not
+`POST_PEX_ANALOG_CHARACTERIZED`, because the known-resistor calibration fails
+at the `ext2spice` emission boundary.  The simulation evidence is still useful
+for checking model binding, bias and port behavior, but it cannot be presented
+as full-RC post-PEX signoff.
+
+Reproduce:
+
+```sh
+python3 verification/analog/gf180_rx_postpex.py
+```
+
+Evidence:
+
+```text
+build/verify/gf180_rx_macro/postpex.json
+build/verify/gf180_rx_macro/postpex/postpex_sim.log
+build/verify/gf180_rx_macro/postpex/known_resistor_pex.log
+```
 
 ## Blockers and non-claims
 
 - **Not a full-chip or foundry signoff.**  This is one macro placement with one
   size set.
 - **Not full RC parasitic signoff.**  R=0 and the PEX is a single extraction
-  point; no corner/sweep/EM/IR analysis.
+  point; the known-line test shows the emitted R is incomplete.  No
+  corner/sweep/EM/IR analysis.
+- **Post-PEX analog is PARTIAL.**  DC/AC/transient/noise complete, but the
+  PEX wire-R emission gate fails; do not claim
+  `POST_PEX_ANALOG_CHARACTERIZED`.
 - **No guard-ring, multi-finger, deep-nwell, or array variants.**
 - **PDK LVS reference limitation.**  The LVS reference is flat primitive-M;
   the 8-block hierarchical CDL is supplied for hierarchy, not used as the
@@ -169,6 +218,8 @@ build/verify/gf180_rx_macro/gf180_rx_macro.spice
 build/verify/gf180_rx_macro/gf180_rx_macro.cdl
 build/verify/gf180_rx_macro/*.log
 build/verify/gf180_rx_macro/negative_drop_pmos_bulk/
+build/verify/gf180_rx_macro/postpex.json
+build/verify/gf180_rx_macro/postpex/
 ```
 
 The JSON records exact command arrays, return codes, DRC count, LVS device/net

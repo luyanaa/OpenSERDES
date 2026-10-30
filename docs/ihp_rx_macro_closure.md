@@ -177,15 +177,55 @@ R/C counts.  On the recorded run:
 
 The two runs use the **same GDS** and the same command sequence.  The exact
 node/R/C count varies widely because Magic `extresist` net/node ordering is
-not stable across invocations (repeated trial runs on this GDS ranged from
-about 14 to 76 resistors).  The delivered `rx_macro.pex.spice` is run 1; both
-runs are recorded in the JSON.  This is PEX command/device/body evidence, not
-a claim of deterministic full-parasitic signoff.
+not stable across invocations.  The five-run audit above confirms that the
+variation is in segmentation/node naming, not in the port-level electrical
+response; the classification is electrically equivalent with different RC
+segmentation.  The delivered `rx_macro.pex.spice` is one of those runs.  This
+is PEX command/device/body evidence, not a claim of deterministic
+full-parasitic signoff.
 
 Five of the 11 PEX device lines have `ad=0`/`as=0` after Magic's splitting;
 that is recorded exactly and not hidden.  PEX is a flat netlist, so parasitic
 nodes such as `VSS.n0`…`VSS.n13` appear in addition to the five functional
 nets.
+
+## PEX repeatability (five isolated runs)
+
+The earlier two-run R/C count difference was treated as a P0 issue.  A new
+harness runs five **separate** Magic processes from the same GDS and the same
+PDK deck, then drives each extracted netlist with the same
+DC/AC/transient/noise testbench:
+
+```sh
+python3 verification/analog/ihp_pex_repeatability.py --runs 5
+```
+
+| Run | Devices | R | C | Floating C |
+|---|---:|---:|---:|---:|
+| 1 | 11 | 55 | 26 | 16 |
+| 2 | 11 | 14 | 17 | 7 |
+| 3 | 11 | 14 | 17 | 7 |
+| 4 | 11 | 14 | 17 | 7 |
+| 5 | 11 | 25 | 24 | 14 |
+
+The structure is not deterministic, but the port-level responses are.  The
+relative spread across the five runs is:
+
+| Metric | Relative spread |
+|---|---:|
+| DC `V(OUT)` / `I(VDD)` | 0 |
+| AC gain at 1 kHz | 0 |
+| AC gain at 1 MHz | `1.40e-12` |
+| AC gain at 100 MHz | `1.55e-8` |
+| Input capacitance at 1 MHz | `2.32e-9` |
+| Transient final value | 0 |
+| Integrated output noise | `3.03e-3` (0.30%) |
+
+Classification: **electrically equivalent with different RC
+segmentation**, not an extraction failure.  The acceptance gate is the 5%
+port-response threshold; the R/C count difference alone is not a failure.  The
+raw and simulated evidence is
+`build/verify/ihp_pex_repeatability/repeatability.json`.
 
 ## Negative control
 
