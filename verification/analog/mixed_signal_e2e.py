@@ -48,7 +48,8 @@ def run(tx: Path, rx: Path, bits: list[int], ui_ns: float, pdk: Path,
         workdir: Path, corner: str = "tt", r_ohm: float = 100.0,
         c_pf: float = 16.0, vin_high: float = 1.8,
         noise_mv: float = 0.0, noise_seed: int = 1,
-        mc_seed: int | None = None) -> dict[str, Any]:
+        mc_seed: int | None = None,
+        vdd: float = 1.8, temp_c: float | None = None) -> dict[str, Any]:
     workdir.mkdir(parents=True, exist_ok=True)
     wave = workdir / "wave.dat"
     tb = workdir / "mixed.sp"
@@ -68,9 +69,10 @@ def run(tx: Path, rx: Path, bits: list[int], ui_ns: float, pdk: Path,
     mc = ""
     if mc_seed is not None:
         mc = ".param mc_pr_switch=0\n.param mc_mm_switch=1\n"
+    temp = f".temp {temp_c:g}\n" if temp_c is not None else ""
     tb.write_text(f"""* mixed-signal PEX chain
 .lib "{lib}" {corner}
-{mc}.param VDD=1.8
+{mc}{temp}.param VDD={vdd:g}
 Vdd VDD 0 {{VDD}}
 Vin VIN 0 PWL({_pwl(bits, ui_ns, high_v=vin_high)})
 .include "{tx.resolve()}"
@@ -149,6 +151,8 @@ wrdata {wave.resolve()} v(VIN) v(VOUT) v(RXIN) v(OUT)
         "noise_mv": noise_mv,
         "noise_seed": noise_seed,
         "mc_seed": mc_seed,
+        "vdd_v": vdd,
+        "temp_c": temp_c,
         "wave": str(wave),
         "returncode": proc.returncode,
     }
@@ -165,6 +169,8 @@ def main() -> int:
     ap.add_argument("--c-pf", type=float, default=16.0)
     ap.add_argument("--mc-seed", type=int, default=None,
                     help="enable sky130 local mismatch with this ngspice seed")
+    ap.add_argument("--vdd", type=float, default=1.8)
+    ap.add_argument("--temp-c", type=float, default=None)
     ap.add_argument("--out", default=str(ROOT / "build/verify/mixed_signal_e2e.json"))
     ap.add_argument("--workdir", default=str(ROOT / "build/verify/mixed_signal_e2e"))
     args = ap.parse_args()
@@ -180,7 +186,8 @@ def main() -> int:
     pdk = find_pdk_root()
     report = run(Path(args.tx_pex), Path(args.rx_pex), bits,
                  1000.0 / args.rate_mbps, pdk, Path(args.workdir),
-                 args.corner, args.r_ohm, args.c_pf, mc_seed=args.mc_seed)
+                 args.corner, args.r_ohm, args.c_pf, mc_seed=args.mc_seed,
+                 vdd=args.vdd, temp_c=args.temp_c)
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(report, indent=2) + "\n")

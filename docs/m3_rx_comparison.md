@@ -147,6 +147,23 @@ The parallel route has one visible outlier seed and a lower eye height; the
 four-seed intervals overlap, so this is a mismatch screening check, not a
 statistical route decision or a global-process MC result.
 
+## Voltage / temperature spot check
+
+`verification/analog/m3_pvt_sweep.py` runs 32-bit frames at 800 Mb/s.  For
+voltage points the input swing follows VDD; for temperature points it stays at
+1.8 V.  This is a four-point spot check, not a full PVT matrix.
+
+| condition | feedback | parallel | PCell feedback |
+|---|---:|---:|---:|
+| 1.62 V, 25 °C | 1/32 | 9/32 | 1/32 |
+| 1.98 V, 25 °C | 1/32 | 1/32 | 1/32 |
+| 1.80 V, -40 °C | 1/32 | 5/32 | 1/32 |
+| 1.80 V, 125 °C | 1/32 | 1/32 | 1/32 |
+
+The parallel route degrades at low voltage and cold temperature; feedback and
+PCell feedback remain at the same one-error floor in this short frame.  Full
+voltage/temperature/PVT coverage remains open.
+
 ## Eye opening spot check
 
 `mixed_signal_e2e.run` now reports a sampled eye width (range of sampling

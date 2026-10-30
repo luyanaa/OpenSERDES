@@ -44,8 +44,10 @@ The first ECO GDS extraction reported 8 `obsli1/viali` overlap errors and the
 netgen comparison did not match.  A follow-up extraction with
 `MAGIC_EXT_USE_GDS=True` and the ECO `.pnl.v` reduced the gap to a near-match:
 `7282` versus `7284` devices and `7360` versus `7359` nets, with pin/property
-errors on `clkdlybuf4s25_2` outputs and `conb_1`.  The ECO ODB/GDS is therefore
-still not promoted to a signoff view.  The committed C physical result remains
+errors on `clkdlybuf4s25_2` outputs and `conb_1`.  Replacing the same seven
+cells with the same-footprint `clkdlybuf4s18_2` gives the identical
+`7282/7284` and `7360/7359` result, so this is not a single-cell-library
+artifact.  The ECO ODB/GDS is therefore still not promoted to a signoff view.  The committed C physical result remains
 the original 33/1 run at the stricter 0.75 ns / 0.20 pF targets.
 
 Artifacts (build-only, not committed):
