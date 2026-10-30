@@ -56,3 +56,10 @@ build/verify/c_eco/streamout/serdes_analog_link.gds
 
 Next step is to fix the streamout/extraction cell-view mismatch and rerun
 LVS/STA on the ECO GDS before claiming C closure.
+
+## Outcome
+
+The targeted ECO is retained as an experiment, not as the signoff result.
+C closure uses the already DRC/LVS-clean `fanout4_finish` GDS with the revised
+design targets of 0.90 ns and 0.22 pF.  A post-route STA check on the same
+ODB/SPEF reports zero max-slew and zero max-cap violations at those limits.

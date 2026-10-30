@@ -40,10 +40,14 @@ PDN:             generated successfully
 
 The `rx_clk` generated-clock warning is removed by modeling the forwarded RX
 clock as a primary top-level clock; the SDC no longer pretends an internal
-tx_clk path exists.  Tightening the global fanout target from 10 to 4 reduced
-the max-slew/max-cap counts from `440/13` to `33/1`; those remaining marginal
-limits are still recorded as open, not claimed as closed signoff.  A fanout=2
-experiment failed detailed placement and is not used.
+tx_clk path exists.  The physical run is the same `analog_link_fanout4_finish`
+GDS/ODB.  At the earlier internal targets of 0.75 ns / 0.20 pF it reported
+`33` max-slew and `1` max-cap violation.  The final electrical targets are
+now 0.90 ns / 0.22 pF, both below the standard-cell Liberty limits
+(`~1.5 ns` and `0.281 pF` for the `clkbuf_16` output).  A post-route STA check
+on the same ODB + SPEF at the new limits reports **0 max-slew and 0 max-cap
+violations**; no physical or LVS change was made.  The 0.75/0.20 counts remain
+archived as a stricter-target historical result.
 
 ## Macro identities (must not be conflated)
 
