@@ -105,6 +105,7 @@ module tb_serdes_channel;
         .rx_flush(rx_flush),
         .rx_align(rx_align),
         .rx_serial_in(channel_out),
+        .phase_offset('0),
         .rx_par_data(rx_data),
         .rx_par_valid(rx_par_valid),
         .rx_busy(rx_busy),

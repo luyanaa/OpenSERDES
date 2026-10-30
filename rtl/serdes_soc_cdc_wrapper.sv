@@ -118,8 +118,8 @@ module serdes_soc_cdc_wrapper #(
     // is supplied by the RX-side scoreboard/PRBS checker; this wrapper does
     // not create a synthetic error source.
     /* verilator lint_off UNUSEDSIGNAL */
-    input  logic                              train_start = 1'b0,
-    input  logic [TRAIN_ERROR_WIDTH-1:0]      train_error_count = '0,
+    input  logic                              train_start,
+    input  logic [TRAIN_ERROR_WIDTH-1:0]      train_error_count,
     /* verilator lint_on UNUSEDSIGNAL */
     output logic                              train_locked,
     output logic                              train_busy,

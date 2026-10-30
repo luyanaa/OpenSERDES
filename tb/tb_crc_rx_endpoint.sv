@@ -17,6 +17,7 @@ module tb_crc_rx_endpoint;
     ) dut (
         .rx_clk(clk), .rx_rst_n(rst_n), .rx_enable(en), .rx_flush(flush),
         .rx_align(align), .rx_serial_in(serial_in), .rx_clear(1'b0),
+        .phase_offset('0),
         .m_axis_tvalid(valid), .m_axis_tready(ready), .m_axis_tdata(data),
         .m_axis_tlast(last), .rx_lock(lock), .rx_lock_stale(stale),
         .rx_frame_locked(frame_locked), .rx_frame_overflow(ov),

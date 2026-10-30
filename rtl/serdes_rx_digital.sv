@@ -47,7 +47,7 @@ module serdes_rx_digital #(
     input  logic                              rx_align,
     input  logic                              rx_serial_in,
     /* verilator lint_off UNUSEDSIGNAL */
-    input  logic [PHASE_CTRL_W-1:0]           phase_offset = '0,
+    input  logic [PHASE_CTRL_W-1:0]           phase_offset,
     /* verilator lint_on UNUSEDSIGNAL */
     output logic [WORDS-1:0][DATA_WIDTH-1:0]  rx_par_data,
     output logic                              rx_par_valid,

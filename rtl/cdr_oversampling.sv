@@ -51,7 +51,7 @@ module cdr_oversampling #(
     input  logic enable,
     input  logic flush,
     input  logic data_in,
-    input  logic [PHASE_CTRL_W-1:0] phase_offset = '0,
+    input  logic [PHASE_CTRL_W-1:0] phase_offset,
     output logic data_out,
     output logic sample_strobe,
     output logic clk_out,

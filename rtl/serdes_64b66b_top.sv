@@ -67,11 +67,15 @@ module serdes_64b66b_top #(
 
     generate
         for (genvar w = 0; w < WORDS; w++) begin : g_tx_enc
+            // Scrambler state persists per lane; advance on each new payload
+            // (tx_load) / each received block (rx_par_valid).
             pcs_64b66b_encoder u_enc (
+                .clk(tx_clk), .rst_n(tx_rst_n), .advance(tx_load),
                 .data_in(tx_par_data[w]), .ctrl(1'b0),
                 .block_out(tx_line[w]), .sync_ok(tx_sync_ok[w])
             );
             pcs_64b66b_decoder u_dec (
+                .clk(rx_clk), .rst_n(rx_rst_n), .advance(rx_par_valid),
                 .block_in(rx_line[w]), .data_out(rx_par_data[w]),
                 .sync_ok(rx_sync_ok[w]), .ctrl_block(rx_ctrl[w])
             );
@@ -100,6 +104,7 @@ module serdes_64b66b_top #(
     ) u_rx (
         .rx_clk(rx_clk), .rx_rst_n(rx_rst_n), .rx_enable(rx_enable),
         .rx_flush(rx_flush), .rx_align(rx_align), .rx_serial_in(rx_serial_in),
+        .phase_offset('0),
         .rx_par_data(rx_line), .rx_par_valid(rx_par_valid),
         .rx_busy(rx_busy), .rx_lock(rx_lock), .rx_lock_stale(rx_lock_stale),
         .rx_sample_strobe(rx_sample_strobe), .rx_clk_out(rx_clk_out),

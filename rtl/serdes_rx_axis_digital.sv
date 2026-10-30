@@ -33,7 +33,7 @@ module serdes_rx_axis_digital #(
     input  logic                              rx_flush,
     input  logic                              rx_align,
     input  logic                              rx_serial_in,
-    input  logic [PHASE_CTRL_W-1:0]           phase_offset = '0,
+    input  logic [PHASE_CTRL_W-1:0]           phase_offset,
     input  logic                              rx_clear,
 
     output logic                              m_axis_tvalid,

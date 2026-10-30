@@ -295,6 +295,7 @@ module serdes_soc_wrapper #(
         .rx_flush(rx_flush),
         .rx_align(1'b0),
         .rx_serial_in(rx_core_serial_in),
+        .phase_offset('0),
         .rx_clear(rx_clear),
         .m_axis_tvalid(rx_axis_tvalid),
         .m_axis_tready(rx_axis_tready),

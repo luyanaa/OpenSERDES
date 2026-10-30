@@ -39,7 +39,7 @@ module tb_serdes_rx_axis;
     ) dut (
         .rx_clk(clk), .rx_rst_n(rst_n), .rx_enable(enable),
         .rx_flush(flush), .rx_align(align), .rx_serial_in(serial_in),
-        .rx_clear(1'b0),
+        .rx_clear(1'b0), .phase_offset('0),
         .m_axis_tvalid(m_axis_tvalid), .m_axis_tready(m_axis_tready),
         .m_axis_tdata(m_axis_tdata), .m_axis_tlast(m_axis_tlast),
         .rx_lock(lock), .rx_lock_stale(lock_stale),

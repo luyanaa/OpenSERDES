@@ -75,8 +75,8 @@ module serdes_digital_top #(
     // the link scoreboard/PRBS checker; the phase request drives the CDR's
     // external calibration input.  TRAINING_ENABLE defaults to 0 so existing
     // generated packages and testbenches are unchanged.
-    input  logic                              train_start = 1'b0,
-    input  logic [TRAIN_ERROR_WIDTH-1:0]      train_error_count = '0,
+    input  logic                              train_start,
+    input  logic [TRAIN_ERROR_WIDTH-1:0]      train_error_count,
     output logic                              train_locked,
     output logic                              train_busy,
     output logic                              train_retrain,

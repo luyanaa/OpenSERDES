@@ -86,7 +86,9 @@ module tb_serdes_soc_cdc_wrapper;
         .rx_clk(rx_clk), .rx_rst_n(rx_rst_n), .rx_serial_in(rx_serial_in),
         .rx_sample_strobe(rx_sample_strobe), .rx_serial_data(rx_serial_data),
         .rx_serial_valid(rx_serial_valid), .rx_freq_trim(rx_freq_trim),
-        .rx_clk_out(rx_clk_out), .csr_regs(csr_regs)
+        .rx_clk_out(rx_clk_out),
+        .train_start(1'b0), .train_error_count('0),
+        .csr_regs(csr_regs)
     );
 
     task automatic apb_write(input logic [15:0] addr, input logic [31:0] data);
