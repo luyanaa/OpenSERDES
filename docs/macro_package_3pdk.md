@@ -54,3 +54,15 @@ referenced DRC/LVS/PEX artifacts actually exist and were verified by its own
 builder.  `macro_generation` for gf180/ihp remains `false` in the tech YAMLs —
 these are *bespoke verified* macros packaged into the unified schema, not
 newly-generated signoff macros.
+
+### Host-dependent verdicts
+
+`build/` is gitignored, so the evidence records the packager hashes only exist
+on a host where `verification/analog/gf180_rx_macro.py` /
+`ihp_rx_macro.py` were actually run.  On such a host the gf180 and ihp macros
+report `SIGNOFF_ELIGIBLE` because their evidence shows real Magic DRC clean,
+netgen/KLayout LVS match, and RC-PEX extraction (the gf180 PEX netlist carries
+extracted `pfet_03v3`/`nfet_03v3` devices plus parasitic capacitors).  On a
+fresh CI checkout with no `build/verify/` artifacts the same spec returns
+`UNVERIFIED` — the gating is fail-closed, so the `SIGNOFF_ELIGIBLE` verdict in
+the table is a property of this verified workspace, not a config claim.
