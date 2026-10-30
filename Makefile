@@ -142,6 +142,9 @@ $(BUILD)/tb_link_training_fsm: tb/tb_link_training_fsm.sv rtl/link_training_fsm.
 $(BUILD)/tb_serdes_training: tb/tb_serdes_training.sv $(RTL) | $(BUILD)
 	$(IVERILOG) -g2012 -Wall -o $@ $^
 
+$(BUILD)/tb_serdes_training_loop: tb/tb_serdes_training_loop.sv $(RTL) | $(BUILD)
+	$(IVERILOG) -g2012 -Wall -o $@ $^
+
 $(BUILD)/tb_crc_frame: tb/tb_crc_frame.sv rtl/crc_frame.sv | $(BUILD)
 	$(IVERILOG) -g2012 -Wall -o $@ $^
 
@@ -239,7 +242,7 @@ SIM_BINS := $(BUILD)/tb_serializer_lsb $(BUILD)/tb_serializer_msb \
             $(BUILD)/tb_pcs_comma_lock $(BUILD)/tb_pcs_8b10b_realign \
             $(BUILD)/tb_crc_tx_endpoint $(BUILD)/tb_crc_rx_endpoint \
             $(BUILD)/tb_soc_cdc_training $(BUILD)/tb_soc_cdc_crc \
-            $(BUILD)/tb_serdes_training \
+            $(BUILD)/tb_serdes_training $(BUILD)/tb_serdes_training_loop \
             $(BUILD)/tb_axis_tx_adapter $(BUILD)/tb_axis_rx_adapter \
             $(BUILD)/tb_serdes_tx_axis $(BUILD)/tb_serdes_rx_axis \
             $(BUILD)/tb_prbs_7 $(BUILD)/tb_prbs_15 $(BUILD)/tb_prbs_31 \
@@ -286,6 +289,7 @@ sim: $(SIM_BINS)
 	$(VVP) $(BUILD)/tb_soc_cdc_training
 	$(VVP) $(BUILD)/tb_soc_cdc_crc
 	$(VVP) $(BUILD)/tb_serdes_training
+	$(VVP) $(BUILD)/tb_serdes_training_loop
 	$(VVP) $(BUILD)/tb_axis_tx_adapter
 	$(VVP) $(BUILD)/tb_axis_rx_adapter
 	$(VVP) $(BUILD)/tb_serdes_tx_axis

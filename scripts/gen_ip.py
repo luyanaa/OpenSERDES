@@ -138,7 +138,7 @@ CAPABILITY_CHOICES = {
 CAPABILITY_INTEGRATED = {
     "coding": {"raw": True, "8b10b": True, "64b66b": True},
     "framing": {"none": True, "sync_word": True},
-    "training": {"none": True},
+    "training": {"none": True, "phase_threshold": True},
     "clock_source": {"source_sync": True, "independent": True},
     "clock_recovery": {"none": True, "source_sync": True,
                        "fixed_oversampling": True, "adaptive_oversampling": True},
@@ -739,6 +739,16 @@ def validate(spec: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
         fail("capabilities.clock_source must match rx.clocking")
     if cap_defaults["clock_recovery"] != recovery_default:
         fail("capabilities.clock_recovery must match the selected RX architecture")
+    # Training needs a real, controllable phase actuator.  The only integrated
+    # actuator today is the digital phase_offset on an oversampling CDR, so
+    # refuse phase training when there is no oversampling path to drive.
+    if cap_defaults["training"] == "phase_threshold":
+        if clocking == "source_sync" or oversample <= 1:
+            fail(
+                "capabilities.training=phase_threshold requires an oversampling "
+                "RX with a controllable sample-phase actuator; source_sync / "
+                "oversample:1 has no phase actuator to calibrate"
+            )
     framing_default = "sync_word" if align != "external" else "none"
     if cap_defaults["framing"] != framing_default:
         fail("capabilities.framing must match rx.align")
@@ -879,6 +889,15 @@ def build_plan(cfg: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
             "ADAPT_FRAC_BITS": 12,
             "ADAPT_LOOP_GAIN": 4,
         })
+    # Phase/threshold training is only wired into the digital top and the SoC
+    # CDC wrapper (the two tops that own the oversampling-CDR phase actuator).
+    if (cfg["capabilities"]["training"] == "phase_threshold" and
+            design in ("serdes_digital_top", "serdes_soc_cdc_wrapper")):
+        params.update({
+            "TRAINING_ENABLE": 1,
+            "TRAIN_DWELL_CYCLES": 64,
+            "TRAIN_ERROR_WIDTH": 16,
+        })
 
     if design == "serdes_soc_cdc_wrapper":
         clock_port = "pclk"
@@ -963,10 +982,11 @@ def digital_capability_report(cfg: dict[str, Any], plan: dict[str, Any]) -> dict
             "integrated": False,
         },
         "training": {
-            "selected": "none",
-            "implementation": "rtl_standalone",
+            "selected": cfg["capabilities"]["training"],
+            "implementation": "rtl" if cfg["capabilities"]["training"] == "phase_threshold"
+                              else "rtl_standalone",
             "module": "link_training_fsm",
-            "integrated": False,
+            "integrated": cfg["capabilities"]["training"] == "phase_threshold",
         },
         "clock_source": {
             "selected": cfg["clock_source"],
@@ -1012,7 +1032,8 @@ def synth_parameters(params: dict[str, Any]) -> list[str]:
              "SYNC_STAGES", "LOCK_THRESH", "LOCK_STALE_BITS", "CDR_MODE",
              "CDR_BYPASS", "ALIGN_MODE", "SYNC_LEN", "SYNC_PATTERN",
              "ADAPT_FRAC_BITS", "ADAPT_LOOP_GAIN", "FIFO_DEPTH",
-             "BIST_PRBS_WIDTH"]
+             "BIST_PRBS_WIDTH",
+             "TRAINING_ENABLE", "TRAIN_DWELL_CYCLES", "TRAIN_ERROR_WIDTH"]
     return [f"{k}={params[k]}" for k in order if k in params]
 
 

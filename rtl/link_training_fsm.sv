@@ -27,6 +27,11 @@
 module link_training_fsm #(
     parameter int PHASE_STEPS        = 8,
     parameter int THRESH_STEPS       = 8,
+    // Cycles allowed for the actuator/CDR to settle after a new phase or
+    // threshold is loaded, before the error-count baseline is sampled.
+    parameter int SETTLE_CYCLES      = 8,
+    // Observation window: the number of error-counter samples (cycles) over
+    // which errors are accumulated for a candidate.
     parameter int DWELL_CYCLES       = 64,
     parameter int ERROR_WIDTH        = 16,
     parameter int RETRAIN_ERR_THRESH = 4,
@@ -58,6 +63,11 @@ module link_training_fsm #(
     localparam logic [2:0] S_SCAN_PHASE  = 3'd1;
     localparam logic [2:0] S_SCAN_THRESH = 3'd2;
     localparam logic [2:0] S_LOCKED      = 3'd3;
+    // Settle sub-states: after loading a new actuator value we wait
+    // SETTLE_CYCLES before latching the error baseline, so the measured
+    // window does not include transient errors from the actuator change.
+    localparam logic [2:0] S_SETTLE_PHASE  = 3'd4;
+    localparam logic [2:0] S_SETTLE_THRESH = 3'd5;
 
     logic [2:0]        state_q;
     logic [PW-1:0]     phase_q;
@@ -139,12 +149,23 @@ module link_training_fsm #(
                             best_phase_q   <= '0;
                             best_thresh_q  <= '0;
                             best_errors_q  <= '1;
-                            baseline_q     <= error_count;
                             locked_q       <= 1'b0;
                             dwell_q        <= '0;
-                            state_q        <= S_SCAN_PHASE;
+                            state_q        <= S_SETTLE_PHASE;
                             phase_we_q     <= 1'b1;
                             thresh_we_q    <= 1'b1;
+                        end
+                    end
+
+                    // Wait SETTLE_CYCLES after the actuator write before
+                    // sampling the error baseline, then measure DWELL_CYCLES.
+                    S_SETTLE_PHASE: begin
+                        if (dwell_q >= 32'(SETTLE_CYCLES)) begin
+                            dwell_q    <= '0;
+                            baseline_q <= error_count;
+                            state_q    <= S_SCAN_PHASE;
+                        end else begin
+                            dwell_q <= dwell_q + 1'b1;
                         end
                     end
 
@@ -153,18 +174,28 @@ module link_training_fsm #(
                             best_phase_q  <= cand_phase;
                             best_errors_q <= cand_errors;
                             dwell_q       <= '0;
-                            baseline_q    <= error_count;
                             if (phase_q == PW'(PHASE_STEPS - 1)) begin
                                 phase_q      <= cand_phase;
                                 phase_we_q   <= 1'b1;
                                 best_errors_q <= '1;
                                 thresh_q     <= '0;
                                 thresh_we_q  <= 1'b1;
-                                state_q      <= S_SCAN_THRESH;
+                                state_q      <= S_SETTLE_THRESH;
                             end else begin
                                 phase_q    <= phase_q + 1'b1;
                                 phase_we_q <= 1'b1;
+                                state_q    <= S_SETTLE_PHASE;
                             end
+                        end else begin
+                            dwell_q <= dwell_q + 1'b1;
+                        end
+                    end
+
+                    S_SETTLE_THRESH: begin
+                        if (dwell_q >= 32'(SETTLE_CYCLES)) begin
+                            dwell_q    <= '0;
+                            baseline_q <= error_count;
+                            state_q    <= S_SCAN_THRESH;
                         end else begin
                             dwell_q <= dwell_q + 1'b1;
                         end
@@ -175,7 +206,6 @@ module link_training_fsm #(
                             best_thresh_q <= cand_thresh;
                             best_errors_q <= cand_errors;
                             dwell_q       <= '0;
-                            baseline_q    <= error_count;
                             if (thresh_q == TW'(THRESH_STEPS - 1)) begin
                                 thresh_q         <= cand_thresh;
                                 thresh_we_q      <= 1'b1;
@@ -186,6 +216,7 @@ module link_training_fsm #(
                             end else begin
                                 thresh_q    <= thresh_q + 1'b1;
                                 thresh_we_q <= 1'b1;
+                                state_q     <= S_SETTLE_THRESH;
                             end
                         end else begin
                             dwell_q <= dwell_q + 1'b1;
