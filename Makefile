@@ -55,7 +55,7 @@ RTL   := $(wildcard rtl/*.sv)
 SV2V_DIR := $(BUILD)/sv2v
 SV2V_RTL := $(SV2V_DIR)/rtl.v
 
-.PHONY: all sim lint synth regress gen qualify signoff ppa-import clean si-eye si-bathtub si-jtol si-rtl-jtol verify-link analog-pcell-probe analog-pcell-inv analog-pcell-tx analog-pcell-tx-verify analog-pcell-tx-views analog-pcell-tx-1-4-16 analog-pcell-tx-1-4-16-verify analog-pcell-rx-fb analog-pcell-rx-fb-verify analog-pcell-rx-fb-views analog-freepdk45-probe analog-etri050-probe m3-noise m3-holdout m3-closure analog-stdcell-gen analog-macro-gen analog-contracts analog-gds analog-gds-audit analog-views analog-package analog-macro-pex analog-drc analog-rx-dc analog-rx-pvt mixed-signal-e2e rx-pex-digital-e2e ms-phy-baseline soc-e2e soc-e2e-stress analog-lut sky130-lut analog-lut-demo analog-tech-check sky130-pvt pvt-margin pdk-mc xyce-global-mc magic-pex magic-pex-compare sky130-mc pex-compare lib-catalog timing-compare analog-macro-package
+.PHONY: all sim lint synth regress gen qualify signoff ppa-import clean si-eye si-bathtub si-jtol si-rtl-jtol verify-link analog-pcell-probe analog-pcell-inv analog-pcell-tx analog-pcell-tx-verify analog-pcell-tx-views analog-pcell-tx-1-4-16 analog-pcell-tx-1-4-16-verify analog-pcell-rx-fb analog-pcell-rx-fb-verify analog-pcell-rx-fb-views analog-freepdk45-probe analog-etri050-probe m3-noise m3-holdout m3-closure analog-stdcell-gen analog-macro-gen analog-contracts analog-gds analog-gds-audit analog-views analog-package analog-macro-pex analog-drc analog-rx-dc analog-rx-pvt mixed-signal-e2e rx-pex-digital-e2e ms-phy-baseline phy-link-closure soc-e2e soc-e2e-stress analog-lut sky130-lut analog-lut-demo analog-tech-check sky130-pvt pvt-margin pdk-mc xyce-global-mc magic-pex magic-pex-compare sky130-mc pex-compare lib-catalog timing-compare analog-macro-package
 
 all: sim
 
@@ -618,6 +618,14 @@ rx-pex-digital-e2e: magic-pex analog-macro-pex
 	$(PYTHON) verification/analog/rx_pex_digital_e2e.py \
 		--package $(SOC_E2E_PACKAGE) \
 		--out $(BUILD)/verify/rx_pex_digital_e2e.json
+
+# Physical-PHY link closure: gather the LibreLane serdes_analog_link PnR run's
+# DRC/LVS/STA/PEX verdicts into one hash-verified, fail-closed evidence record.
+# ANALOG_PNR_RUN selects the run dir; reports UNVERIFIED if absent.
+phy-link-closure:
+	/usr/bin/python3 verification/analog/phy_link_closure.py \
+		--run $(or $(ANALOG_PNR_RUN),build/analog_pnr_sky130/runs/analog_link_signoff) \
+		--out $(or $(PHY_LINK_OUT),build/verify/phy_link_closure)
 
 soc-e2e:
 	$(PYTHON) verification/rtl/soc_runner.py --package $(SOC_E2E_PACKAGE) \

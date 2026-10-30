@@ -82,3 +82,26 @@ The hard macros can still be staged and inspected, but the C top deliberately
 uses the soft stdcell implementation so DRC/LVS/STA are closed in one
 hierarchy.  Hard macro PDN and fixed-device feedback characterization remain
 separate work items.
+
+## PHY link closure record (P2)
+
+`make phy-link-closure` runs `verification/analog/phy_link_closure.py`, which
+harvests the completed `analog_link_signoff` run's per-step verdicts into a
+single hash-verified, fail-closed evidence record at
+`build/verify/phy_link_closure/phy_link_closure.json`.
+
+Gates (all required for `SIGNOFF_ELIGIBLE`, read from the run's own
+`final/metrics.json` and step `state_out.json` — never declared):
+
+- KLayout XOR differences = 0, Magic DRC = 0, KLayout DRC = 0
+- netgen LVS: 0 unmatched devices / nets / pins, 0 LVS errors
+- STA: 0 setup + 0 hold violations at `nom_tt_025C_1v80`
+- route DRC = 0, antenna = 0, power-grid violations = 0, flow errors = 0
+- final GDS, post-route SPEF, and extracted SPICE netlist present + sha256-hashed
+
+This is the physical PHY integration the audit defers to P2: the TX→channel→RX
+link is placed-and-routed and signoff-clean.  Because it reads the run's own
+data, `phy-link-closure` returns `UNVERIFIED` on a fresh checkout with no run
+dir (the `build/` tree is gitignored) — the verdict is evidence-derived, not a
+config claim.  It remains a *soft-stdcell* implementation: a physical
+integration signoff, not a custom transistor analog signoff.
