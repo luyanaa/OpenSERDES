@@ -25,7 +25,11 @@ module serdes_rx_axis_digital #(
     parameter logic [CRC_WIDTH-1:0] CRC_INIT = '1,
     parameter bit CRC_LSB_FIRST = 1'b0,
     parameter bit CRC_REFLECT_OUT = 1'b0,
-    parameter logic [CRC_WIDTH-1:0] CRC_XOR_OUT = '0
+    parameter logic [CRC_WIDTH-1:0] CRC_XOR_OUT = '0,
+    // CRC delivery mode: 0 = streaming detect (forward payload, late error
+    // flag), 1 = store-and-forward (buffer frame, drop on CRC fail).
+    parameter bit CRC_STORE_AND_FORWARD = 1'b0,
+    parameter int CRC_MAX_FRAME_BEATS   = 256
 ) (
     input  logic                              rx_clk,
     input  logic                              rx_rst_n,
@@ -52,7 +56,8 @@ module serdes_rx_axis_digital #(
     output logic signed [ADAPT_FRAC_BITS:0]   rx_freq_trim,
     output logic                              rx_busy,
     output logic                              rx_clk_out,
-    output logic                              crc_error
+    output logic                              crc_error,
+    output logic                              crc_frame_drop
 );
 
     localparam int CRC_BYTES = (CRC_WIDTH + DATA_WIDTH - 1) / DATA_WIDTH;
@@ -133,7 +138,9 @@ module serdes_rx_axis_digital #(
             axis_crc_checker #(
                 .DATA_WIDTH(DATA_WIDTH), .CRC_WIDTH(CRC_WIDTH),
                 .POLY(CRC_POLY), .INIT(CRC_INIT), .LSB_FIRST(CRC_LSB_FIRST),
-                .REFLECT_OUT(CRC_REFLECT_OUT), .XOR_OUT(CRC_XOR_OUT)
+                .REFLECT_OUT(CRC_REFLECT_OUT), .XOR_OUT(CRC_XOR_OUT),
+                .STORE_AND_FORWARD(CRC_STORE_AND_FORWARD),
+                .MAX_FRAME_BEATS(CRC_MAX_FRAME_BEATS)
             ) u_crc (
                 .clk(rx_clk), .rst_n(rx_rst_n_sync), .enable(rx_enable),
                 .s_axis_tvalid(adapter_tvalid), .s_axis_tready(adapter_tready),
@@ -141,7 +148,8 @@ module serdes_rx_axis_digital #(
                 .s_axis_tuser(adapter_tuser),
                 .m_axis_tvalid(m_axis_tvalid), .m_axis_tready(m_axis_tready),
                 .m_axis_tdata(m_axis_tdata), .m_axis_tlast(m_axis_tlast),
-                .crc_error(crc_error), .crc_ok()
+                .crc_error(crc_error), .crc_ok(),
+                .frame_drop(crc_frame_drop)
             );
             /* verilator lint_on PINCONNECTEMPTY */
         end else begin : g_no_crc
@@ -150,6 +158,7 @@ module serdes_rx_axis_digital #(
             assign m_axis_tdata  = adapter_tdata;
             assign m_axis_tlast  = adapter_tlast;
             assign crc_error     = 1'b0;
+            assign crc_frame_drop = 1'b0;
         end
     endgenerate
 

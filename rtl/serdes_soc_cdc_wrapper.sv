@@ -647,7 +647,7 @@ module serdes_soc_cdc_wrapper #(
                 .s_axis_tuser(rx_adapter_tuser),
                 .m_axis_tvalid(rx_axis_tvalid), .m_axis_tready(rx_axis_tready),
                 .m_axis_tdata(rx_axis_tdata), .m_axis_tlast(rx_axis_tlast),
-                .crc_error(rx_crc_error), .crc_ok()
+                .crc_error(rx_crc_error), .crc_ok(), .frame_drop()
             );
             /* verilator lint_on PINCONNECTEMPTY */
         end else begin : g_rx_no_crc

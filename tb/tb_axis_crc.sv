@@ -36,7 +36,7 @@ module tb_axis_crc;
         .s_axis_tdata(ins_data), .s_axis_tlast(ins_last),
         .s_axis_tuser(ins_user), .m_axis_tvalid(chk_valid), .m_axis_tready(chk_ready),
         .m_axis_tdata(chk_data), .m_axis_tlast(chk_last),
-        .crc_error(crc_error), .crc_ok(crc_ok)
+        .crc_error(crc_error), .crc_ok(crc_ok), .frame_drop()
     );
 
     always_ff @(posedge clk) begin

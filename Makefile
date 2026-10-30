@@ -148,6 +148,9 @@ $(BUILD)/tb_crc_frame: tb/tb_crc_frame.sv rtl/crc_frame.sv | $(BUILD)
 $(BUILD)/tb_axis_crc: tb/tb_axis_crc.sv rtl/axis_crc_inserter.sv rtl/axis_crc_checker.sv rtl/crc_frame.sv | $(BUILD)
 	$(IVERILOG) -g2012 -Wall -o $@ $^
 
+$(BUILD)/tb_axis_crc_saf: tb/tb_axis_crc_saf.sv rtl/axis_crc_inserter.sv rtl/axis_crc_checker.sv rtl/crc_frame.sv | $(BUILD)
+	$(IVERILOG) -g2012 -Wall -o $@ $^
+
 $(BUILD)/tb_8b10b: tb/tb_8b10b.sv rtl/encoder_8b10b.sv rtl/decoder_8b10b.sv | $(BUILD)
 	$(IVERILOG) -g2012 -Wall -o $@ $^
 
@@ -225,7 +228,7 @@ SIM_BINS := $(BUILD)/tb_serializer_lsb $(BUILD)/tb_serializer_msb \
             $(BUILD)/tb_cdr_bypass $(BUILD)/tb_compat_legacy $(BUILD)/tb_compat_port_order \
             $(BUILD)/tb_apb_csr $(BUILD)/tb_async_fifo \
             $(BUILD)/tb_link_training_fsm $(BUILD)/tb_crc_frame \
-            $(BUILD)/tb_axis_crc $(BUILD)/tb_8b10b $(BUILD)/tb_64b66b \
+            $(BUILD)/tb_axis_crc $(BUILD)/tb_axis_crc_saf $(BUILD)/tb_8b10b $(BUILD)/tb_64b66b \
             $(BUILD)/tb_64b66b_gearbox $(BUILD)/tb_pcs_8b10b \
             $(BUILD)/tb_crc_tx_endpoint $(BUILD)/tb_crc_rx_endpoint \
             $(BUILD)/tb_soc_cdc_training $(BUILD)/tb_soc_cdc_crc \
@@ -264,6 +267,7 @@ sim: $(SIM_BINS)
 	$(VVP) $(BUILD)/tb_link_training_fsm
 	$(VVP) $(BUILD)/tb_crc_frame
 	$(VVP) $(BUILD)/tb_axis_crc
+	$(VVP) $(BUILD)/tb_axis_crc_saf
 	$(VVP) $(BUILD)/tb_8b10b
 	$(VVP) $(BUILD)/tb_64b66b
 	$(VVP) $(BUILD)/tb_64b66b_gearbox

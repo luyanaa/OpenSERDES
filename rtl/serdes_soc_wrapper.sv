@@ -312,7 +312,7 @@ module serdes_soc_wrapper #(
         .rx_freq_trim(rx_freq_trim),
         .rx_busy(rx_busy),
         .rx_clk_out(rx_clk_out),
-        .crc_error()
+        .crc_error(), .crc_frame_drop()
     );
 
     // In word-BIST mode the RX AXIS frame is consumed by the checker instead
