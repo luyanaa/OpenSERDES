@@ -41,7 +41,7 @@ module tb_64b66b;
         bad_block = block; bad_block[65:64] = 2'b00; #1;
         if (bad_sync_ok) begin $display("FAIL invalid sync accepted"); errors++; end
         if (errors) $display("FAIL 64b66b errors=%0d", errors);
-        else $display("PASS 64b66b data blocks + invalid sync rejection");
+        else $display("PASS 64b66b data+control blocks + invalid sync rejection");
         $finish;
     end
 endmodule
