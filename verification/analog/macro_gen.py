@@ -17,6 +17,7 @@ Supported topologies:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import sys
 from pathlib import Path
@@ -164,6 +165,27 @@ def _report_match(path: Path | None) -> bool:
             or "lvs clean" in lowered)
 
 
+def _evidence_hash(views: dict, circuit: str, name: str) -> str:
+    """Deterministic SHA256 over the macro's emitted artifacts.
+
+    Hashes the canonical macro name + the schematic + the bytes of every
+    *available* physical/report view (GDS/LEF/CDL/PEX/DRC/LVS).  This is the
+    trust anchor that lets a sky130-generated macro and an ingested
+    gf180/ihp bespoke macro be compared on the same footing: identical
+    content -> identical hash, regardless of which flow produced the views.
+    """
+    h = hashlib.sha256()
+    h.update(name.encode())
+    h.update(circuit.encode())
+    for key in ("layout", "lef", "cdl", "pex", "drc", "lvs"):
+        view = views.get(key) or {}
+        path = view.get("path")
+        if path and Path(path).is_file():
+            h.update(key.encode())
+            h.update(Path(path).read_bytes())
+    return h.hexdigest()
+
+
 def _drc_clean(path: Path | None) -> bool:
     if path is None:
         return False
@@ -259,6 +281,16 @@ def write_macro(outdir: Path, tech: dict, topology: str, name: str,
              "ground" if p == "VSS" else "input" if p == "IN" else "output"}
             for i, p in enumerate(("VDD", "VSS", "IN", "OUT"))
         ],
+        # Named-pin contract shared by every PDK: the canonical VDD/VSS/IN/OUT
+        # port list above is the single point of agreement between the
+        # blackbox Verilog, the schematic and the physical views.
+        "named_pins": {"power": "VDD", "ground": "VSS",
+                       "input": "IN", "output": "OUT"},
+        "device_models": {
+            "nmos": (tech.get("devices") or {}).get("nmos"),
+            "pmos": (tech.get("devices") or {}).get("pmos"),
+        },
+        "evidence_hash": _evidence_hash(views, circuit, name),
         "views": views,
         "note": ("GDS attachment alone is LAYOUT_ATTACHED, not topology proof; "
                  "no fabricated GDS/LEF/Liberty is emitted. SIGNOFF_ELIGIBLE "
