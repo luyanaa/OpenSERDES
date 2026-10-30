@@ -88,6 +88,45 @@ def _netlist(pdk: Path, pex: Path, work: Path) -> Path:
     return work / "op_ac_tran.sp"
 
 
+def _z_deck(pdk: Path, pex: Path, work: Path, kind: str) -> Path:
+    """Build a two-point DC port-impedance sweep.
+
+    ``zin`` injects 0/1 nA into the high-impedance input (no ideal voltage
+    source on IN); ``zout`` fixes VIN and injects 0/1 uA into OUT.  The tiny
+    input perturbation keeps the feedback inverter in its linear region.
+    """
+    lib = pdk / DEFAULT_LIB
+    body = _clean_body(pex)
+    if kind == "zin":
+        source = "I1 0 IN DC 0"
+        sweep = "I1"
+        stop = "1n"
+        path = work / "z_in.sp"
+    elif kind == "zout":
+        source = "VIN IN 0 DC 0.6\nI2 0 OUT DC 0"
+        sweep = "I2"
+        stop = "1u"
+        path = work / "z_out.sp"
+    else:
+        raise ValueError(kind)
+    path.write_text(
+        f".lib {lib} mos_tt\n"
+        ".subckt rx_macro VSS VDD IN OUT\n"
+        f"{body}\n"
+        ".ends\n"
+        "VDD VDD 0 1.2\n"
+        "VSS VSS 0 0\n"
+        f"{source}\n"
+        "Xdut VSS VDD IN OUT rx_macro\n"
+        ".control\n"
+        "set filetype=ascii\n"
+        f"dc {sweep} 0 {stop} {stop}\n"
+        f"wrdata {work / ('z_' + kind + '.dat')} v(in) v(out)\n"
+        ".endc\n.end\n"
+    )
+    return path
+
+
 def _parse_op(text: str) -> dict[str, float]:
     out = {}
     for name, val in re.findall(
@@ -171,6 +210,28 @@ def _metrics(pdk: Path, pex: Path, work: Path, env: dict[str, str]) -> dict:
         "returncode": nres["returncode"],
         "onoise_total_v": float(m.group(1)) if m else None,
     }
+    # Two-point DC port impedances.  The input uses 1 nA to stay in the
+    # small-signal region; the output uses 1 uA.
+    port: dict[str, float | None] = {"zin_ohm": None, "zout_ohm": None}
+    for kind, stop in (("zin", 1e-9), ("zout", 1e-6)):
+        deck = _z_deck(pdk, pex, work, kind)
+        zlog = work / f"log_{kind}.log"
+        zrep = run(["ngspice", "-b", str(deck)], work, env, zlog, timeout=300)
+        zdata = work / f"z_{kind}.dat"
+        if zrep["returncode"] == 0 and zdata.is_file():
+            z = _read_data(zdata, 3)
+            if z.shape[1] >= 4:
+                v0, v1 = z[0, 1], z[0, 3] if kind == "zin" else z[0, 3]
+                w0, w1 = z[-1, 1], z[-1, 3] if kind == "zin" else z[-1, 3]
+            else:
+                v0, v1 = z[0, 1], z[-1, 1]
+                w0, w1 = z[0, 2], z[-1, 2]
+            if kind == "zin":
+                port["zin_ohm"] = float(abs(v1 - v0) / stop)
+            else:
+                port["zout_ohm"] = float(abs(w1 - w0) / stop)
+        port[f"{kind}_returncode"] = zrep["returncode"]
+    metrics["dc_port"] = port
     return metrics
 
 
@@ -249,6 +310,8 @@ def main() -> int:
             "tran_vout_final": [r["sim"]["tran"]["vout_final"] for r in full],
             "tran_vout_min": [r["sim"]["tran"]["vout_min"] for r in full],
             "tran_vout_max": [r["sim"]["tran"]["vout_max"] for r in full],
+            "zin_ohm": [r["sim"].get("dc_port", {}).get("zin_ohm") for r in full],
+            "zout_ohm": [r["sim"].get("dc_port", {}).get("zout_ohm") for r in full],
             "noise_total_v": [r["sim"]["noise"].get("onoise_total_v") for r in full],
         }
     spreads = {k: _spread([float(x) for x in v if x is not None])

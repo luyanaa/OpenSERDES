@@ -211,15 +211,15 @@ python3 verification/analog/ihp_pex_repeatability.py --runs 5
 The structure is not deterministic, but the port-level responses are.  The
 relative spread across the five runs is:
 
-| Metric | Relative spread |
-|---|---:|
-| DC `V(OUT)` / `I(VDD)` | 0 |
-| AC gain at 1 kHz | 0 |
-| AC gain at 1 MHz | `1.40e-12` |
-| AC gain at 100 MHz | `1.55e-8` |
-| Input capacitance at 1 MHz | `2.32e-9` |
-| Transient final value | 0 |
-| Integrated output noise | `3.03e-3` (0.30%) |
+| Metric | Typical value | Relative spread |
+|---|---:|---:|
+| DC `V(OUT)` / `I(VDD)` | 0.620552 V / -390.074 uA | 0 |
+| DC input impedance `Zin` | 420.75 Mohm | `1.09e-5` |
+| DC output impedance `Zout` | 22.923 kohm | 0 |
+| AC gain at 1 kHz / 1 MHz / 100 MHz | 24.742 / 24.742 / 24.647 dB | 0 / `1.40e-12` / `1.55e-8` |
+| Input capacitance at 1 MHz | 685.93 aF | `2.32e-9` |
+| Transient min / max / final | -16.61 mV / 626.37 mV / 620.55 mV | `1.38e-7` / `4.15e-8` / 0 |
+| Integrated output noise | 15.28 uV | `3.03e-3` (0.30%) |
 
 Classification: **electrically equivalent with different RC
 segmentation**, not an extraction failure.  The acceptance gate is the 5%

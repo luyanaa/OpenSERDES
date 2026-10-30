@@ -134,6 +134,8 @@ macro:
           ac_mid_db: 1.4e-12
           ac_high_db: 1.55e-8
           input_cap_1m_f: 2.32e-9
+          zin_ohm: 1.09e-5
+          zout_ohm: 0.0
           transient_final: 0.0
           noise_total: 3.03e-3
         note: >-
