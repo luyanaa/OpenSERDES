@@ -610,6 +610,8 @@ ms-phy-baseline: magic-pex analog-macro-pex
 		--temps $(or $(MS_PHY_TEMPS),27,125) \
 		--noise-mv $(or $(MS_PHY_NOISE_MV),0) \
 		--corners $(or $(MS_PHY_CORNERS),tt,ss,ff,sf,fs) \
+		--prbs-seeds $(or $(MS_PHY_PRBS_SEEDS),0x5D) \
+		--noise-seeds $(or $(MS_PHY_NOISE_SEEDS),7) \
 		--out $(MS_PHY_OUT) --workdir $(MS_PHY_WORKDIR)
 
 rx-pex-digital-e2e: magic-pex analog-macro-pex

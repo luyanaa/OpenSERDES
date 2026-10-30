@@ -45,15 +45,17 @@ def _bits(n: int, seed: int = 0x5D) -> list[int]:
 def run_point(tx: Path, rx: Path, pdk: Path, workdir: Path, *,
               rate_mbps: float, corner: str, vdd: float,
               temp_c: float | None, noise_mv: float, bits: int,
-              phase_len: int) -> dict:
+              phase_len: int, prbs_seed: int = 0x5D,
+              noise_seed: int = 7) -> dict:
     ui_ns = 1000.0 / rate_mbps
-    payload = _bits(bits)
+    payload = _bits(bits, seed=prbs_seed)
     rep = mse.run(tx, rx, payload, ui_ns, pdk, workdir, corner,
                   vdd=vdd, temp_c=temp_c, noise_mv=noise_mv,
-                  noise_seed=7, phase_len=phase_len)
+                  noise_seed=noise_seed, phase_len=phase_len)
     return {
         "rate_mbps": rate_mbps, "corner": corner, "vdd_v": vdd,
         "temp_c": temp_c, "noise_mv": noise_mv, "bits": bits,
+        "prbs_seed": prbs_seed, "noise_seed": noise_seed,
         "errors": rep["errors"], "ber": rep["ber"],
         "validation_errors": rep["validation_errors"],
         "validation_ber": rep["validation_ber"],
@@ -82,6 +84,12 @@ def main() -> int:
                     help="VDD scale factors vs nominal 1.8V")
     ap.add_argument("--temps", default="-40,27,125", help="°C grid")
     ap.add_argument("--noise-mv", default="0,100", help="channel noise grid")
+    ap.add_argument("--prbs-seeds", default="0x5D",
+                    help="comma list of PRBS-7 payload seeds; >1 seed replays "
+                         "each screen point on a different bit pattern")
+    ap.add_argument("--noise-seeds", default="7",
+                    help="comma list of noise seeds; >1 seed replays noisy "
+                         "points on different noise realisations")
     ap.add_argument("--corners", default="tt,ss,ff,sf,fs",
                     help="sky130 process corners to screen (ngspice .lib names); "
                          "tt ss ff sf fs are the real skew corners, ll/hh/hl/lh "
@@ -159,6 +167,28 @@ def main() -> int:
             records.append(rec)
             print(f"corner {c}: BER={rec['validation_ber']:.3g} "
                   f"eye_open={rec['eye_open_clean_ns']:.3g}ns")
+
+        # 5) Multi-seed robustness screen: replay the nominal point on several
+        #    PRBS payload seeds and noise seeds so a single lucky bit pattern or
+        #    noise realisation cannot pass by accident.  Longer --bits is the
+        #    long-PRBS knob; each (prbs, noise) pair is one transient.
+        prbs_seeds = [int(x, 0) for x in args.prbs_seeds.split(",") if x.strip()]
+        noise_seeds = [int(x, 0) for x in args.noise_seeds.split(",") if x.strip()]
+        max_noise = max([float(x) for x in args.noise_mv.split(",") if x.strip()])
+        for ps in prbs_seeds:
+            for ns in noise_seeds:
+                if ps == 0x5D and ns == 7:
+                    continue   # already the nominal realisation
+                rec = run_point(tx, rx, pdk,
+                                workdir / f"seed_p{ps:x}_n{ns}",
+                                rate_mbps=args.base_rate_mbps, corner="tt",
+                                vdd=1.8, temp_c=27.0, noise_mv=max_noise,
+                                bits=args.bits, phase_len=args.phase_len,
+                                prbs_seed=ps, noise_seed=ns)
+                rec["point"] = f"seed_p{ps:x}_n{ns}"
+                records.append(rec)
+                print(f"seed prbs=0x{ps:x} noise={ns}: "
+                      f"BER={rec['validation_ber']:.3g}")
 
     n_err = sum(1 for r in records if r["returncode"] != 0)
     report = {
