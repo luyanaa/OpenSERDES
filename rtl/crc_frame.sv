@@ -42,6 +42,7 @@ module crc_frame #(
 
     logic [CRC_WIDTH-1:0] crc_q;
     logic [CRC_WIDTH-1:0] next_crc;
+    logic [CRC_WIDTH-1:0] next_crc_init;
     logic                 valid_q;
 
     function automatic logic [CRC_WIDTH-1:0] reflect(
@@ -54,22 +55,28 @@ module crc_frame #(
         return result;
     endfunction
 
-    always_comb begin
+    function automatic logic [CRC_WIDTH-1:0] step(
+        input logic [CRC_WIDTH-1:0] crc_in,
+        input logic [DATA_WIDTH-1:0] data_in
+    );
         logic [CRC_WIDTH-1:0] work;
         logic din;
-        work = crc_q;
+        work = crc_in;
         for (int i = 0; i < DATA_WIDTH; i++) begin
             if (LSB_FIRST)
-                din = data[i];
+                din = data_in[i];
             else
-                din = data[DATA_WIDTH-1-i];
+                din = data_in[DATA_WIDTH-1-i];
             if (work[CRC_WIDTH-1] ^ din)
                 work = {work[CRC_WIDTH-2:0], 1'b0} ^ POLY;
             else
                 work = {work[CRC_WIDTH-2:0], 1'b0};
         end
-        next_crc = work;
-    end
+        return work;
+    endfunction
+
+    assign next_crc      = step(crc_q, data);
+    assign next_crc_init = step(INIT, data);
 
     assign crc_raw = crc_q;
     assign crc = REFLECT_OUT ? (reflect(crc_q) ^ XOR_OUT) : (crc_q ^ XOR_OUT);
@@ -83,8 +90,15 @@ module crc_frame #(
             crc_q   <= INIT;
             valid_q <= 1'b0;
         end else if (frame_start) begin
-            crc_q   <= INIT;
-            valid_q <= 1'b0;
+            // A frame may start and carry its first data word in the same
+            // cycle.  This is required by AXIS-style streaming adapters.
+            if (data_valid) begin
+                crc_q   <= next_crc_init;
+                valid_q <= frame_end;
+            end else begin
+                crc_q   <= INIT;
+                valid_q <= 1'b0;
+            end
         end else if (data_valid) begin
             crc_q   <= next_crc;
             valid_q <= frame_end;

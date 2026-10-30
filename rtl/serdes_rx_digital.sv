@@ -37,7 +37,8 @@ module serdes_rx_digital #(
     parameter int SYNC_LEN        = 8,
     parameter logic [SYNC_LEN-1:0] SYNC_PATTERN = 'hBC,
     parameter int ADAPT_FRAC_BITS = 12,
-    parameter int ADAPT_LOOP_GAIN = 8
+    parameter int ADAPT_LOOP_GAIN = 8,
+    parameter int PHASE_CTRL_W = (OVERSAMPLE <= 1) ? 1 : $clog2(OVERSAMPLE)
 ) (
     input  logic                              rx_clk,
     input  logic                              rx_rst_n,
@@ -45,6 +46,9 @@ module serdes_rx_digital #(
     input  logic                              rx_flush,
     input  logic                              rx_align,
     input  logic                              rx_serial_in,
+    /* verilator lint_off UNUSEDSIGNAL */
+    input  logic [PHASE_CTRL_W-1:0]           phase_offset = '0,
+    /* verilator lint_on UNUSEDSIGNAL */
     output logic [WORDS-1:0][DATA_WIDTH-1:0]  rx_par_data,
     output logic                              rx_par_valid,
     output logic                              rx_busy,
@@ -119,6 +123,7 @@ module serdes_rx_digital #(
                 .enable(rx_enable),
                 .flush(rx_flush),
                 .data_in(rx_serial_in),
+                .phase_offset(phase_offset),
                 .data_out(cdr_data_out),
                 .sample_strobe(cdr_sample_strobe),
                 .clk_out(cdr_clk_out),
@@ -138,6 +143,7 @@ module serdes_rx_digital #(
                 .enable(rx_enable),
                 .flush(rx_flush),
                 .data_in(rx_serial_in),
+                .phase_offset(phase_offset),
                 .data_out(cdr_data_out),
                 .sample_strobe(cdr_sample_strobe),
                 .clk_out(cdr_clk_out),

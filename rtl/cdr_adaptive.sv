@@ -29,13 +29,15 @@ module cdr_adaptive #(
     parameter int LOCK_RELEASE     = 8,
     parameter int LOCK_STALE_BITS  = 32,
     parameter int PHASE_DEADBAND   = 1,
-    parameter int LOOP_SETTLE_BITS = 32
+    parameter int LOOP_SETTLE_BITS = 32,
+    parameter int PHASE_CTRL_W     = (OVERSAMPLE <= 1) ? 1 : $clog2(OVERSAMPLE)
 ) (
     input  logic clk,
     input  logic rst_n,
     input  logic enable,
     input  logic flush,
     input  logic data_in,
+    input  logic [PHASE_CTRL_W-1:0] phase_offset = '0,
     output logic data_out,
     output logic sample_strobe,
     output logic clk_out,
@@ -81,6 +83,8 @@ module cdr_adaptive #(
     logic [PHASE_W-1:0] period_last_q;
     logic [PHASE_W-1:0] period_last_next;
     logic [PHASE_W-1:0] sample_phase;
+    logic [PHASE_W:0]   sample_phase_sum;
+    logic [PHASE_W-1:0] sample_phase_eff;
     logic [PHASE_W-1:0] clk_high_phase;
     logic signed [1:0]  delta_q;
     logic signed [1:0]  delta_next;
@@ -146,13 +150,20 @@ module cdr_adaptive #(
         else if (delta_q > 0)
             clk_high_phase = clk_high_phase + ONE_C;
 
+        // Phase-calibration request wraps modulo the variable period space.
+        sample_phase_sum = sample_phase + (PHASE_W+1)'(phase_offset);
+        if (sample_phase_sum >= (PHASE_W+1)'(OVERSAMPLE + 2))
+            sample_phase_eff = PHASE_W'(sample_phase_sum - (PHASE_W+1)'(OVERSAMPLE + 2));
+        else
+            sample_phase_eff = sample_phase_sum[PHASE_W-1:0];
+
         if (phase_q <= HALF_C)
             phase_err = $signed({1'b0, phase_q});
         else
             phase_err = $signed({1'b0, phase_q}) - PHASE_OS_S;
     end
 
-    assign sample_now     = (phase_q == sample_phase);
+    assign sample_now     = (phase_q == sample_phase_eff);
     assign sample_valid   = sample_now && !(data_edge && !lock_q);
     assign bit_period_end = (phase_q == period_last_q);
 

@@ -17,6 +17,7 @@
 //   rx_frame_locked : comma/training alignment acquired (ALIGN_MODE=1).
 //   rx_serial_data  : recovered serial stream used by the deserializer.
 // -----------------------------------------------------------------------------
+/* verilator lint_off UNUSEDSIGNAL */
 module serdes_digital_top #(
     parameter int DATA_WIDTH      = 32,
     parameter int WORDS           = 8,
@@ -32,7 +33,11 @@ module serdes_digital_top #(
     parameter int SYNC_LEN        = 8,
     parameter logic [SYNC_LEN-1:0] SYNC_PATTERN = 'hBC,
     parameter int ADAPT_FRAC_BITS = 12,
-    parameter int ADAPT_LOOP_GAIN = 8
+    parameter int ADAPT_LOOP_GAIN = 8,
+    parameter int PHASE_CTRL_W = (OVERSAMPLE <= 1) ? 1 : $clog2(OVERSAMPLE),
+    parameter bit TRAINING_ENABLE = 1'b0,
+    parameter int TRAIN_DWELL_CYCLES = 64,
+    parameter int TRAIN_ERROR_WIDTH = 16
 ) (
     // TX domain
     input  logic                              tx_clk,
@@ -64,8 +69,69 @@ module serdes_digital_top #(
     output logic                              rx_frame_valid,
     output logic                              rx_serial_data,
     output logic                              rx_serial_valid,
-    output logic signed [ADAPT_FRAC_BITS:0]   rx_freq_trim
+    output logic signed [ADAPT_FRAC_BITS:0]   rx_freq_trim,
+
+    // Optional digital training interface.  The error count is supplied by
+    // the link scoreboard/PRBS checker; the phase request drives the CDR's
+    // external calibration input.  TRAINING_ENABLE defaults to 0 so existing
+    // generated packages and testbenches are unchanged.
+    input  logic                              train_start = 1'b0,
+    input  logic [TRAIN_ERROR_WIDTH-1:0]      train_error_count = '0,
+    output logic                              train_locked,
+    output logic                              train_busy,
+    output logic                              train_retrain,
+    output logic                              train_phase_we,
+    output logic                              train_thresh_we,
+    output logic [PHASE_CTRL_W-1:0]           train_phase,
+    output logic [PHASE_CTRL_W-1:0]           train_best_phase,
+    output logic [TRAIN_ERROR_WIDTH-1:0]      train_best_errors
 );
+/* verilator lint_on UNUSEDSIGNAL */
+
+    logic [PHASE_CTRL_W-1:0] phase_offset;
+
+    generate
+        if (TRAINING_ENABLE) begin : g_training
+            /* verilator lint_off PINCONNECTEMPTY */
+            link_training_fsm #(
+                .PHASE_STEPS(OVERSAMPLE),
+                .THRESH_STEPS(1),
+                .DWELL_CYCLES(TRAIN_DWELL_CYCLES),
+                .ERROR_WIDTH(TRAIN_ERROR_WIDTH),
+                .RETRAIN_ERR_THRESH(4),
+                .RETRAIN_WINDOW(256)
+            ) u_train (
+                .clk(rx_clk),
+                .rst_n(rx_rst_n),
+                .enable(rx_enable),
+                .start(train_start),
+                .error_count(train_error_count),
+                .phase_sel(phase_offset),
+                .thresh_sel(),
+                .phase_we(train_phase_we),
+                .thresh_we(train_thresh_we),
+                .busy(train_busy),
+                .locked(train_locked),
+                .retrain(train_retrain),
+                .state(),
+                .best_phase(train_best_phase),
+                .best_thresh(),
+                .best_errors(train_best_errors)
+            );
+            /* verilator lint_on PINCONNECTEMPTY */
+            assign train_phase = phase_offset;
+        end else begin : g_no_training
+            assign phase_offset      = '0;
+            assign train_locked      = 1'b0;
+            assign train_busy        = 1'b0;
+            assign train_retrain     = 1'b0;
+            assign train_phase_we    = 1'b0;
+            assign train_thresh_we   = 1'b0;
+            assign train_phase       = '0;
+            assign train_best_phase  = '0;
+            assign train_best_errors = '0;
+        end
+    endgenerate
 
     serdes_tx_digital #(
         .DATA_WIDTH(DATA_WIDTH),
@@ -107,6 +173,7 @@ module serdes_digital_top #(
         .rx_flush(rx_flush),
         .rx_align(rx_align),
         .rx_serial_in(rx_serial_in),
+        .phase_offset(phase_offset),
         .rx_par_data(rx_par_data),
         .rx_par_valid(rx_par_valid),
         .rx_busy(rx_busy),

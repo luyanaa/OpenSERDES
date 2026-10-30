@@ -10,8 +10,11 @@ actuator, and is included in the package's verification evidence.
 
 | Block | File | Status | Integration |
 |---|---|---|---|
-| Link-training FSM | `rtl/link_training_fsm.sv` | RTL verified (`tb/tb_link_training_fsm.sv`) | standalone; needs phase/threshold actuator |
-| Framed CRC | `rtl/crc_frame.sv` | RTL verified (`tb/tb_crc_frame.sv`) | standalone; needs AXIS/frame plumbing |
+| Link-training FSM | `rtl/link_training_fsm.sv` | RTL verified (`tb/tb_link_training_fsm.sv`) | optional `TRAINING_ENABLE` path in `serdes_digital_top`; external error count required |
+| Framed CRC | `rtl/crc_frame.sv` | RTL verified (`tb/tb_crc_frame.sv`) | primitive |
+| AXIS CRC insert/check | `rtl/axis_crc_inserter.sv`, `rtl/axis_crc_checker.sv` | RTL verified (`tb/tb_axis_crc.sv`) | standalone; `tuser` marks payload end, `tlast` marks final CRC |
+| 8b10b encoder/decoder | `rtl/encoder_8b10b.sv`, `rtl/decoder_8b10b.sv` | RTL verified (`tb/tb_8b10b.sv`) | standalone; all 256 data bytes + K28.5 round-trip |
+| 64b66b data block | `rtl/pcs_64b66b.sv` | RTL verified (`tb/tb_64b66b.sv`) | standalone; data blocks and sync-header check only |
 
 ### `link_training_fsm`
 
@@ -38,12 +41,13 @@ link_training_fsm #(
 );
 ```
 
-It is deliberately not connected to `cdr_oversampling` or
-`cdr_adaptive`: those blocks currently select phase internally and expose no
-external phase/threshold port.  A real integration requires a phase
-interpolator or delay-line actuator plus an error source (PRBS checker or
-frame CRC).  Until that exists, the generator must report
-`training: none` or `training: rtl_standalone`, not `training: verified`.
+`cdr_oversampling` and `cdr_adaptive` now accept a bounded external
+`phase_offset` (wrapping over their phase period), and `serdes_digital_top`
+has an optional `TRAINING_ENABLE` path that connects the FSM phase request to
+that input.  The error counter is still an external monotonic input
+(`train_error_count`); it is not yet connected to the SoC BIST checker, and
+the generator does not yet expose the training parameter as a capability.
+Therefore the block is `RTL_OPTIONAL`, not `training: verified` at link level.
 
 ### `crc_frame`
 
@@ -60,9 +64,12 @@ CRC-16/CCITT-FALSE("123456789") = 0x29B1
 CRC-32/ISO-HDLC("123456789")    = 0xCBF43926
 ```
 
-The block is not yet an AXIS frame checker and does not define sequence IDs,
-sync words, or retransmission policy.  Those belong in a framed PCS layer, not
-inside the CRC primitive.
+`axis_crc_inserter` appends the CRC beats after the payload and uses
+`m_axis_tuser` to mark the last payload beat; `m_axis_tlast` is reserved for
+the final CRC beat.  `axis_crc_checker` forwards payload, consumes the CRC
+beats, and pulses `crc_ok`/`crc_error`.  This is a bounded AXIS framing
+primitive; sync words, sequence IDs and retransmission policy remain outside
+the CRC block and are not yet integrated into the SoC wrapper.
 
 ## Capability matrix
 
@@ -73,15 +80,18 @@ is verified but not connected; `none` means no implementation exists.
 | Capability | Options | Current status | Evidence |
 |---|---|---|---|
 | Line coding | `raw` | integrated RTL | existing serializer/deserializer |
-| Line coding | `8b10b`, `64b66b` | none; generator rejects | `test_generator_contracts.py` |
+| Line coding | `8b10b` | RTL_STANDALONE (256 data + K28.5) | `rtl/encoder_8b10b.sv`, `rtl/decoder_8b10b.sv` |
+| Line coding | `64b66b` | RTL_STANDALONE data block only; no control/gearbox | `rtl/pcs_64b66b.sv` |
+| Line coding | generator selection | none; rejects both | `test_generator_contracts.py` |
 | Framing | `none`, `sync_word` | integrated comma alignment | `rtl/comma_align.sv` |
-| Framing / CRC | `crc16`, `crc32` | RTL_STANDALONE | `rtl/crc_frame.sv` |
-| Training | `phase_threshold` | RTL_STANDALONE | `rtl/link_training_fsm.sv` |
+| Framing / CRC | `crc16`, `crc32` | RTL_STANDALONE | `rtl/axis_crc_inserter.sv`, `rtl/axis_crc_checker.sv` |
+| Training | `phase_threshold` | RTL_OPTIONAL (top parameter, external error count) | `rtl/link_training_fsm.sv` |
 | Clock source | `source_sync`, `independent` | integrated | `serdes_rx_digital` |
 | Clock recovery | fixed/adaptive oversampling | integrated RTL | `cdr_oversampling`, `cdr_adaptive` |
 | Clock recovery | bang-bang / PI-CDR / PLL | none | no verified block |
 | Sampler | `single_edge` | integrated RTL | `receiver_sampler` |
-| Sampler | DDR / multiphase / interleaved | none | needs physical phase clocks |
+| Sampler | DDR / multiphase / interleaved | fail-closed in generator | needs physical phase clocks |
+| Clock axes | `clock_source`, `clock_recovery`, `sampler_architecture` | explicit spec validation + manifest | `gen_ip.py` |
 | TX driver | RTL serializer | integrated | `serializer*.sv` |
 | TX driver | inverter / segmented / CML | analog macros only where separately closed | analog evidence directories |
 | RX front-end | RTL sampler | integrated | `receiver_sampler` |
@@ -150,18 +160,21 @@ block is wired into the generated design and has package-level evidence.
 3. Missing actuators must be `none`, not a synthesized fake phase/threshold
    control.  In particular, do not connect `phase_sel` to a CDR that has no
    phase input.
-4. `coding: 8b10b` and `coding: 64b66b` remain rejected until encoder,
-   decoder, disparity/error handling, comma/gear box semantics, and tests are
-   present.
+4. `coding: 8b10b` and `coding: 64b66b` remain rejected by the generator until
+   the verified encoder/decoder primitives are integrated into the PCS data
+   path with comma/gear box semantics and package-level tests.  The standalone
+   blocks are not sufficient to change the link-level coding claim.
 5. Analog macros are separate capability objects.  A closed GF180/IHP macro
    does not by itself prove a digital training axis or a link-level PCS.
 
 ## Next implementation slices
 
-1. Add an actuator contract to `cdr_oversampling`/`cdr_adaptive` (external
-   phase offset with explicit range/step and a `phase_we` strobe).
-2. Connect `link_training_fsm` to the PRBS checker in the SoC/BIST path and
-   expose telemetry through `apb_csr`.
-3. Add a framed AXIS CRC checker/inserter using `crc_frame`; keep the CRC
-   primitive independent.
-4. Implement 8b10b encoder/decoder and only then enable `coding: 8b10b`.
+1. Connect `train_error_count` to the SoC PRBS checker and expose training
+   telemetry through `apb_csr`; only then allow `training: phase_threshold` in
+   the generator.
+2. Add an integrated AXIS CRC mode (including `tuser` plumbing) to the SoC
+   wrapper and decide the on-wire CRC order/sequence-ID contract.
+3. Add 64b66b control blocks, block distribution and a gearbox; only then
+   enable `coding: 64b66b`.
+4. Add a physical phase-clock generator / sampler backend before enabling DDR,
+   multiphase or interleaved sampling.

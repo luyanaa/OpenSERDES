@@ -165,6 +165,18 @@ AXIS word adapter：一个 beat 是一个 `DATA_WIDTH` word，`tlast` 标最后�
 
 训练/CRC 的能力边界和后续接入条件见 `docs/digital_training_crc.md`。
 
+### `rtl/axis_crc_inserter.sv` / `rtl/axis_crc_checker.sv`
+
+AXIS CRC 插入/检查原语。插入器把 CRC beats 追加在 payload 之后，用 `m_axis_tuser` 标 payload 最后一拍，`m_axis_tlast` 留给最后 CRC beat；检查器转发 payload、消费 CRC beats，并输出 `crc_ok` / `crc_error`。这是帧级原语，尚未接入 SoC AXIS wrapper。
+
+### `rtl/encoder_8b10b.sv` / `rtl/decoder_8b10b.sv`
+
+8b/10b 编解码器，已验证全部 256 个数据字节和 K28.5 round-trip。实现改编自 MIT 许可的 `libsv`，来源和许可证见 `docs/third_party.md`。目前是独立 RTL，generator 仍拒绝 `coding: 8b10b`，直到 PCS 数据路径完成集成。
+
+### `rtl/pcs_64b66b.sv`
+
+64b/66b data-block 原语：2-bit sync header + 64-bit self-synchronous scrambler payload，验证数据块 round-trip 和非法 sync 拒绝。尚未实现 control block、block distribution、gearbox 或完整 IEEE PCS；generator 仍拒绝 `coding: 64b66b`。
+
 ### `rtl/receiver_sampler.sv`
 
 Receiver 数字边界的 1-bit 采样模型：只建模原 `Receiver.sp` 中 2 GHz NAND DFF 的 `q <= d` 行为，不建模 resistive-feedback inverter、CMOS inverter 或模拟 setup/hold。
@@ -183,7 +195,7 @@ TX/RX 独立端点 wrapper。两者可以分别用不同 PDK 综合，再在同�
 
 ### `rtl/serdes_digital_top.sv`
 
-由 `serdes_tx_digital` + `serdes_rx_digital` 组成的数字顶层。TX/RX 时钟独立；`rx_clk_out` 仅监视，`rx_sample_strobe` 才是数据有效选通。`rx_frame_locked` 表示 comma/training 帧对齐已建立；`rx_lock_stale` 只表示长时间没有边沿，不应单独用来停止接收。
+由 `serdes_tx_digital` + `serdes_rx_digital` 组成的数字顶层。TX/RX 时钟独立；`rx_clk_out` 仅监视，`rx_sample_strobe` 才是数据有效选通。`rx_frame_locked` 表示 comma/training 帧对齐已建立；`rx_lock_stale` 只表示长时间没有边沿，不应单独用来停止接收。`TRAINING_ENABLE=1` 时，`train_error_count` 驱动 `link_training_fsm`，其 `phase_sel` 接到 CDR 的 `phase_offset`；错误源、CSR telemetry 和 generator 开关尚未接入，默认关闭。
 
 ### `rtl/cdr_sync.sv` / `rtl/cdr_oversampling.sv` / `rtl/cdr_adaptive.sv`
 

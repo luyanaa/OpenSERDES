@@ -43,13 +43,15 @@ module cdr_oversampling #(
     parameter int OVERSAMPLE      = 4,
     parameter int SYNC_STAGES     = 3,
     parameter int LOCK_THRESH     = 8,
-    parameter int LOCK_STALE_BITS = 16
+    parameter int LOCK_STALE_BITS = 16,
+    parameter int PHASE_CTRL_W    = (OVERSAMPLE <= 1) ? 1 : $clog2(OVERSAMPLE)
 ) (
     input  logic clk,
     input  logic rst_n,
     input  logic enable,
     input  logic flush,
     input  logic data_in,
+    input  logic [PHASE_CTRL_W-1:0] phase_offset = '0,
     output logic data_out,
     output logic sample_strobe,
     output logic clk_out,
@@ -88,6 +90,8 @@ module cdr_oversampling #(
     logic                sample_now;
     logic                sample_valid;
     logic                bit_period_end;
+    logic [PHASE_W:0]    sample_phase_sum;
+    logic [PHASE_W-1:0]  sample_phase_eff;
 
     cdr_sync #(.STAGES(N)) u_sync (
         .clk(clk),
@@ -96,8 +100,19 @@ module cdr_oversampling #(
         .samples(samples)
     );
 
+    // External phase calibration request.  The offset is relative to the
+    // acquisition-derived sample point and wraps modulo OVERSAMPLE.  A zero
+    // default preserves the original behaviour for every existing instantiation.
+    always_comb begin
+        sample_phase_sum = SAMPLE_PHASE_C + phase_offset;
+        if (sample_phase_sum >= (PHASE_W+1)'(OVERSAMPLE))
+            sample_phase_eff = PHASE_W'(sample_phase_sum - (PHASE_W+1)'(OVERSAMPLE));
+        else
+            sample_phase_eff = sample_phase_sum[PHASE_W-1:0];
+    end
+
     assign data_edge      = samples[N-1] ^ samples[N-2];
-    assign sample_now     = (phase_q == SAMPLE_PHASE_C);
+    assign sample_now     = (phase_q == sample_phase_eff);
     // Do not take a sample on the cycle that reloads the phase from an edge:
     // the selected sample would be from before the acquisition alignment.
     assign sample_valid   = sample_now && !(data_edge && !lock_q);

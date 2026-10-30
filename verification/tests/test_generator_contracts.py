@@ -68,6 +68,20 @@ class TestGeneratorContracts(unittest.TestCase):
         self.assertEqual(code, 2)
         self.assertIn("not implemented", text)
 
+    def test_non_single_edge_sampler_is_fail_closed(self) -> None:
+        spec = _base_spec()
+        spec["rx"]["sampler_architecture"] = "ddr"
+        code, text = self._run(spec)
+        self.assertEqual(code, 2)
+        self.assertIn("single_edge", text)
+
+    def test_unverified_bang_bang_recovery_is_fail_closed(self) -> None:
+        spec = _base_spec()
+        spec["rx"]["clock_recovery"] = "bang_bang"
+        code, text = self._run(spec)
+        self.assertEqual(code, 2)
+        self.assertIn("not integrated", text)
+
     def test_standalone_training_is_fail_closed(self) -> None:
         spec = _base_spec()
         spec["capabilities"] = {"training": "phase_threshold"}

@@ -17,7 +17,8 @@ module serdes_rx_axis_digital #(
     parameter int SYNC_LEN        = 8,
     parameter logic [SYNC_LEN-1:0] SYNC_PATTERN = 'hBC,
     parameter int ADAPT_FRAC_BITS = 12,
-    parameter int ADAPT_LOOP_GAIN = 4
+    parameter int ADAPT_LOOP_GAIN = 4,
+    parameter int PHASE_CTRL_W = (OVERSAMPLE <= 1) ? 1 : $clog2(OVERSAMPLE)
 ) (
     input  logic                              rx_clk,
     input  logic                              rx_rst_n,
@@ -25,6 +26,7 @@ module serdes_rx_axis_digital #(
     input  logic                              rx_flush,
     input  logic                              rx_align,
     input  logic                              rx_serial_in,
+    input  logic [PHASE_CTRL_W-1:0]           phase_offset = '0,
     input  logic                              rx_clear,
 
     output logic                              m_axis_tvalid,
@@ -77,6 +79,7 @@ module serdes_rx_axis_digital #(
         .rx_flush(rx_flush),
         .rx_align(rx_align),
         .rx_serial_in(rx_serial_in),
+        .phase_offset(phase_offset),
         .rx_par_data(par_data),
         .rx_par_valid(rx_par_valid),
         .rx_busy(rx_busy),

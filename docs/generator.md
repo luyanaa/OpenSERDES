@@ -41,6 +41,9 @@ rx:
   oversample: auto
   align: comma_per_frame
   clocking: independent # independent | source_sync
+  clock_source: independent # source_sync | independent | external_reference | ring_pll | adpll | dll
+  clock_recovery: fixed_oversampling # none | source_sync | fixed_oversampling | adaptive_oversampling
+  sampler_architecture: single_edge # single_edge | ddr | multiphase | interleaved
   ppm: 0
   sync_pattern: 0xBC
   sync_len: 32         # must equal payload_width for comma alignment
@@ -57,8 +60,10 @@ optimization:
 
 Rules:
 
-- `link.coding` is currently limited to `raw`: there is no 8b/10b or 64b/66b
-  encoder/decoder, training or framing, so other values fail the generator.
+- `link.coding` is currently limited to `raw` in a generated link package.
+  8b/10b and 64b/66b encoder/decoder primitives exist as standalone RTL, but
+  are not yet integrated into the PCS data path, so these values still fail
+  closed.
 - Comma alignment requires `rx.sync_len == link.payload_width`; a comma is a
   full word, not a byte embedded in a wider word.
 - `interface.cdc: auto` is not inferred from equal clock numbers.  For a `soc`
@@ -72,9 +77,20 @@ Rules:
 - adaptive CDR requires OVERSAMPLE >= 8 and is selected automatically when
   rx.ppm is non-zero.
 - source_sync uses OVERSAMPLE=1 and CDR_BYPASS=1.
+- `clock_source`, `clock_recovery` and `sampler_architecture` are independent
+  spec axes.  `clock_source` and `clock_recovery` must agree with
+  `rx.clocking`/the selected RX architecture.  Only `single_edge` sampling is
+  integrated; DDR/multiphase/interleaved fail closed until physical phase
+  clocks and a verified sampler backend exist.
+- The manifest records `clocking.sample_clock_mhz = line_rate_mbps ×
+  OVERSAMPLE`; this is an RTL clock requirement, not proof that the target
+  standard-cell flow closes at that frequency.
 - The line-rate gate uses max_link_line_rate_mbps for target link and
   max_endpoint_line_rate_mbps for target tx/rx.  --relax-limits is for
   explicit experiments, not signoff.
+- `capabilities` is an optional mapping.  A requested standalone or
+  unimplemented block is rejected; use the explicit `none` bypass.  See
+  `docs/digital_training_crc.md`.
 - interface.data: axi4_stream is supported for target tx/rx, generating
   serdes_tx_axis_digital / serdes_rx_axis_digital.  For target link, preset soc
   + data axi4_stream + control apb + cdc none generates the single-clock

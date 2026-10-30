@@ -423,6 +423,22 @@ def validate(spec: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
         fail("rx.clocking must be independent or source_sync")
     ppm = as_float(rx.get("ppm", 0.0), "rx.ppm")
 
+    # Clock generation, recovery and sampler are separate axes.  They must
+    # not be inferred from one another when the user asks for a physical
+    # architecture that is not implemented.
+    clock_source = str(rx.get("clock_source", clocking)).lower()
+    if clock_source not in ("source_sync", "independent", "external_reference",
+                            "ring_pll", "adpll", "dll"):
+        fail("rx.clock_source must be source_sync, independent, external_reference, ring_pll, adpll or dll")
+    sampler_arch = str(rx.get("sampler_architecture", "single_edge")).lower()
+    if sampler_arch not in ("single_edge", "ddr", "multiphase", "interleaved"):
+        fail("rx.sampler_architecture must be single_edge, ddr, multiphase or interleaved")
+    if sampler_arch != "single_edge":
+        fail(
+            f"rx.sampler_architecture={sampler_arch!r} requires physical multiphase "
+            "sampling clocks and a verified sampler backend; only single_edge is integrated"
+        )
+
     os_raw = rx.get("oversample", "auto")
     if target == "tx":
         oversample = 1
@@ -463,6 +479,21 @@ def validate(spec: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
     if clocking != "source_sync" and rx_arch_name == "source_sync":
         fail("rx.architecture source_sync requires rx.clocking: source_sync")
 
+    recovery_default = ("source_sync" if clocking == "source_sync" else
+                        "adaptive_oversampling" if rx_arch_name == "adaptive_oversampling"
+                        else "fixed_oversampling")
+    clock_recovery = str(rx.get("clock_recovery", recovery_default)).lower()
+    if clock_recovery not in ("none", "source_sync", "fixed_oversampling",
+                              "adaptive_oversampling", "bang_bang", "pi_cdr"):
+        fail("rx.clock_recovery must be none, source_sync, fixed_oversampling, "
+             "adaptive_oversampling, bang_bang or pi_cdr")
+    if clock_recovery in ("bang_bang", "pi_cdr"):
+        fail(f"rx.clock_recovery={clock_recovery!r} is not integrated or verified")
+    if clock_recovery != recovery_default:
+        fail("rx.clock_recovery conflicts with rx.clocking/rx.architecture")
+    if clock_source != clocking:
+        fail("rx.clock_source must match rx.clocking in the current digital backend")
+
     objectives = spec.get("optimization", {}).get("objectives",
                                                    ["area", "power", "latency"])
     if not isinstance(objectives, list) or not objectives:
@@ -500,6 +531,7 @@ def validate(spec: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
 
     tx_period_ns = 1000.0 / line_rate
     rx_period_ns = tx_period_ns / oversample if oversample else tx_period_ns
+    sample_clock_mhz = line_rate * oversample
 
     interface = spec.get("interface", {}) or {}
     if not isinstance(interface, dict):
@@ -706,7 +738,11 @@ def validate(spec: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
         "tx_arch_name": tx_arch_name,
         "rx_arch_name": rx_arch_name,
         "clocking": clocking,
+        "clock_source": clock_source,
+        "clock_recovery": clock_recovery,
+        "sampler_architecture": sampler_arch,
         "ppm": ppm,
+        "sample_clock_mhz": sample_clock_mhz,
         "user_clock_mhz": user_clock if user_clock is not None else line_rate,
         "tx_user_clock_mhz": tx_user_clock,
         "rx_user_clock_mhz": rx_user_clock,
@@ -867,12 +903,7 @@ def digital_capability_report(cfg: dict[str, Any], plan: dict[str, Any]) -> dict
     CRC) are listed, but they are not marked integrated until their actuator
     or frame plumbing is part of the generated design.
     """
-    if cfg["clocking"] == "source_sync":
-        clock_recovery = "source_sync"
-    elif cfg["rx_arch_name"] == "adaptive_oversampling":
-        clock_recovery = "adaptive_oversampling"
-    else:
-        clock_recovery = "fixed_oversampling"
+    clock_recovery = cfg["clock_recovery"]
     framing = "sync_word" if cfg["align_mode"] != 0 else "none"
     return {
         "coding": {
@@ -898,7 +929,7 @@ def digital_capability_report(cfg: dict[str, Any], plan: dict[str, Any]) -> dict
             "integrated": False,
         },
         "clock_source": {
-            "selected": cfg["clocking"],
+            "selected": cfg["clock_source"],
             "implementation": "rtl",
             "integrated": True,
         },
@@ -908,7 +939,7 @@ def digital_capability_report(cfg: dict[str, Any], plan: dict[str, Any]) -> dict
             "integrated": True,
         },
         "sampler": {
-            "selected": "single_edge",
+            "selected": cfg["sampler_architecture"],
             "implementation": "rtl",
             "integrated": True,
         },
@@ -1471,6 +1502,10 @@ def main() -> int:
             "rtl_source": "sv2v" if sv2v_meta.get("used") else "native",
         },
         "clocking": {
+            "source": cfg["clock_source"],
+            "recovery": cfg["clock_recovery"],
+            "sampler_architecture": cfg["sampler_architecture"],
+            "sample_clock_mhz": cfg["sample_clock_mhz"],
             "ports": plan["clock_ports"],
             "tx_period_ns": cfg["tx_period_ns"],
             "rx_period_ns": cfg["rx_period_ns"],
