@@ -231,7 +231,7 @@ the intended two-device series PMOS diode chain between `OUT` and `IN`.
 
 The pure-pya device cells now support `bulk tie`; headless Magic/netgen probes
 match both `pfet W=5/L=0.15` and `nfet W=5/L=0.15` with explicit G/D/S/B
-ports.  The negative control `--drop-body-label` intentionally removes the B
+ports; Magic DRC is 0 for both.  The negative control `--drop-body-label` intentionally removes the B
 label and fails LVS.  The RX feedback macro itself still builds with
 `bulk=None`, so its well/body ties remain an explicit open item, not a hidden
 schematic claim.
