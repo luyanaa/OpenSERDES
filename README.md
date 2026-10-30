@@ -157,6 +157,14 @@ AXIS word adapter：一个 beat 是一个 `DATA_WIDTH` word，`tlast` 标最后�
 
 `async_fifo` 是双时钟 Gray-pointer FIFO，`DEPTH` 必须为 2 的幂；小深度用寄存器阵列实现。它可作为 RX 恢复时钟域到本地 SoC 时钟域的 CDC 原语，但 CDC clean 仍需目标工具的 CDC 检查，不能由 RTL 自证。
 
+### `rtl/link_training_fsm.sv` / `rtl/crc_frame.sv`
+
+`link_training_fsm` 是独立的数字训练状态机：先扫描相位轴，再扫描阈值轴，用单调错误计数在每个候选的 dwell 窗口内做差，冻结最佳设置；锁定时持续监测错误增长，超阈值会自动重新训练。输出 `phase_sel`/`thresh_sel` 只是**执行器请求**，`phase_we`/`thresh_we` 是单周期装载脉冲。当前 CDR 没有外部相位/阈值输入，因此该 FSM **尚未接入** `serdes_digital_top`；不要把它当成已验证的 link training。
+
+`crc_frame` 是参数化串行 CRC 原语，已验证 CRC-16/CCITT-FALSE（`0x29B1`）和 CRC-32/ISO-HDLC（`0xCBF43926`）。它只做 CRC 累加，不定义 AXIS 帧、sync word、sequence ID 或重传，尚未接入生成包的 frame 路径。
+
+训练/CRC 的能力边界和后续接入条件见 `docs/digital_training_crc.md`。
+
 ### `rtl/receiver_sampler.sv`
 
 Receiver 数字边界的 1-bit 采样模型：只建模原 `Receiver.sp` 中 2 GHz NAND DFF 的 `q <= d` 行为，不建模 resistive-feedback inverter、CMOS inverter 或模拟 setup/hold。

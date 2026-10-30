@@ -136,6 +136,12 @@ $(BUILD)/tb_compat_port_order: tb/tb_compat_port_order.sv rtl/serializer.sv rtl/
 $(BUILD)/tb_apb_csr: tb/tb_apb_csr.sv rtl/apb_csr.sv | $(BUILD)
 	$(IVERILOG) -g2012 -Wall -o $@ $^
 
+$(BUILD)/tb_link_training_fsm: tb/tb_link_training_fsm.sv rtl/link_training_fsm.sv | $(BUILD)
+	$(IVERILOG) -g2012 -Wall -o $@ $^
+
+$(BUILD)/tb_crc_frame: tb/tb_crc_frame.sv rtl/crc_frame.sv | $(BUILD)
+	$(IVERILOG) -g2012 -Wall -o $@ $^
+
 $(BUILD)/tb_async_fifo: tb/tb_async_fifo.sv rtl/async_fifo.sv | $(BUILD)
 	$(IVERILOG) -g2012 -Wall -o $@ $^
 
@@ -188,6 +194,7 @@ SIM_BINS := $(BUILD)/tb_serializer_lsb $(BUILD)/tb_serializer_msb \
             $(BUILD)/tb_cdr $(BUILD)/tb_cdr_adaptive $(BUILD)/tb_frame_sync \
             $(BUILD)/tb_cdr_bypass $(BUILD)/tb_compat_legacy $(BUILD)/tb_compat_port_order \
             $(BUILD)/tb_apb_csr $(BUILD)/tb_async_fifo \
+            $(BUILD)/tb_link_training_fsm $(BUILD)/tb_crc_frame \
             $(BUILD)/tb_axis_tx_adapter $(BUILD)/tb_axis_rx_adapter \
             $(BUILD)/tb_serdes_tx_axis $(BUILD)/tb_serdes_rx_axis \
             $(BUILD)/tb_prbs_7 $(BUILD)/tb_prbs_15 $(BUILD)/tb_prbs_31 \
@@ -219,6 +226,8 @@ sim: $(SIM_BINS)
 	$(VVP) $(BUILD)/tb_compat_port_order
 	$(VVP) $(BUILD)/tb_apb_csr
 	$(VVP) $(BUILD)/tb_async_fifo
+	$(VVP) $(BUILD)/tb_link_training_fsm
+	$(VVP) $(BUILD)/tb_crc_frame
 	$(VVP) $(BUILD)/tb_axis_tx_adapter
 	$(VVP) $(BUILD)/tb_axis_rx_adapter
 	$(VVP) $(BUILD)/tb_serdes_tx_axis
