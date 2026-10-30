@@ -55,7 +55,7 @@ RTL   := $(wildcard rtl/*.sv)
 SV2V_DIR := $(BUILD)/sv2v
 SV2V_RTL := $(SV2V_DIR)/rtl.v
 
-.PHONY: all sim lint synth regress gen qualify signoff ppa-import clean si-eye si-bathtub si-jtol si-rtl-jtol verify-link analog-pcell-probe analog-pcell-inv analog-pcell-tx analog-pcell-tx-verify analog-pcell-tx-views analog-pcell-tx-1-4-16 analog-pcell-tx-1-4-16-verify analog-pcell-rx-fb analog-pcell-rx-fb-verify analog-pcell-rx-fb-views analog-freepdk45-probe analog-etri050-probe m3-noise m3-holdout m3-closure analog-stdcell-gen analog-macro-gen analog-contracts analog-gds analog-gds-audit analog-views analog-package analog-macro-pex analog-drc analog-rx-dc analog-rx-pvt mixed-signal-e2e rx-pex-digital-e2e soc-e2e soc-e2e-stress analog-lut sky130-lut analog-lut-demo analog-tech-check sky130-pvt pvt-margin pdk-mc xyce-global-mc magic-pex magic-pex-compare sky130-mc pex-compare lib-catalog timing-compare
+.PHONY: all sim lint synth regress gen qualify signoff ppa-import clean si-eye si-bathtub si-jtol si-rtl-jtol verify-link analog-pcell-probe analog-pcell-inv analog-pcell-tx analog-pcell-tx-verify analog-pcell-tx-views analog-pcell-tx-1-4-16 analog-pcell-tx-1-4-16-verify analog-pcell-rx-fb analog-pcell-rx-fb-verify analog-pcell-rx-fb-views analog-freepdk45-probe analog-etri050-probe m3-noise m3-holdout m3-closure analog-stdcell-gen analog-macro-gen analog-contracts analog-gds analog-gds-audit analog-views analog-package analog-macro-pex analog-drc analog-rx-dc analog-rx-pvt mixed-signal-e2e rx-pex-digital-e2e soc-e2e soc-e2e-stress analog-lut sky130-lut analog-lut-demo analog-tech-check sky130-pvt pvt-margin pdk-mc xyce-global-mc magic-pex magic-pex-compare sky130-mc pex-compare lib-catalog timing-compare analog-macro-package
 
 all: sim
 
@@ -439,6 +439,22 @@ magic-pex-compare: magic-pex
 
 analog-tech-check:
 	$(PYTHON) verification/analog/extract_lut.py --tech $(ANALOG_TECH) --check-tools --out $(BUILD)/verify/$(ANALOG_TECH)_tech_check.json
+
+MACRO_PKG_DIR ?= out/macro_package_3pdk
+MACRO_PKG_SPEC ?= verification/analog/macro_package_3pdk.json
+
+# Unified 3-PDK analog macro package.  Regenerates the sky130 generated
+# schematic into a stable package source dir, then ingests it plus the two
+# verified bespoke rx_macros (gf180, ihp) into one common manifest schema with
+# named pins, device models, per-view sha256 and a package-level evidence_hash.
+analog-macro-package:
+	@mkdir -p $(MACRO_PKG_DIR)/_src/sky130_tx_inv_chain
+	/usr/bin/python3 verification/analog/macro_gen.py --tech sky130 \
+		--topology tx_inv_chain --stages 1,3,9 \
+		--out $(MACRO_PKG_DIR)/_src/sky130_tx_inv_chain
+	/usr/bin/python3 verification/analog/macro_package.py \
+		--spec $(MACRO_PKG_SPEC) --out $(MACRO_PKG_DIR) \
+		--report $(MACRO_PKG_DIR)/package_report.json
 
 analog-gds:
 	@mkdir -p $(BUILD)/verify/legacy_gds

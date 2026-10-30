@@ -1,0 +1,51 @@
+[
+  {
+    "name": "ihp_rx_macro",
+    "tech": "ihp_sg13g2",
+    "topology": "rx_res_fb_inv",
+    "ports": ["VSS","VDD","IN","OUT"],
+    "builder": "verification/analog/ihp_rx_macro.py",
+    "evidence": "build/verify/ihp_rx_macro/ihp_rx_macro.json",
+    "flow": "klayout_pcell + magic_pex + netgen_lvs",
+    "drc_clean": true,
+    "lvs_match": true,
+    "files": {
+      "gds": "build/verify/ihp_rx_macro/rx_macro.gds",
+      "cdl": "build/verify/ihp_rx_macro/rx_macro.cdl",
+      "pex": "build/verify/ihp_rx_macro/rx_macro.pex.spice",
+      "schematic": "build/verify/ihp_rx_macro/work/rx_macro_schematic.cir"
+    }
+  },
+  {
+    "name": "gf180_rx_macro",
+    "tech": "gf180mcu",
+    "topology": "rx_res_fb_inv",
+    "ports": ["VSS","VDD","IN","OUT"],
+    "builder": "verification/analog/gf180_rx_macro.py",
+    "evidence": "build/verify/gf180_rx_macro/gf180_rx_macro_evidence.json",
+    "flow": "klayout_pcell + magic_pex + netgen_lvs + klayout_lvs",
+    "drc_clean": true,
+    "lvs_match": true,
+    "files": {
+      "gds": "/tmp/gf_macro_rerun/gf180_rx_macro.gds",
+      "cdl": "/tmp/gf_macro_rerun/gf180_rx_macro.cdl",
+      "pex": "/tmp/gf_macro_rerun/gf180_rx_macro.spice",
+      "schematic": "/tmp/gf_macro_rerun/gf180_rx_macro.cdl"
+    }
+  },
+  {
+    "name": "sky130_tx_inv_chain",
+    "tech": "sky130",
+    "topology": "tx_inv_chain",
+    "ports": ["VDD","VSS","IN","OUT"],
+    "builder": "verification/analog/macro_gen.py",
+    "evidence": "out/macro_package_3pdk/_src/sky130_tx_inv_chain",
+    "flow": "generated_contract_schematic",
+    "drc_clean": false,
+    "lvs_match": false,
+    "files": {
+      "circuit_spice": ["out/macro_package_3pdk/_src/sky130_tx_inv_chain/circuit.spice"],
+      "schematic": ["out/macro_package_3pdk/_src/sky130_tx_inv_chain/circuit.spice"]
+    }
+  }
+]
