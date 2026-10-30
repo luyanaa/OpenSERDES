@@ -1,34 +1,81 @@
 name: ihp_sg13g2
-status: scaffold
+status: verified
 pdk: ihp-sg13g2
 vdd_v: 1.2
 default_corner: tt
 devices:
   style: subckt
-  nmos: TBD_ihp_nmos
-  pmos: TBD_ihp_pmos
+  nmos: sg13_lv_nmos
+  pmos: sg13_lv_pmos
+  ports: d g s b
+  body:
+    nmos: substrate
+    pmos: nwell
+  note: >
+    NMOS body is the PDK global substrate node (extracted as "sub"). PMOS body
+    is the n-well; the bare SG13_dev pmos PCell leaves it as an internal node,
+    so a PDK n-well guard ring (guardRingType=nwell) plus a contacted Metal1
+    tie is used to expose the "b" port.
 sizing_um:
   wn: 0.15
   wp: 0.3
   l: 0.13
 model:
-  mode: pm3
-  root_search:
-  - ${IHP_ROOT}
-  - ~/.ciel/ciel/ihp-sg13/versions/*/ihp-sg13g2/libs.ref/ihp-sg13g2
-  includes: []
+  mode: osdi_psp103
+  lib_rel: libs.tech/ngspice/models/cornerMOSlv.lib
+  section: mos_tt
+  includes:
+  - libs.tech/ngspice/osdi/psp103.osdi
+  - libs.tech/ngspice/osdi/psp103_nqs.osdi
+  - libs.tech/ngspice/osdi/r3_cmc.osdi
+  - libs.tech/ngspice/osdi/mosvar.osdi
+  osdi_install_rel: libs.tech/ngspice/install.py
+  osdi_install_tool: OpenVAF 23.5.0 (/opt/openvaf)
+  note: >
+    OSDI models are compiled by the PDK install.py and loaded through
+    ~/.spiceinit. Two optional MOM-cap OSDI libraries (cap_cmomi/cap_cmomf)
+    are absent; ngspice warns at start-up but the PSP103 MOS DC operating
+    point models the devices.
 pex:
-  status: scaffold
+  status: verified
   magic:
     tech: sg13g2
-    rcfile_rel: TBD
-    tech_file_rel: TBD
+    rcfile_rel: libs.tech/magic/ihp-sg13g2.magicrc
+    tech_file_rel: libs.tech/magic/ihp-sg13g2-extract.tech
+    method: extract; extresist all; ext2spice extresist on; rthresh=0; cthresh=0
+    resist_rules: present
+  netgen:
+    setup_rel: libs.tech/netgen/ihp-sg13g2_setup.tcl
   klayout:
-    tech_rel: TBD
-    lyp_rel: TBD
-  note: Analog device migration and model-card verification are not done.
+    tech_rel: libs.tech/klayout/tech/sg13g2.lyt
+    lyp_rel: libs.tech/klayout/tech/sg13g2.lyp
+  evidence: build/verify/ihp_device/ihp_device_verify.json
+  note: >
+    Device extraction and PEX command closure, not full parasitic signoff.
+    NMOS PEX emits 6 capacitors and 0 resistors; PMOS PEX emits 2 resistors
+    and 11 capacitors (one zero-valued floating cap). Counts are reported
+    exactly as emitted.
 pcell:
   backend: cni_pycell
   library: SG13_dev
   device: nmos/pmos
+  parameters: "l/w/ng (unit strings, e.g. 0.13u/1u/1)"
+  technology_name: sg13g2
   status: geometry_verified
+verification:
+  script: verification/analog/ihp_device_verify.py
+  doc: docs/ihp_device_closure.md
+  evidence_dir: build/verify/ihp_device
+  results:
+    drc_errors:
+      nmos: 0
+      pmos: 0
+    lvs:
+      nmos: match
+      pmos: match
+    pex:
+      nmos: {resistors: 0, capacitors: 6}
+      pmos: {resistors: 2, capacitors: 11}
+    model_dc:
+      nmos: pass
+      pmos: pass
