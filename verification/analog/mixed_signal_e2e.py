@@ -103,8 +103,9 @@ wrdata {wave.resolve()} v(VIN) v(VOUT) v(RXIN) v(OUT)
     # over the middle bits.  This is a characterization search, not a CDR.
     best = None
     ui = ui_ns
+    offset_grid = np.linspace(0.0, 0.9 * ui, 19)
     offset_errors = []
-    for offset_ns in np.linspace(0.0, 0.9 * ui, 19):
+    for offset_ns in offset_grid:
         samples = []
         sample_v = []
         for i, bit in enumerate(bits):
@@ -118,8 +119,7 @@ wrdata {wave.resolve()} v(VIN) v(VOUT) v(RXIN) v(OUT)
         if best is None or errs < best[0]:
             best = (errs, offset_ns, samples, sample_v)
     errs, off, samples, sample_v = best
-    good_offsets = [o for o, e in zip(np.linspace(0.0, 0.9 * ui, 19), offset_errors)
-                    if e == errs]
+    good_offsets = [o for o, e in zip(offset_grid, offset_errors) if e == errs]
     eye_width_ns = max(good_offsets) - min(good_offsets) if len(good_offsets) > 1 else 0.0
     high_v = [v for v, b in zip(sample_v, bits) if b == 1]
     low_v = [v for v, b in zip(sample_v, bits) if b == 0]
@@ -137,6 +137,8 @@ wrdata {wave.resolve()} v(VIN) v(VOUT) v(RXIN) v(OUT)
         "sample_offset_ns": float(off),
         "eye_width_ns": float(eye_width_ns),
         "eye_height_v": float(eye_height_v),
+        "offset_scan_ns": [float(x) for x in offset_grid],
+        "offset_errors": [int(x) for x in offset_errors],
         "txout_min_v": float(np.min(txout)),
         "txout_max_v": float(np.max(txout)),
         "rxin_min_v": float(np.min(rxin)),

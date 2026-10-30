@@ -164,6 +164,25 @@ offsets at the best error count) and a vertical eye height.  128-bit PRBS-7:
 This is a sampled eye proxy, not a full bathtub/eye-mask or jitter
 decomposition.  PCell feedback again matches the original feedback route.
 
+## Open-loop bathtub
+
+`verification/analog/m3_bathtub.py` exposes the same 19-point offset scan as
+an open-loop BER bathtub.  With the 32-bit frame:
+
+| rate (Mb/s) | route | best errors / 32 | best offset | sampled eye width | sampled eye height |
+|---:|---|---:|---:|---:|---:|
+| 800 | feedback | 1 | 0.875 ns | 0.250 ns | 1.788 V |
+| 800 | parallel | 2 | 1.0625 ns | 0.0625 ns | 1.670 V |
+| 800 | PCell feedback | 1 | 0.8125 ns | 0.3125 ns | 1.742 V |
+| 1200 | feedback | 5 | 0.625 ns | 0.125 ns | 1.744 V |
+| 1200 | parallel | 12 | 0.708 ns | 0.0417 ns | 0.803 V |
+| 1200 | PCell feedback | 5 | 0.583 ns | 0.167 ns | 1.595 V |
+
+No offset gives zero errors in this short frame, so this is not a usable eye
+mask.  It is an open-loop bathtub scan; the parallel route has the widest
+error floor and the lowest sampled eye height at 1200 Mb/s, while PCell
+feedback tracks the original feedback error count.
+
 ## Input-swing spot check
 
 `verification/analog/m3_sensitivity.py` sweeps the input high level at
