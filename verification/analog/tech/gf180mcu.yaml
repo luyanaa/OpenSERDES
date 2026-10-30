@@ -1,34 +1,87 @@
 name: gf180mcu
-status: scaffold
+status: device_verified
 pdk: gf180mcuD
 vdd_v: 3.3
-default_corner: tt
+default_corner: typical
 devices:
   style: subckt
-  nmos: TBD_gf180_nmos
-  pmos: TBD_gf180_pmos
+  nmos: nfet_03v3
+  pmos: pfet_03v3
 sizing_um:
   wn: 1.0
-  wp: 2.0
+  wp: 1.0
   l: 0.28
 model:
-  mode: pm3
+  mode: subckt
   root_search:
   - ${GF180_ROOT}
-  - ~/.ciel/ciel/gf180mcu/versions/*/gf180mcuD/libs.ref/gf180mcu_fd_pr
-  includes: []
+  - ${GF_ROOT}
+  - ~/.ciel/ciel/gf180mcu/versions/*
+  includes:
+  - gf180mcuD/libs.tech/ngspice/design.ngspice
+  - gf180mcuD/libs.tech/ngspice/sm141064.spice
+  corner_library: typical
+  subckts:
+    nmos: nfet_03v3
+    pmos: pfet_03v3
+  port_order: d g s b
+  note: >-
+    ngspice binding is `.include design.ngspice` followed by
+    `.lib sm141064.spice typical`.  The generic schematic-LUT extractor still
+    expects a single sky130-style include and is not validated for this PDK;
+    see analog_lut_status.
+analog_lut_status: scaffold
+analog_lut_note: >-
+  Device-level DRC/LVS/PEX/model closure is verified, but the generic
+  extract_lut schematic flow has not been adapted to gf180mcuD's .lib corner
+  syntax.  Do not treat `make analog-lut ANALOG_TECH=gf180mcu` as verified.
 pex:
-  status: scaffold
+  status: verified
   magic:
     tech: gf180mcuD
-    rcfile_rel: TBD
-    tech_file_rel: TBD
+    rcfile_rel: gf180mcuD/libs.tech/magic/gf180mcuD.magicrc
+    tech_file_rel: gf180mcuD/libs.tech/magic/gf180mcuD.tech
+    pdk_root_rel: .
+    extractor: magic
+    extraction: "extract; extresist all; ext2spice cthresh 0; ext2spice extresist on"
   klayout:
-    tech_rel: TBD
-    lyp_rel: TBD
-  note: Analog device migration and model-card verification are not done.
+    tech_rel: gf180mcuD/libs.tech/klayout/tech/gf180mcu.lyt
+    lyp_rel: gf180mcuD/libs.tech/klayout/tech/gf180mcu.lyp
+    lvs_rel: gf180mcuD/libs.tech/klayout/tech/lvs/gf180mcu.lvs
+  netgen:
+    setup_rel: gf180mcuD/libs.tech/netgen/gf180mcuD_setup.tcl
+  verified_counts:
+    nfet_03v3:
+      R: 0
+      C: 6
+      X: 1
+    pfet_03v3:
+      R: 0
+      C: 10
+      X: 1
+  evidence: build/verify/gf180_device/gf180_device_evidence.json
+  note: >-
+    Verified for one bulk-tied 3.3 V nfet_03v3 and pfet_03v3 at
+    W=1.0 um / L=0.28 um / nf=1 using the PDK KLayout-API PCell plus
+    probe-only gate contact/pad and MET1 labels.  Magic DRC is 0 errors,
+    KLayout and netgen LVS match, and the Magic PEX netlist contains one
+    device plus C elements (R=0 for this single-level-metal device).  This is
+    not a foundry signoff and does not cover arbitrary W/L, guard rings,
+    multi-finger arrays or full cells.
 pcell:
   backend: klayout_api
   library: gf180mcu_klayoutapi
   device: nfet/pfet
-  status: geometry_verified
+  status: lvs_pex_verified
+  params:
+    volt: 3.3V
+    bulk: Bulk Tie
+    w_um: 1.0
+    l_um: 0.28
+    ld_um: 0.44
+    nf: 1
+    grw_um: 0.36
+  probe_geometry: >-
+    The PCell has no gate contact or labels.  Closure adds a 220 nm contact on
+    Poly2 above the active region, a local Poly2/Metal1 gate pad, and MET1
+    text labels (34/10) for S/D/B/G.  These are probe-only additions.
