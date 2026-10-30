@@ -609,6 +609,7 @@ ms-phy-baseline: magic-pex analog-macro-pex
 		--vdd-frac $(or $(MS_PHY_VDD_FRAC),0.9,1.0) \
 		--temps $(or $(MS_PHY_TEMPS),27,125) \
 		--noise-mv $(or $(MS_PHY_NOISE_MV),0) \
+		--corners $(or $(MS_PHY_CORNERS),tt,ss,ff,sf,fs) \
 		--out $(MS_PHY_OUT) --workdir $(MS_PHY_WORKDIR)
 
 rx-pex-digital-e2e: magic-pex analog-macro-pex

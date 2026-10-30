@@ -82,6 +82,10 @@ def main() -> int:
                     help="VDD scale factors vs nominal 1.8V")
     ap.add_argument("--temps", default="-40,27,125", help="°C grid")
     ap.add_argument("--noise-mv", default="0,100", help="channel noise grid")
+    ap.add_argument("--corners", default="tt,ss,ff,sf,fs",
+                    help="sky130 process corners to screen (ngspice .lib names); "
+                         "tt ss ff sf fs are the real skew corners, ll/hh/hl/lh "
+                         "alias tt in this PDK and are excluded by default")
     ap.add_argument("--out", default=str(ROOT / "build/verify/ms_phy_baseline.json"))
     ap.add_argument("--workdir", default=str(ROOT / "build/verify/ms_phy_baseline"))
     ap.add_argument("--quick", action="store_true",
@@ -140,6 +144,22 @@ def main() -> int:
             rec["point"] = f"noise_{nv:g}mV"
             records.append(rec)
 
+        # 4) Process-corner matrix at nominal VDD/temp: the real skew corners
+        #    (tt ss ff sf fs).  This is the P in PVT that the V/T loops above
+        #    hold at tt; ll/hh/hl/lh alias tt in this PDK so they are off by
+        #    default.
+        for c in [x.strip() for x in args.corners.split(",") if x.strip()]:
+            if c == "tt":
+                continue   # tt is already the baseline
+            rec = run_point(tx, rx, pdk, workdir / f"corner_{c}",
+                            rate_mbps=args.base_rate_mbps, corner=c,
+                            vdd=1.8, temp_c=27.0, noise_mv=0.0,
+                            bits=args.bits, phase_len=args.phase_len)
+            rec["point"] = f"corner_{c}"
+            records.append(rec)
+            print(f"corner {c}: BER={rec['validation_ber']:.3g} "
+                  f"eye_open={rec['eye_open_clean_ns']:.3g}ns")
+
     n_err = sum(1 for r in records if r["returncode"] != 0)
     report = {
         "kind": "ms_phy_baseline",
@@ -151,7 +171,9 @@ def main() -> int:
         "points": records,
         "note": ("Open-loop phase-search characterization screen, not a CDR "
                  "loop or a production PVT signoff matrix.  Each point is one "
-                 "transient; reported BER/eye are diagnostic."),
+                 "transient; reported BER/eye are diagnostic.  The corner_* "
+                 "points cover the real skew corners tt/ss/ff/sf/fs; ll/hh/hl/lh "
+                 "alias tt in this PDK and are off by default."),
     }
     Path(args.out).write_text(json.dumps(report, indent=2) + "\n")
     print(f"wrote {args.out} ({len(records)} points, {n_err} failed)")
