@@ -14,6 +14,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import os
 import random
 import subprocess
 import sys
@@ -51,6 +52,7 @@ def run(tx: Path, rx: Path, bits: list[int], ui_ns: float, pdk: Path,
         mc_seed: int | None = None,
         vdd: float = 1.8, temp_c: float | None = None,
         phase_len: int = 0) -> dict[str, Any]:
+    workdir = workdir.resolve()
     workdir.mkdir(parents=True, exist_ok=True)
     wave = workdir / "wave.dat"
     tb = workdir / "mixed.sp"
@@ -89,8 +91,12 @@ wrdata {wave.resolve()} v(VIN) v(VOUT) v(RXIN) v(OUT)
 .endc
 .end
 """)
+    env = dict(os.environ)
+    env["PDK_ROOT"] = str(pdk)
+    env["PDK"] = "sky130A"
     proc = subprocess.run(["ngspice", "-b", str(tb)], text=True,
-                          capture_output=True, timeout=600, cwd=workdir)
+                          capture_output=True, timeout=600, cwd=workdir,
+                          env=env)
     if proc.returncode != 0 or not wave.is_file():
         raise RuntimeError(f"ngspice failed\n{proc.stdout[-4000:]}\n{proc.stderr[-2000:]}")
     arr = np.loadtxt(wave)

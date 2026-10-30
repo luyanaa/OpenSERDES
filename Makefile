@@ -55,7 +55,7 @@ RTL   := $(wildcard rtl/*.sv)
 SV2V_DIR := $(BUILD)/sv2v
 SV2V_RTL := $(SV2V_DIR)/rtl.v
 
-.PHONY: all sim lint synth regress gen qualify signoff ppa-import clean si-eye si-bathtub si-jtol si-rtl-jtol verify-link analog-pcell-probe analog-pcell-inv analog-pcell-tx analog-pcell-tx-verify analog-pcell-tx-views analog-pcell-tx-1-4-16 analog-pcell-tx-1-4-16-verify analog-pcell-rx-fb analog-pcell-rx-fb-verify analog-pcell-rx-fb-views analog-freepdk45-probe analog-etri050-probe m3-noise m3-holdout m3-closure analog-stdcell-gen analog-macro-gen analog-contracts analog-gds analog-gds-audit analog-views analog-package analog-macro-pex analog-drc analog-rx-dc analog-rx-pvt mixed-signal-e2e rx-pex-digital-e2e soc-e2e soc-e2e-stress analog-lut sky130-lut analog-lut-demo analog-tech-check sky130-pvt pvt-margin pdk-mc xyce-global-mc magic-pex magic-pex-compare sky130-mc pex-compare lib-catalog timing-compare analog-macro-package
+.PHONY: all sim lint synth regress gen qualify signoff ppa-import clean si-eye si-bathtub si-jtol si-rtl-jtol verify-link analog-pcell-probe analog-pcell-inv analog-pcell-tx analog-pcell-tx-verify analog-pcell-tx-views analog-pcell-tx-1-4-16 analog-pcell-tx-1-4-16-verify analog-pcell-rx-fb analog-pcell-rx-fb-verify analog-pcell-rx-fb-views analog-freepdk45-probe analog-etri050-probe m3-noise m3-holdout m3-closure analog-stdcell-gen analog-macro-gen analog-contracts analog-gds analog-gds-audit analog-views analog-package analog-macro-pex analog-drc analog-rx-dc analog-rx-pvt mixed-signal-e2e rx-pex-digital-e2e ms-phy-baseline soc-e2e soc-e2e-stress analog-lut sky130-lut analog-lut-demo analog-tech-check sky130-pvt pvt-margin pdk-mc xyce-global-mc magic-pex magic-pex-compare sky130-mc pex-compare lib-catalog timing-compare analog-macro-package
 
 all: sim
 
@@ -584,6 +584,22 @@ analog-rx-pvt: analog-macro-pex
 mixed-signal-e2e: magic-pex analog-macro-pex
 	$(PYTHON) verification/analog/mixed_signal_e2e.py \
 		--out $(BUILD)/verify/mixed_signal_e2e.json
+
+MS_PHY_OUT ?= $(BUILD)/verify/ms_phy_baseline.json
+MS_PHY_WORKDIR ?= $(BUILD)/verify/ms_phy_baseline
+
+# First mixed-signal PHY baseline: fixed sky130 PDK + rate, then a PVT/noise
+# screen through the TX-PEX -> RC-channel -> RX-PEX transient chain.
+# MS_PHY_QUICK=1 runs only the nominal baseline point.
+ms-phy-baseline: magic-pex analog-macro-pex
+	/usr/bin/python3 verification/analog/ms_phy_baseline.py \
+		$(if $(MS_PHY_QUICK),--quick,) \
+		--bits $(or $(MS_PHY_BITS),32) --phase-len $(or $(MS_PHY_PHASE_LEN),16) \
+		--rates $(or $(MS_PHY_RATES),100,200) \
+		--vdd-frac $(or $(MS_PHY_VDD_FRAC),0.9,1.0) \
+		--temps $(or $(MS_PHY_TEMPS),27,125) \
+		--noise-mv $(or $(MS_PHY_NOISE_MV),0) \
+		--out $(MS_PHY_OUT) --workdir $(MS_PHY_WORKDIR)
 
 rx-pex-digital-e2e: magic-pex analog-macro-pex
 	$(PYTHON) verification/analog/rx_pex_digital_e2e.py \
