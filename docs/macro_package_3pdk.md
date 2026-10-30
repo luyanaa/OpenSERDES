@@ -39,7 +39,7 @@ via `make magic-pex`) would upgrade it.
 
 ## Files
 
-- `verification/analog/macro_package.py` — the packager (`--spec`, `--out`,
+- `verification/analog/macro_pack_3pdk.py` — the packager (`--spec`, `--out`,
   `--report`).
 - `verification/analog/macro_package_3pdk.json` — the ingest spec listing each
   macro's tech, ports, builder, evidence path, DRC/LVS verdicts and artifact

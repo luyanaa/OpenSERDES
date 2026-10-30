@@ -79,6 +79,7 @@ module tb_cdr_jtol;
         .enable(enable),
         .flush(1'b0),
         .data_in(data_in),
+        .phase_offset('0),
         .data_out(data_out),
         .sample_strobe(sample_strobe),
         .clk_out(clk_out),

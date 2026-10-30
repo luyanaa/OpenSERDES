@@ -452,7 +452,7 @@ analog-macro-package:
 	/usr/bin/python3 verification/analog/macro_gen.py --tech sky130 \
 		--topology tx_inv_chain --stages 1,3,9 \
 		--out $(MACRO_PKG_DIR)/_src/sky130_tx_inv_chain
-	/usr/bin/python3 verification/analog/macro_package.py \
+	/usr/bin/python3 verification/analog/macro_pack_3pdk.py \
 		--spec $(MACRO_PKG_SPEC) --out $(MACRO_PKG_DIR) \
 		--report $(MACRO_PKG_DIR)/package_report.json
 
@@ -480,7 +480,7 @@ analog-views:
 	$(PYTHON) verification/analog/generate_views.py
 
 analog-package:
-	$(PYTHON) verification/analog/macro_package.py --package $(ANALOG_PACKAGE)
+	/usr/bin/python3 verification/analog/macro_package.py --package $(ANALOG_PACKAGE)
 
 analog-pcell-probe:
 	@echo "run: GDS=<sky130_fd_pr.gds> OUT=/tmp/probe.gds klayout -b -r verification/analog/klayout_pcell_probe.py"

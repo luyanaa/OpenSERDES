@@ -120,12 +120,16 @@ class TestGeneratorContracts(unittest.TestCase):
         self.assertEqual(code, 2)
         self.assertIn("not integrated", text)
 
-    def test_standalone_training_is_fail_closed(self) -> None:
+    def test_training_requires_phase_actuator(self) -> None:
+        # phase_threshold training is only integrated when the RX has a real
+        # oversampling-CDR phase actuator.  source_sync / oversample:1 has no
+        # actuator to calibrate, so the request must fail closed.
         spec = _base_spec()
         spec["capabilities"] = {"training": "phase_threshold"}
         code, text = self._run(spec)
         self.assertEqual(code, 2)
-        self.assertIn("RTL_STANDALONE", text)
+        self.assertIn("phase", text.lower())
+        self.assertIn("actuator", text.lower())
 
     def test_explicit_none_capability_is_the_bypass(self) -> None:
         spec = _base_spec()
@@ -156,6 +160,10 @@ class TestGeneratorContracts(unittest.TestCase):
             caps = manifest["capabilities"]
             self.assertTrue(caps["coding"]["integrated"])
             self.assertTrue(caps["framing"]["integrated"])
+            # This spec is source_sync/oversample:1, so training was not
+            # requested (default "none"); it reports rtl_standalone, not
+            # integrated.  An oversampling spec that requests phase_threshold
+            # reports implementation "rtl" and integrated True.
             self.assertFalse(caps["training"]["integrated"])
             self.assertFalse(caps["crc"]["integrated"])
             self.assertEqual(caps["training"]["implementation"], "rtl_standalone")

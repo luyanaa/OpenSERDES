@@ -7,8 +7,6 @@
     "builder": "verification/analog/ihp_rx_macro.py",
     "evidence": "build/verify/ihp_rx_macro/ihp_rx_macro.json",
     "flow": "klayout_pcell + magic_pex + netgen_lvs",
-    "drc_clean": true,
-    "lvs_match": true,
     "files": {
       "gds": "build/verify/ihp_rx_macro/rx_macro.gds",
       "cdl": "build/verify/ihp_rx_macro/rx_macro.cdl",
@@ -24,13 +22,11 @@
     "builder": "verification/analog/gf180_rx_macro.py",
     "evidence": "build/verify/gf180_rx_macro/gf180_rx_macro_evidence.json",
     "flow": "klayout_pcell + magic_pex + netgen_lvs + klayout_lvs",
-    "drc_clean": true,
-    "lvs_match": true,
     "files": {
-      "gds": "/tmp/gf_macro_rerun/gf180_rx_macro.gds",
-      "cdl": "/tmp/gf_macro_rerun/gf180_rx_macro.cdl",
-      "pex": "/tmp/gf_macro_rerun/gf180_rx_macro.spice",
-      "schematic": "/tmp/gf_macro_rerun/gf180_rx_macro.cdl"
+      "gds": "build/verify/gf180_rx_macro/gf180_rx_macro.gds",
+      "cdl": "build/verify/gf180_rx_macro/gf180_rx_macro.cdl",
+      "pex": "build/verify/gf180_rx_macro/gf180_rx_macro.raw.spice",
+      "schematic": "build/verify/gf180_rx_macro/gf180_rx_macro.cdl"
     }
   },
   {
