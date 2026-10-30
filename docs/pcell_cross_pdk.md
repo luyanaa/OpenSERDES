@@ -40,9 +40,11 @@ KLayout PCell generation: OK
 Magic DRC with gf180mcuD deck: 0 errors
 ```
 
-This confirms the PDK satisfies the `klayout PCell + arbitrary W/L` assumption
-for geometry.  It is not yet wired into the macro generator and has no
-per-device LVS/analog binding in this repository.
+Device-level closure is now recorded in `docs/gf180_device_closure.md`:
+bulk-tied `nfet_03v3` and `pfet_03v3` both pass Magic DRC (0), KLayout and
+netgen LVS, Magic PEX, and an ngspice DC operating point using the PDK models.
+The probe adds a gate contact/pad and labels; it does not claim arbitrary
+W/L, guard-ring, multi-finger, macro, or full-chip signoff.
 
 ## IHP SG13G2
 
@@ -54,18 +56,13 @@ library: SG13_dev
 pcells: nmos, pmos, ...
 ```
 
-The KLayout `create_cell` convenience path did not materialize a cell in this
-environment, but the PCell declaration can be driven directly through
-`decl.produce(...)`.  A 1.0/0.13 um nmos generated successfully:
-
-```text
-bbox: 0.81 x 1.36 um
-KLayout SG13G2 DRC (minimum rules): PASS, 0 violations
-```
-
-The PDK DRC runner expects a repo-level `versions.txt`; it was provided
-temporarily for the probe.  The PCell is **geometry-verified**, not yet
-LVS/analog-bound in this repository.
+The PDK PCell is usable headlessly with `layout.technology_name='sg13g2'`,
+`klayout -zz`, and unit-string parameters (`l='0.13u'`, `w='1u'`, `ng=1`).
+Device-level closure is recorded in `docs/ihp_device_closure.md`: LV
+`sg13_lv_nmos` and `sg13_lv_pmos` pass Magic DRC (0), netgen LVS with negative
+controls, Magic PEX, and OSDI PSP103 DC.  The PMOS body uses a PDK n-well guard
+ring plus a contacted tie.  This is device-level evidence, not a macro or
+full-chip claim.
 
 ## ICsprout55
 
@@ -118,8 +115,8 @@ foundry signoff is claimed.
 | PDK | PCell source | arbitrary W/L | DRC | repo LVS |
 |---|---|---|---|---|
 | sky130A | pure pya port | yes | yes | nf=1 yes |
-| gf180mcuD | PDK KLayout API | yes | yes | not yet |
-| IHP SG13G2 | PDK CNI/pycell4klayout | yes | yes | not yet |
+| gf180mcuD | PDK KLayout API | yes | yes | nfet/pfet bulk tie, device-level |
+| IHP SG13G2 | PDK CNI/pycell4klayout | yes | yes | nmos/pmos LV, device-level |
 | ICsprout55 | PDK pure-pya PCells | yes | RF yes; analog fingers=1 yes, >1 one poly-spacing | not yet |
 
 The correct generator rule is therefore: PCell availability is a capability
