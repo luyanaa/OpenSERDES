@@ -114,14 +114,24 @@ foundry signoff is claimed.
 
 | PDK | PCell source | arbitrary W/L | DRC | repo LVS |
 |---|---|---|---|---|
-| sky130A | pure pya port | yes | yes | nf=1 yes |
-| gf180mcuD | PDK KLayout API | yes | yes | nfet/pfet bulk tie, device-level |
-| IHP SG13G2 | PDK CNI/pycell4klayout | yes | yes | nmos/pmos LV, device-level |
+| sky130A | pure pya port | yes | yes | nf=1 yes; RX macro body-tie closed |
+| gf180mcuD | PDK KLayout API | yes | yes | nfet/pfet bulk tie; RX macro closed |
+| IHP SG13G2 | PDK CNI/pycell4klayout | yes | yes | nmos/pmos LV; RX macro closed |
 | ICsprout55 | PDK pure-pya PCells | yes | RF yes; analog fingers=1 yes, >1 one poly-spacing | not yet |
 
 The correct generator rule is therefore: PCell availability is a capability
 probe, not a promise that a macro is signoff-ready.  Each PDK still needs a
 device binding (models, ports, LVS/CDL, DRC deck) and a layout template.
+
+RX macro closure is recorded separately:
+
+- sky130: `docs/klayout_pcell.md` (macro body ties, DRC 0, LVS match, PEX)
+- gf180mcuD: `docs/gf180_rx_macro_closure.md` (3 inverters + 3 extra PMOS +
+  2 feedback PMOS; DRC 0, LVS 11 devices/5 nets, PEX, negative control)
+- IHP SG13G2: `docs/ihp_rx_macro_closure.md` (same topology; hierarchical
+  8-instance/5-net LVS, DRC 0, PEX, body ties, model DC)
+
+These are bounded macro closures, not full-chip or foundry signoff.
 
 ## Supplemental model PDKs
 
