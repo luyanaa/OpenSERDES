@@ -26,9 +26,21 @@
 //   picks the arg-min, locks, and retrains on sustained errors.  A literal
 //   minimum-BER window search requires a clean-recovery (per-bit sampling)
 //   CDR, which is a documented follow-up.
+//
+// CDR_MODE_TB selects the CDR under test:
+//   0 = cdr_oversampling edge-tracking CDR (default),
+//   1 = cdr_adaptive frequency-tracking CDR -- no phase preset; the adaptive
+//       loop finds its own sampling phase/frequency while the FSM sweeps the
+//       phase_offset actuator.  This is the "training + PRBS + adaptive CDR
+//       with no testbench preset" case from the audit.
 // -----------------------------------------------------------------------------
 module tb_serdes_training_loop;
     localparam int OS = 4;
+`ifdef TB_CDR_MODE
+    localparam int CDR_MODE_TB = `TB_CDR_MODE;
+`else
+    localparam int CDR_MODE_TB = 0;
+`endif
     localparam int DW = 8;
     localparam int WORDS = 1;
 
@@ -68,7 +80,7 @@ module tb_serdes_training_loop;
     // ------------------------------------------------------------------
     serdes_digital_top #(
         .DATA_WIDTH(DW), .WORDS(WORDS), .OVERSAMPLE(OS),
-        .CDR_MODE(0), .CDR_BYPASS(1'b0), .ALIGN_MODE(0),
+        .CDR_MODE(CDR_MODE_TB), .CDR_BYPASS(1'b0), .ALIGN_MODE(0),
         .TRAINING_ENABLE(1'b1), .TRAIN_DWELL_CYCLES(32),
         .TRAIN_ERROR_WIDTH(32)
     ) dut (
@@ -126,8 +138,10 @@ module tb_serdes_training_loop;
     initial begin
         int t, lock_phase;
         repeat (4) @(posedge rx_clk); rst_n = 1;
-        // let the CDR acquire edge lock on the free-running stream
+        // let the CDR acquire edge lock on the free-running stream; the
+        // adaptive loop needs longer to settle its frequency estimate.
         repeat (OS*32) @(posedge rx_clk);
+        if (CDR_MODE_TB == 1) repeat (OS*128) @(posedge rx_clk);
         prbs_enable = 1;
 
         @(negedge rx_clk); train_start = 1; @(negedge rx_clk); train_start = 0;
@@ -153,12 +167,12 @@ module tb_serdes_training_loop;
         end
 
         if (errors) begin
-            $display("FAIL tb_serdes_training_loop errors=%0d", errors);
+            $display("FAIL tb_serdes_training_loop cdr_mode=%0d errors=%0d", CDR_MODE_TB, errors);
         end else begin
-            $display("PASS tb_serdes_training_loop: swept %0d actuator writes, locked phase=%0d best_errors=%0d",
-                     we_count, train_best_phase, train_best_errors);
+            $display("PASS tb_serdes_training_loop cdr_mode=%0d: swept %0d actuator writes, locked phase=%0d best_errors=%0d",
+                     CDR_MODE_TB, we_count, train_best_phase, train_best_errors);
         end
         $finish;
     end
-    initial begin #300000; $display("FAIL timeout"); $finish; end
+    initial begin #3000000; $display("FAIL timeout"); $finish; end
 endmodule
