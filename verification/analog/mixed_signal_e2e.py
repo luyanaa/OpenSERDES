@@ -47,7 +47,8 @@ def _pwl(bits: list[int], ui_ns: float, edge_ns: float = 0.08,
 def run(tx: Path, rx: Path, bits: list[int], ui_ns: float, pdk: Path,
         workdir: Path, corner: str = "tt", r_ohm: float = 100.0,
         c_pf: float = 16.0, vin_high: float = 1.8,
-        noise_mv: float = 0.0, noise_seed: int = 1) -> dict[str, Any]:
+        noise_mv: float = 0.0, noise_seed: int = 1,
+        mc_seed: int | None = None) -> dict[str, Any]:
     workdir.mkdir(parents=True, exist_ok=True)
     wave = workdir / "wave.dat"
     tb = workdir / "mixed.sp"
@@ -64,9 +65,12 @@ def run(tx: Path, rx: Path, bits: list[int], ui_ns: float, pdk: Path,
         noise = f"Rch VOUT RXIN_R {r_ohm:g}\nVn RXIN_R RXIN PWL({' '.join(points)})\nCch RXIN 0 {c_pf:g}p\n"
     else:
         noise = f"Rch VOUT RXIN {r_ohm:g}\nCch RXIN 0 {c_pf:g}p\n"
+    mc = ""
+    if mc_seed is not None:
+        mc = ".param mc_pr_switch=0\n.param mc_mm_switch=1\n"
     tb.write_text(f"""* mixed-signal PEX chain
 .lib "{lib}" {corner}
-.param VDD=1.8
+{mc}.param VDD=1.8
 Vdd VDD 0 {{VDD}}
 Vin VIN 0 PWL({_pwl(bits, ui_ns, high_v=vin_high)})
 .include "{tx.resolve()}"
@@ -76,6 +80,7 @@ Xtx GND VDD VIN VOUT Inv_Transmitter
 Cload OUT 0 20f
 .tran 0.1n {total_ns:g}n
 .control
+{"set seed=" + str(mc_seed) if mc_seed is not None else ""}
 run
 wrdata {wave.resolve()} v(VIN) v(VOUT) v(RXIN) v(OUT)
 .endc
@@ -141,6 +146,7 @@ wrdata {wave.resolve()} v(VIN) v(VOUT) v(RXIN) v(OUT)
         "vin_high_v": vin_high,
         "noise_mv": noise_mv,
         "noise_seed": noise_seed,
+        "mc_seed": mc_seed,
         "wave": str(wave),
         "returncode": proc.returncode,
     }
@@ -155,6 +161,8 @@ def main() -> int:
     ap.add_argument("--corner", default="tt")
     ap.add_argument("--r-ohm", type=float, default=100.0)
     ap.add_argument("--c-pf", type=float, default=16.0)
+    ap.add_argument("--mc-seed", type=int, default=None,
+                    help="enable sky130 local mismatch with this ngspice seed")
     ap.add_argument("--out", default=str(ROOT / "build/verify/mixed_signal_e2e.json"))
     ap.add_argument("--workdir", default=str(ROOT / "build/verify/mixed_signal_e2e"))
     args = ap.parse_args()
@@ -170,7 +178,7 @@ def main() -> int:
     pdk = find_pdk_root()
     report = run(Path(args.tx_pex), Path(args.rx_pex), bits,
                  1000.0 / args.rate_mbps, pdk, Path(args.workdir),
-                 args.corner, args.r_ohm, args.c_pf)
+                 args.corner, args.r_ohm, args.c_pf, mc_seed=args.mc_seed)
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(report, indent=2) + "\n")

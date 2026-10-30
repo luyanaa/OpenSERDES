@@ -41,11 +41,14 @@ def main() -> int:
     ap.add_argument("--corner", default="tt")
     ap.add_argument("--r-ohm", type=float, default=100.0)
     ap.add_argument("--c-pf", type=float, default=16.0)
+    ap.add_argument("--cases", default="feedback,parallel,pcell_feedback",
+                    help="comma-separated route names to run")
     ap.add_argument("--out", default="build/verify/m3_ber_sweep.json")
     args = ap.parse_args()
     pdk = Path(args.pdk_root)
     rates = [float(x) for x in args.rates.split(",") if x.strip()]
     bits = [int(c) for c in args.bits if c in "01"]
+    selected = {x.strip() for x in args.cases.split(",") if x.strip()}
     calls = {"feedback": Path(args.fb_pex)}
     with tempfile.TemporaryDirectory() as td:
         wrap = Path(td) / "parallel_wrap.spice"
@@ -64,16 +67,25 @@ def main() -> int:
                 f'.include "{pcell.resolve()}"\n'
             )
             calls["pcell_feedback"] = pwrap
-        results = {}
+        calls = {k: v for k, v in calls.items() if k in selected}
+        if not calls:
+            raise SystemExit(f"no matching cases in {sorted(selected)}")
+        out = ROOT / args.out
+        out.parent.mkdir(parents=True, exist_ok=True)
+        report = {"kind": "m3-ber-rate-sweep", "bits": bits,
+                  "channel": {"r_ohm": args.r_ohm, "c_pf": args.c_pf},
+                  "corner": args.corner,
+                  "results": {},
+                  "note": "Same TX PEX, channel, bits and sampling scan; single corner, small-N; Wilson 95% intervals are diagnostic, not production BER."}
         for case, rx in calls.items():
-            results[case] = []
+            report["results"][case] = []
             for rate in rates:
                 try:
                     r = run_pex(Path(args.tx_pex), rx, bits, 1000.0 / rate, pdk,
                                 Path(td) / f"{case}_{rate}", args.corner,
                                 args.r_ohm, args.c_pf)
                     ci_low, ci_high = wilson(r["errors"], len(bits))
-                    results[case].append({
+                    entry = {
                         "rate_mbps": rate,
                         "errors": r["errors"],
                         "bits": len(bits),
@@ -83,18 +95,14 @@ def main() -> int:
                         "eye_width_ns": r.get("eye_width_ns"),
                         "eye_height_v": r.get("eye_height_v"),
                         "out_swing_v": [r["out_min_v"], r["out_max_v"]],
-                    })
+                    }
                 except Exception as exc:  # noqa: BLE001
-                    results[case].append({"rate_mbps": rate, "error": str(exc)[-500:]})
-    out = ROOT / args.out
-    out.parent.mkdir(parents=True, exist_ok=True)
-    report = {"kind": "m3-ber-rate-sweep", "bits": bits,
-              "channel": {"r_ohm": args.r_ohm, "c_pf": args.c_pf},
-              "corner": args.corner,
-              "results": results,
-              "note": "Same TX PEX, channel, bits and sampling scan; single corner, small-N; Wilson 95% intervals are diagnostic, not production BER."}
-    out.write_text(json.dumps(report, indent=2) + "\n")
-    print(json.dumps(results, indent=2))
+                    entry = {"rate_mbps": rate, "error": str(exc)[-500:]}
+                report["results"][case].append(entry)
+                # Keep completed cases even if a later long transient is interrupted.
+                out.write_text(json.dumps(report, indent=2) + "\n")
+                print(f"{case} {rate:g} Mb/s: {entry.get('errors', 'ERROR')}", flush=True)
+        print(json.dumps(report["results"], indent=2))
     return 0
 
 

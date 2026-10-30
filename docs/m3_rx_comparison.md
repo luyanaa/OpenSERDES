@@ -86,8 +86,18 @@ The PCell RX PEX (3N/6P + two series feedback PMOS) reproduces the original
 feedback route at these points.  This is a topology/electrical consistency
 check, not an independent process-variation result.
 
-The intervals overlap; this is **not** a statistically resolved route
-selection.  A 32-bit ss/ff spot check at 800 Mb/s gives:
+A 256-bit PRBS-7 rerun (two 127-bit periods plus two bits), with the same TX
+PEX, 100 ohm / 16 pF channel, tt corner and sample-offset search, gives:
+
+| rate (Mb/s) | parallel errors / BER [95% CI] | feedback errors / BER [95% CI] | PCell feedback errors / BER [95% CI] |
+|---:|---:|---:|---:|
+| 800 | 41/256 = 0.160 [0.120, 0.210] | 27/256 = 0.105 [0.0735, 0.149] | 27/256 = 0.105 [0.0735, 0.149] |
+| 1200 | 73/256 = 0.285 [0.233, 0.343] | 51/256 = 0.199 [0.155, 0.252] | 51/256 = 0.199 [0.155, 0.252] |
+
+The corresponding sampled eye widths are 0.0625 / 0.0417 ns (feedback),
+0 / 0 ns (parallel), and 0.0625 / 0.0417 ns (PCell feedback) at 800 / 1200
+Mb/s.  The intervals still overlap; this is **not** a statistically resolved
+route selection.  A 32-bit ss/ff spot check at 800 Mb/s gives:
 
 ```text
 800 Mb/s:
@@ -98,8 +108,9 @@ selection.  A 32-bit ss/ff spot check at 800 Mb/s gives:
   ff: feedback 22/128, parallel 29/128, PCell feedback 22/128
 ```
 
-Noise, input sensitivity, eye margin, full voltage/temperature PVT/MC, and a
-much larger error-count campaign remain open.  No production selection is
+Noise, input sensitivity, eye margin, full voltage/temperature PVT, global
+process Monte Carlo, and a much larger error-count campaign remain open.  A
+local-mismatch spot check is reported below.  No production selection is
 claimed.
 
 ## Noise spot check
@@ -117,7 +128,24 @@ series voltage source (sigma 0 or 100 mV, seed 7) into the same 100 ohm /
 
 This is a small-N deterministic screening check, not a noise-margin or
 production BER claim.  PCell feedback again tracks the original feedback PEX.
-Input sensitivity, eye masks, and Monte Carlo remain open.
+Input sensitivity, eye masks, and full Monte Carlo remain open.
+
+## PDK local mismatch spot check
+
+`verification/analog/m3_mc_sweep.py` enables the sky130 ngspice
+`mc_mm_switch=1` hook and runs four deterministic seeds at 800 Mb/s with the
+same 32-bit frame and channel.  This is per-device local mismatch only; the PDK
+library does not wire a global-process switch into these models.
+
+| route | per-seed errors / 32 | aggregate BER [95% CI] | eye height range |
+|---|---:|---:|---:|
+| feedback | 1, 1, 1, 1 | 4/128 = 0.031 [0.012, 0.078] | 1.7877–1.7895 V |
+| parallel | 1, 1, 5, 1 | 8/128 = 0.0625 [0.032, 0.118] | 1.596–1.735 V |
+| PCell feedback | 1, 1, 1, 1 | 4/128 = 0.031 [0.012, 0.078] | 1.7398–1.7428 V |
+
+The parallel route has one visible outlier seed and a lower eye height; the
+four-seed intervals overlap, so this is a mismatch screening check, not a
+statistical route decision or a global-process MC result.
 
 ## Eye opening spot check
 
