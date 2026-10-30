@@ -16,6 +16,13 @@ devices:
     is the n-well; the bare SG13_dev pmos PCell leaves it as an internal node,
     so a PDK n-well guard ring (guardRingType=nwell) plus a contacted Metal1
     tie is used to expose the "b" port.
+analog_lut_status: scaffold
+analog_lut_note: >-
+  Device-level DRC/LVS/PEX/model closure is verified, but the generic
+  extract_lut flow has not been adapted to IHP's OSDI/PSP103 model loading and
+  is not validated for this PDK. Do not treat `make analog-lut ANALOG_TECH=ihp_sg13g2`
+  as verified.
+
 sizing_um:
   wn: 0.15
   wp: 0.3
