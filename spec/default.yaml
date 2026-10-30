@@ -17,6 +17,9 @@ rx:
   oversample: auto
   align: comma_per_frame
   clocking: independent
+  clock_source: independent
+  clock_recovery: fixed_oversampling
+  sampler_architecture: single_edge
   ppm: 0
   sync_pattern: 0xBC
   sync_len: 32
