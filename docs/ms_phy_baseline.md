@@ -28,9 +28,18 @@ as the M3 RX closure — it is an open-loop phase search, **not** a CDR loop.
 3. **PVT screen** (`--vdd-frac` × `--temps`) at the baseline rate.
 4. **Noise screen** (`--noise-mv`) at the baseline rate.
 
-Each point records errors, BER, `validation_ber`, `eye_width_ns`,
-`eye_height_v`, the frozen `sample_offset_ns` and the ngspice return code into
+Each point records errors, BER, `validation_ber`, `training_phase_span_ns`,
+`eye_open_clean_ns`, `eye_open_ber_ns`, `eye_height_v`, the frozen
+`sample_offset_ns` and the ngspice return code into
 `build/verify/ms_phy_baseline.json`.
+
+- `training_phase_span_ns` — span of sampling offsets that achieved the
+  *minimum* training-prefix error count (a training-window diagnostic, not a
+  BER-gated eye opening).
+- `eye_open_clean_ns` — span of offsets with **zero** total bit errors (a
+  BER=0 eye opening).
+- `eye_open_ber_ns` — span of offsets with ≤5% total bit errors (a looser
+  BER-criteria eye opening).
 
 `MS_PHY_QUICK=1` runs only the nominal baseline point; `MS_PHY_BITS`,
 `MS_PHY_RATES`, `MS_PHY_VDD_FRAC`, `MS_PHY_TEMPS`, `MS_PHY_NOISE_MV` tune the
@@ -40,7 +49,7 @@ sweep.
 
 | Point | Result |
 |---|---|
-| 100 Mb/s TT, 1.8 V, 27 °C, 0 mV noise | validation BER 0, eye width 6.5 ns, eye height ~1.8 V |
+| 100 Mb/s TT, 1.8 V, 27 °C, 0 mV noise | validation BER 0, clean eye opening 6.5 ns, eye height ~1.8 V |
 
 ## No overclaiming
 

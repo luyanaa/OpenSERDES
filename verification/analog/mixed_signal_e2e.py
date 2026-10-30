@@ -147,7 +147,20 @@ wrdata {wave.resolve()} v(VIN) v(VOUT) v(RXIN) v(OUT)
     validation_errors = (sum(1 for a, b in zip(samples[phase_len:], bits[phase_len:])
                              if a != b) if phase_len < len(bits) else 0)
     good_offsets = [offset_grid[i] for i in good_indices]
-    eye_width_ns = max(good_offsets) - min(good_offsets) if len(good_offsets) > 1 else 0.0
+    # training_phase_span_ns: span of offsets that achieved the *minimum*
+    # training-prefix error count.  This is a training-window diagnostic, NOT
+    # a BER-gated eye opening.
+    training_phase_span_ns = (max(good_offsets) - min(good_offsets)
+                              if len(good_offsets) > 1 else 0.0)
+    # eye_open_ns_at_ber: span of offsets whose total bit errors stay under a
+    # target BER.  Default threshold = 0 errors (clean eye); a looser mask can
+    # be requested.  This is the BER-criteria eye opening the audit asked for.
+    def _eye_open_at(max_err: int) -> float:
+        ok = [offset_grid[i] for i, e in enumerate(offset_errors)
+              if e <= max_err]
+        return (max(ok) - min(ok)) if len(ok) > 1 else 0.0
+    eye_open_clean_ns = _eye_open_at(0)
+    eye_open_ber_ns = _eye_open_at(max(1, int(0.05 * len(bits))))
     high_v = [v for v, b in zip(sample_v, bits) if b == 1]
     low_v = [v for v, b in zip(sample_v, bits) if b == 0]
     eye_height_v = (float(np.median(high_v)) - float(np.median(low_v))
@@ -162,7 +175,9 @@ wrdata {wave.resolve()} v(VIN) v(VOUT) v(RXIN) v(OUT)
         "errors": int(errs),
         "ber": float(errs) / len(bits),
         "sample_offset_ns": float(off),
-        "eye_width_ns": float(eye_width_ns),
+        "training_phase_span_ns": float(training_phase_span_ns),
+        "eye_open_clean_ns": float(eye_open_clean_ns),
+        "eye_open_ber_ns": float(eye_open_ber_ns),
         "eye_height_v": float(eye_height_v),
         "offset_scan_ns": [float(x) for x in offset_grid],
         "offset_errors": [int(x) for x in offset_errors],

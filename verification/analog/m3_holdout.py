@@ -133,7 +133,7 @@ def main() -> int:
                                 "validation_ber": r["validation_ber"],
                                 "validation_ci95": [lo, hi],
                                 "full_errors": r["errors"],
-                                "eye_width_ns": r.get("eye_width_ns"),
+                                "training_phase_span_ns": r.get("training_phase_span_ns"),
                                 "eye_height_v": r.get("eye_height_v"),
                                 "out_swing_v": [r["out_min_v"], r["out_max_v"]],
                             }

@@ -97,7 +97,7 @@ def main() -> int:
                         "bits": len(bits),
                         "best_errors": r["errors"],
                         "best_offset_ns": r["sample_offset_ns"],
-                        "eye_width_ns": r.get("eye_width_ns"),
+                        "training_phase_span_ns": r.get("training_phase_span_ns"),
                         "eye_height_v": r.get("eye_height_v"),
                         "bathtub": points,
                     }

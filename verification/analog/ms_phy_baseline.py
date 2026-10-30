@@ -12,7 +12,8 @@ open-loop phase-search transient, and the reported BER/eye are the diagnostic
 result of that single run.
 
 Outputs a JSON report: one record per operating point with errors, BER,
-eye_width_ns, eye_height_v and the frozen validation-phase metrics.
+training_phase_span_ns, eye_open_clean_ns, eye_open_ber_ns, eye_height_v and
+the frozen validation-phase metrics.
 """
 
 from __future__ import annotations
@@ -56,7 +57,9 @@ def run_point(tx: Path, rx: Path, pdk: Path, workdir: Path, *,
         "errors": rep["errors"], "ber": rep["ber"],
         "validation_errors": rep["validation_errors"],
         "validation_ber": rep["validation_ber"],
-        "eye_width_ns": rep["eye_width_ns"],
+        "training_phase_span_ns": rep["training_phase_span_ns"],
+        "eye_open_clean_ns": rep["eye_open_clean_ns"],
+        "eye_open_ber_ns": rep["eye_open_ber_ns"],
         "eye_height_v": rep["eye_height_v"],
         "sample_offset_ns": rep["sample_offset_ns"],
         "returncode": rep["returncode"],
@@ -105,7 +108,9 @@ def main() -> int:
     base["point"] = "baseline"
     records.append(base)
     print(f"baseline {args.base_rate_mbps}Mb/s tt: "
-          f"BER={base['validation_ber']:.3g} eye_w={base['eye_width_ns']:.3g}ns")
+          f"BER={base['validation_ber']:.3g} "
+          f"eye_open={base['eye_open_clean_ns']:.3g}ns "
+          f"phase_span={base['training_phase_span_ns']:.3g}ns")
 
     if not args.quick:
         # 2) Rate sweep at nominal PVT.
