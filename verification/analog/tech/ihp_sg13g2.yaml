@@ -1,5 +1,5 @@
 name: ihp_sg13g2
-status: verified
+status: device_verified
 pdk: ihp-sg13g2
 vdd_v: 1.2
 default_corner: tt
