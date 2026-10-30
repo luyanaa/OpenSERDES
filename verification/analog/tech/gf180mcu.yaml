@@ -112,17 +112,19 @@ macros:
       device_types:
         nfet_03v3: 3
         pfet_03v3: 8
-      R: 0
-      C: 10
+      R: 20
+      C: 23
       X: 11
       body_nets: [VSS, VDD]
       note: >-
-        Magic extract/extresist with cthresh 0.  The emitted netlist has
-        R=0, but a known 1x100 um MET1 calibration line shows extresist
-        computes Rnode=9.0 ohm while emitting only 0.0005 ohm.  Therefore
-        this is a device-plus-C extraction, not a trusted full-RC netlist.
+        Magic extract + ext2sim + extresist (threshold 0, minresist 0,
+        mindelay 0) + ext2spice cthresh 0.  The emitted netlist carries
+        R=20 wire/device resistors plus C.  The earlier R=0 result was an
+        extresist 'mindelay' floor dropping nets whose RC delay is below
+        Tmin ('Not adding ...' -> Nets output: 0), not a missing wire-R
+        model.  Device-plus-RC extraction; not foundry signoff.
     post_pex_analog:
-      status: PARTIAL
+      status: POST_PEX_ANALOG_CHARACTERIZED
       script: verification/analog/gf180_rx_postpex.py
       evidence: build/verify/gf180_rx_macro/postpex.json
       testbench: "VDD=3.3 V, VIN DC=1.65 V, AC=1 V, 1.65->2.5 V pulse, 1 Hz-1 GHz noise"
@@ -145,19 +147,32 @@ macros:
         structure: "1 um x 100 um MET1 line"
         expected_ohm: 9.0
         magic_rnode_ohm: 9.0
-        emitted_spice_ohm: 0.0005
-        wire_r_emitted: false
+        emitted_spice_ohm: 9.001
+        wire_r_emitted: true
       checks:
         dc_op_converged: true
         ac_completed: true
         transient_completed: true
         noise_completed: true
         known_rnode_matches_geometry: true
-        metal_line_r_emitted: false
+        metal_line_r_emitted: true
+      openrcx:
+        script: verification/analog/gf180_openrcx.py
+        status: OPENRCX_CALIBRATED
+        rules: gf180mcuD/libs.tech/librelane/rules.openrcx.gf180mcuD.nom
+        techlef: gf180mcuD/libs.ref/gf180mcu_fd_sc_mcu7t5v0/techlef/gf180mcu_fd_sc_mcu7t5v0__nom.tlef
+        known_line_r_ohm: 9.0
+        note: >-
+          OpenROAD extract_parasitics on a routed DEF of the same
+          1x100 um MET1 line emits a *RES entry of 9.0 ohm between the two
+          pins. This is the primary GF180 RCX route (routed DEF in, SPEF out);
+          it does not depend on the Magic extresist mindelay behaviour.
       note: >-
-        DC/AC/transient/noise complete, but the known-resistor emission
-        gate fails. Do not claim POST_PEX_ANALOG_CHARACTERIZED or use R=0
-        as proof of zero wire resistance.
+        DC/AC/transient/noise complete on the RC netlist (R=20), and the
+        known-resistor emission gate now passes: Magic emits R0 ~= 9.0 ohm
+        once ext2sim runs first and extresist mindelay is set to 0.  Do not
+        use R=0 as proof of zero wire resistance; that was an extresist
+        mindelay artifact.  Macro-level RC, not full-chip/foundry signoff.
     negative_control: >-
       Removing the first PMOS bulk-to-VDD strap makes its body float and
       KLayout LVS fails.
@@ -176,5 +191,5 @@ capabilities:
   drc: verified
   lvs: verified
   pex: verified_extraction_only
-  post_pex_analog: partial
+  post_pex_analog: characterized_macro_rc
   macro_package: false

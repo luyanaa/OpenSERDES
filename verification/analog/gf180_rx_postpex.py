@@ -217,9 +217,12 @@ def _calibrate(gf_root: Path, pdk: Path, env: dict[str, str],
         "select top cell",
         "port makeall",
         "extract",
+        "ext2sim labels on",
+        "ext2sim",
         "extresist debug on",
         "extresist threshold 0",
         "extresist minresist 0",
+        "extresist mindelay 0",
         "extresist all",
         "ext2spice cthresh 0",
         "ext2spice rthresh 0",
@@ -260,11 +263,12 @@ def _calibrate(gf_root: Path, pdk: Path, env: dict[str, str],
         "raw_spice": str(raw),
         "returncode": rep["returncode"],
         "note": (
-            "Magic's extresist reports the line Rnode, but this GF180 deck "
-            "emits only the contact resistance into SPICE for a bare MET1 "
-            "line. Therefore R=0 in the RX macro is not proof of zero wire "
-            "resistance; post-PEX analog results are run and labeled with "
-            "this limitation."
+            "With 'ext2sim' before 'extresist' and 'extresist mindelay 0', "
+            "Magic emits the full wire resistance (R0 IN OUT.n0 ~= 9.0 ohm) "
+            "for the bare MET1 line.  Without 'mindelay 0' extresist drops "
+            "every net whose RC delay is below its default Tmin floor "
+            "('Not adding ...'), yielding Nets output: 0 and R=0.  That was "
+            "the previous failure mode, not an absence of a wire-R model."
         ),
     }
 
