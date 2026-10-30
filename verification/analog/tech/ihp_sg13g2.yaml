@@ -1,5 +1,5 @@
 name: ihp_sg13g2
-status: device_verified
+status: device_and_macro_verified
 pdk: ihp-sg13g2
 vdd_v: 1.2
 default_corner: tt
@@ -86,3 +86,52 @@ verification:
     model_dc:
       nmos: pass
       pmos: pass
+macro:
+  rx_fb_pcell:
+    status: verified
+    reference: sky130 rx_fb_pcell electrical topology
+    ports: [VSS, VDD, IN, OUT]
+    nets: [VSS, VDD, IN, OUT, net06]
+    topology: >-
+      3 CMOS inverters + 3 extra parallel PMOS + 2 series feedback PMOS
+      (OUT -> fb1 S=G=OUT/D=net06 -> fb0 S=G=net06/D=IN).  NMOS bodies VSS,
+      PMOS bodies VDD.
+    hierarchy:
+      rx_inv: 3
+      rx_pmos_extra: 3
+      rx_pmos_fb: 2
+    sizes_um:
+      inverter_nmos: {w: 5.0, l: 0.13}
+      inverter_pmos: {w: 5.0, l: 0.13}
+      extra_pmos: {w: 5.0, l: 0.13}
+      feedback_pmos: {w: 0.55, l: 2.0}
+    drc_errors: 0
+    lvs:
+      result: unique_match
+      top_instances: 8
+      top_nets: 5
+      body_ports_present: true
+    pex:
+      method: extract; extresist all; ext2spice extresist on; rthresh=0; cthresh=0
+      device_instances: 11
+      device_classes: {sg13_lv_nmos: 3, sg13_lv_pmos: 8}
+      observed_runs:
+      - {resistors: 55, capacitors: 26, floating_caps: 16}
+      - {resistors: 25, capacitors: 24, floating_caps: 14}
+      note: >-
+        Magic extresist node ordering is not stable across invocations; the
+        same GDS produced different R/C counts. Both runs are recorded. This
+        is command closure, not deterministic full-parasitic signoff.
+    negative_control:
+      method: removed VDD body tie strap on rx_pmos_extra
+      lvs_match: false
+      rejected: true
+    model_dc:
+      status: pass
+      v_out_v: 0.620552
+      i_vdd_a: -3.90074e-4
+      i_vin_a: 2.32e-11
+      note: OSDI PSP103; missing optional cap OSDI libs warn but do not block.
+    builder: verification/analog/ihp_rx_macro.py
+    doc: docs/ihp_rx_macro_closure.md
+    evidence: build/verify/ihp_rx_macro/ihp_rx_macro.json
