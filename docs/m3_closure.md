@@ -30,17 +30,19 @@ to `build/verify/m3_holdout.json`.
 |---|---:|---:|---:|---:|---:|
 | feedback | 7 | 6 | 15 | 15 | 43/256 = 0.168 |
 | parallel stdcell | 13 | 13 | 21 | 21 | 68/256 = 0.266 |
-| PCell feedback | 10 | 8 | 15 | 15 | 48/256 = 0.188 |
+| PCell feedback | 6 | 5 | 16 | 15 | 42/256 = 0.164 |
 
 Aggregate Wilson 95% interval over all 768 validation bits is diagnostic
-`[0.180, 0.237]`; the rows are not independent production trials, so this is
+`[0.172, 0.229]`; the rows are not independent production trials, so this is
 not a production BER interval.  Training and validation error counts are close
 (feedback 800: 6/64 training vs 7/64 validation; feedback 1200: 9 vs 15), which
 is expected for this short, ISI-limited channel.
 
-The feedback route is the best in this campaign.  The PCell feedback route ties
-it at 1200 Mb/s but regresses at 800 Mb/s.  The parallel stdcell route is worst
-at both rates.  The intervals overlap between feedback and PCell, so this is a
+The PCell feedback rows were rerun after the sky130 RX macro body ties closed,
+because the PEX netlist changed.  Feedback and PCell feedback are effectively
+tied in aggregate (43 vs 42 errors/256); PCell is slightly better at 800 Mb/s
+and slightly worse at 1200 Mb/s.  The parallel stdcell route is worst at both
+rates.  The intervals overlap between feedback and PCell, so this is a
 directional characterization result, not a statistically resolved production
 selection.
 
@@ -71,8 +73,8 @@ characterization_complete = true
 production_qualified = false
 holdout = 12/12 cases
 validation bits = 768
-validation errors = 159
-aggregate diagnostic BER = 0.207
+validation errors = 153
+aggregate diagnostic BER = 0.199
 ```
 
 Open limitations:
@@ -80,7 +82,7 @@ Open limitations:
 - independent holdout is open-loop and short (64 validation bits/case);
 - no CDR-conditioned sensitivity campaign;
 - PVT/local-mismatch/bathtub are 32-bit spot checks;
-- The M3 holdout uses the pre-body-tie PCell PEX; the sky130 RX body-tie macro is now physically closed, but M3 BER was not rerun on the new PEX;
+- PCell feedback rows were rerun on the post-body-tie PEX; feedback/parallel rows use the earlier PEX;
 - no global-process Monte Carlo for the M3 transient chain;
 - no production/SoC BER or full eye-mask claim.
 

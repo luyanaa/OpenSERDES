@@ -229,5 +229,5 @@ completed with `characterization_complete: true` and
 [`m3_closure.md`](m3_closure.md).
 
 The held-out aggregate was feedback 43/256, parallel 68/256 and PCell feedback
-48/256.  This supports the feedback route directionally, but the short open-loop
+42/256 after the PCell body-tie PEX was regenerated.  This supports the feedback route directionally, but the short open-loop
 frames still do not constitute production BER or CDR qualification.
