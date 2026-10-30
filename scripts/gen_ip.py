@@ -760,6 +760,82 @@ def build_plan(cfg: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
     }
 
 
+def digital_capability_report(cfg: dict[str, Any], plan: dict[str, Any]) -> dict[str, Any]:
+    """Expose what the generated package actually integrates.
+
+    This is deliberately conservative.  Standalone RTL blocks (training and
+    CRC) are listed, but they are not marked integrated until their actuator
+    or frame plumbing is part of the generated design.
+    """
+    if cfg["clocking"] == "source_sync":
+        clock_recovery = "source_sync"
+    elif cfg["rx_arch_name"] == "adaptive_oversampling":
+        clock_recovery = "adaptive_oversampling"
+    else:
+        clock_recovery = "fixed_oversampling"
+    framing = "sync_word" if cfg["align_mode"] != 0 else "none"
+    return {
+        "coding": {
+            "selected": cfg["coding"],
+            "implementation": "rtl",
+            "integrated": cfg["coding"] == "raw",
+        },
+        "framing": {
+            "selected": framing,
+            "implementation": "rtl",
+            "integrated": framing in ("none", "sync_word"),
+        },
+        "crc": {
+            "selected": "none",
+            "implementation": "rtl_standalone",
+            "module": "crc_frame",
+            "integrated": False,
+        },
+        "training": {
+            "selected": "none",
+            "implementation": "rtl_standalone",
+            "module": "link_training_fsm",
+            "integrated": False,
+        },
+        "clock_source": {
+            "selected": cfg["clocking"],
+            "implementation": "rtl",
+            "integrated": True,
+        },
+        "clock_recovery": {
+            "selected": clock_recovery,
+            "implementation": "rtl",
+            "integrated": True,
+        },
+        "sampler": {
+            "selected": "single_edge",
+            "implementation": "rtl",
+            "integrated": True,
+        },
+        "tx_driver": {
+            "selected": plan["tx_arch"]["name"],
+            "implementation": "rtl",
+            "integrated": cfg["target"] in ("link", "tx"),
+        },
+        "rx_frontend": {
+            "selected": plan["rx_arch"]["name"],
+            "implementation": "rtl",
+            "integrated": cfg["target"] in ("link", "rx"),
+        },
+        "equalization": {"selected": "none", "implementation": "none",
+                         "integrated": False},
+        "termination": {"selected": "none", "implementation": "none",
+                        "integrated": False},
+        "lane_bonding": {"selected": "single", "implementation": "rtl",
+                         "integrated": True},
+        "power_management": {"selected": "none", "implementation": "none",
+                             "integrated": False},
+        "fec": {"selected": "none", "implementation": "none",
+                "integrated": False},
+        "standalone_blocks": ["link_training_fsm", "crc_frame"],
+    }
+
+
 def synth_parameters(params: dict[str, Any]) -> list[str]:
     order = ["DATA_WIDTH", "WORDS", "LSB_FIRST", "CAPTURE_MODE", "OVERSAMPLE",
              "SYNC_STAGES", "LOCK_THRESH", "LOCK_STALE_BITS", "CDR_MODE",
@@ -1272,6 +1348,7 @@ def main() -> int:
                                           "cdc_proven_synchronous")},
         "tx_capture_semantics": plan["capture_semantics"],
         "optional_blocks": plan["optional_blocks"],
+        "capabilities": digital_capability_report(cfg, plan),
         "sv2v": sv2v_meta,
         "verification_config": {
             "cdr_mode": int(plan["params"].get(

@@ -84,6 +84,12 @@ class TestGeneratorContracts(unittest.TestCase):
             manifest = json.loads((out / "manifest.json").read_text())
             self.assertEqual(manifest["interface"]["cdc"], "async_fifo")
             self.assertTrue(any("does not prove" in w for w in manifest["warnings"]))
+            caps = manifest["capabilities"]
+            self.assertTrue(caps["coding"]["integrated"])
+            self.assertTrue(caps["framing"]["integrated"])
+            self.assertFalse(caps["training"]["integrated"])
+            self.assertFalse(caps["crc"]["integrated"])
+            self.assertEqual(caps["training"]["implementation"], "rtl_standalone")
 
     def test_cdc_none_with_mismatched_user_clock_is_rejected(self) -> None:
         spec = _base_spec()

@@ -93,6 +93,26 @@ is verified but not connected; `none` means no implementation exists.
 | Power management | none | only supported option | no gated/sleep controller |
 | FEC | none | only supported option | no FEC block |
 
+## Manifest capability report
+
+`gen_ip.py` now writes a conservative `manifest.capabilities` block for every
+generated package.  It records the selected option, the implementation class
+(`rtl`, `rtl_standalone`, or `none`), and whether the block is actually
+integrated in the generated design.  For example, the default package reports:
+
+```json
+"training": {
+  "selected": "none",
+  "implementation": "rtl_standalone",
+  "module": "link_training_fsm",
+  "integrated": false
+}
+```
+
+This is a status report, not permission to claim the feature.  A block stays
+`integrated: false` until it is in the package file list and has package-level
+evidence.
+
 ## Rules for the generator
 
 1. A requested capability may only be marked `integrated` if the block is in
