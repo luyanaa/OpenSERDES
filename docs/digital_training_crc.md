@@ -69,8 +69,21 @@ CRC-32/ISO-HDLC("123456789")    = 0xCBF43926
 
 `axis_crc_inserter` appends the CRC beats after the payload and uses
 `m_axis_tuser` to mark the last payload beat; `m_axis_tlast` is reserved for
-the final CRC beat.  `axis_crc_checker` forwards payload, consumes the CRC
-beats, and pulses `crc_ok`/`crc_error`.  `serdes_tx_axis_digital` and
+the final CRC beat.  `axis_crc_checker` consumes the CRC beats and pulses
+`crc_ok`/`crc_error`.  It supports two delivery modes via `STORE_AND_FORWARD`:
+
+* `STORE_AND_FORWARD=0` (default, *streaming detect*): payload is forwarded
+  downstream immediately; `crc_error` pulses only after the frame ends, so
+  already-delivered payload cannot be recalled.  No buffer RAM — for link
+  diagnostics.
+* `STORE_AND_FORWARD=1` (*store-and-forward*): payload is buffered in a
+  `MAX_FRAME_BEATS`-deep RAM and released only when the CRC verifies; a bad
+  frame is dropped entirely (`frame_drop` pulses for over-length frames).
+  True error-frame isolation at the cost of the buffer and one frame of
+  latency.  Verified by `tb_axis_crc_saf`.
+
+`serdes_rx_axis_digital` exposes the mode as `CRC_STORE_AND_FORWARD` /
+`CRC_MAX_FRAME_BEATS` plus a `crc_frame_drop` output.  `serdes_tx_axis_digital` and
 `serdes_rx_axis_digital` expose `CRC_ENABLE` and extend the serialized frame
 by `ceil(CRC_WIDTH/DATA_WIDTH)` words.  `tb_crc_tx_endpoint` and
 `tb_crc_rx_endpoint` verify the 4-word payload plus CRC16 path.  The SoC async

@@ -32,13 +32,15 @@ DESIGN_FILES = {
         "cdr_sync.sv", "cdr_oversampling.sv", "cdr_adaptive.sv",
         "comma_align.sv", "receiver_sampler.sv", "reset_sync.sv",
         "serdes_tx_digital.sv", "serdes_rx_digital.sv",
-        "pcs_8b10b_tx.sv", "pcs_8b10b_rx.sv",
+        "pcs_8b10b_tx.sv", "pcs_8b10b_rx.sv", "pcs_8b10b_comma.sv",
+        "pcs_64b66b_lock.sv",
         "encoder_8b10b.sv", "decoder_8b10b.sv", "serdes_8b10b_top.sv",
     ],
     "serdes_64b66b_top": [
         "serializer.sv", "deserializer_word.sv", "deserializer.sv",
         "cdr_sync.sv", "cdr_oversampling.sv", "cdr_adaptive.sv",
-        "comma_align.sv", "receiver_sampler.sv", "reset_sync.sv",
+        "comma_align.sv", "pcs_8b10b_comma.sv", "pcs_64b66b_lock.sv",
+        "receiver_sampler.sv", "reset_sync.sv",
         "serdes_tx_digital.sv", "serdes_rx_digital.sv", "pcs_64b66b.sv",
         "serdes_64b66b_top.sv",
     ],
@@ -652,9 +654,11 @@ def validate(spec: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
         fail("interface.enable_mode must be static or dynamic")
 
     align = str(rx.get("align", "external")).lower()
-    align_map = {"external": 0, "comma": 1, "comma_per_frame": 2}
+    align_map = {"external": 0, "comma": 1, "comma_per_frame": 2,
+                 "comma_8b10b": 3, "block_lock": 4}
     if align not in align_map:
-        fail("rx.align must be external, comma or comma_per_frame")
+        fail("rx.align must be external, comma, comma_per_frame, "
+             "comma_8b10b or block_lock")
     sync_pattern = rx.get("sync_pattern", "0xBC")
     if isinstance(sync_pattern, str):
         try:
@@ -681,15 +685,17 @@ def validate(spec: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
             fail("coding: 64b66b is currently supported only for target: link")
         if width != 64:
             fail("coding: 64b66b requires link.payload_width: 64")
-        if align != "external":
-            fail("coding: 64b66b requires rx.align: external (block alignment is external)")
+        if align not in ("external", "block_lock"):
+            fail("coding: 64b66b requires rx.align: external or block_lock "
+                 "(block boundary external or sync-header block lock)")
     if coding == "8b10b":
         if target != "link":
             fail("coding: 8b10b is currently supported only for target: link")
         if width != 8:
             fail("coding: 8b10b requires link.payload_width: 8")
-        if align != "external":
-            fail("coding: 8b10b requires rx.align: external (10-bit comma framing is external)")
+        if align not in ("external", "comma_8b10b"):
+            fail("coding: 8b10b requires rx.align: external or comma_8b10b "
+                 "(external comma or K28.5 self-alignment)")
 
     # Optional capability selection.  Defaults describe what this generator
     # actually integrates today.  A requested standalone block is rejected;

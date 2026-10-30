@@ -163,6 +163,12 @@ $(BUILD)/tb_64b66b_gearbox: tb/tb_64b66b_gearbox.sv rtl/pcs_64b66b.sv | $(BUILD)
 $(BUILD)/tb_pcs_8b10b: tb/tb_pcs_8b10b.sv rtl/pcs_8b10b_tx.sv rtl/pcs_8b10b_rx.sv rtl/encoder_8b10b.sv rtl/decoder_8b10b.sv | $(BUILD)
 	$(IVERILOG) -g2012 -Wall -o $@ $^
 
+$(BUILD)/tb_pcs_comma_lock: tb/tb_pcs_comma_lock.sv rtl/pcs_8b10b_comma.sv rtl/pcs_64b66b_lock.sv | $(BUILD)
+	$(IVERILOG) -g2012 -Wall -o $@ $^
+
+$(BUILD)/tb_pcs_8b10b_realign: tb/tb_pcs_8b10b_realign.sv rtl/pcs_8b10b_tx.sv rtl/pcs_8b10b_rx.sv rtl/encoder_8b10b.sv rtl/decoder_8b10b.sv rtl/pcs_8b10b_comma.sv rtl/deserializer.sv rtl/deserializer_word.sv | $(BUILD)
+	$(IVERILOG) -g2012 -Wall -o $@ $^
+
 $(BUILD)/tb_soc_cdc_training: tb/tb_soc_cdc_training.sv $(RTL) | $(BUILD)
 	$(IVERILOG) -g2012 -Wall -o $@ $^
 
@@ -230,6 +236,7 @@ SIM_BINS := $(BUILD)/tb_serializer_lsb $(BUILD)/tb_serializer_msb \
             $(BUILD)/tb_link_training_fsm $(BUILD)/tb_crc_frame \
             $(BUILD)/tb_axis_crc $(BUILD)/tb_axis_crc_saf $(BUILD)/tb_8b10b $(BUILD)/tb_64b66b \
             $(BUILD)/tb_64b66b_gearbox $(BUILD)/tb_pcs_8b10b \
+            $(BUILD)/tb_pcs_comma_lock $(BUILD)/tb_pcs_8b10b_realign \
             $(BUILD)/tb_crc_tx_endpoint $(BUILD)/tb_crc_rx_endpoint \
             $(BUILD)/tb_soc_cdc_training $(BUILD)/tb_soc_cdc_crc \
             $(BUILD)/tb_serdes_training \
@@ -272,6 +279,8 @@ sim: $(SIM_BINS)
 	$(VVP) $(BUILD)/tb_64b66b
 	$(VVP) $(BUILD)/tb_64b66b_gearbox
 	$(VVP) $(BUILD)/tb_pcs_8b10b
+	$(VVP) $(BUILD)/tb_pcs_comma_lock
+	$(VVP) $(BUILD)/tb_pcs_8b10b_realign
 	$(VVP) $(BUILD)/tb_crc_tx_endpoint
 	$(VVP) $(BUILD)/tb_crc_rx_endpoint
 	$(VVP) $(BUILD)/tb_soc_cdc_training

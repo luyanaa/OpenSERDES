@@ -14,6 +14,10 @@
 //      align at the pattern boundary.
 //   2: comma_align re-arms after every rx_par_valid, so each frame can
 //      re-align on its own sync word.  Use this for continuous/gapped links.
+//   3: 8b/10b K28.5 comma detect + symbol realignment (pcs_8b10b_comma); a
+//      slip_req on rx_align re-opens the search.
+//   4: 64b/66b sync-header block lock (pcs_64b66b_lock); the 66-bit boundary
+//      is external, the FSM confirms it from the per-block sync headers.
 //
 // rx_frame_locked is sticky after a comma match (ALIGN_MODE=1).  It is cleared
 // by rx_flush or loss of CDR lock.  In ALIGN_MODE=0 it is tied high because the
@@ -155,7 +159,26 @@ module serdes_rx_digital #(
     endgenerate
 
     generate
-        if (ALIGN_MODE != 0) begin : g_comma
+        if (ALIGN_MODE == 3) begin : g_comma_8b10b
+            // 8b/10b K28.5 comma detect + symbol realignment.  align fires on
+            // the last comma bit so the next serial bit starts a fresh 10-bit
+            // symbol.  `rx_align`/slip requests re-open the search; this mode
+            // expects DATA_WIDTH*WORDS to be a multiple of 10 bits.
+            /* verilator lint_off PINCONNECTEMPTY */
+            pcs_8b10b_comma #(.LOCK_COMMAS(2)) u_comma_8b10b (
+                .clk(rx_clk),
+                .rst_n(rx_rst_n_sync),
+                .enable(rx_enable),
+                .flush(rx_flush | ~cdr_lock),
+                .serial_in(cdr_data_out),
+                .serial_valid(cdr_sample_strobe & cdr_lock),
+                .slip_req(rx_align),
+                .align(comma_align_pulse),
+                .locked(comma_locked),
+                .comma_seen()
+            );
+            /* verilator lint_on PINCONNECTEMPTY */
+        end else if (ALIGN_MODE == 1 || ALIGN_MODE == 2) begin : g_comma
             comma_align #(
                 .PATTERN_LEN(SYNC_LEN),
                 .PATTERN(SYNC_PATTERN),
@@ -172,6 +195,8 @@ module serdes_rx_digital #(
                 .locked(comma_locked)
             );
         end else begin : g_external_align
+            // ALIGN_MODE==0 (external) and ==4 (64b/66b block lock): no serial
+            // comma detector; the boundary/lock comes from elsewhere.
             assign comma_align_pulse = 1'b0;
             assign comma_locked      = 1'b1;
         end
@@ -196,11 +221,37 @@ module serdes_rx_digital #(
         .busy(rx_busy)
     );
 
+    // 64b/66b block-lock FSM (ALIGN_MODE=4): the block boundary is produced
+    // elsewhere (external align or an upstream comma); this FSM confirms it by
+    // watching the 2-bit sync headers on each deserialized block.  The block
+    // width is DATA_WIDTH (66 for 64b/66b); we inspect word0's top 2 bits.
+    logic blk_lock;
+    generate
+        if (ALIGN_MODE == 4) begin : g_blk_lock
+            logic [1:0] hdr;
+            // Sync header is the top 2 bits of the first (only) 66-bit word.
+            assign hdr = LSB_FIRST ? rx_par_data[0][DATA_WIDTH-1 -: 2]
+                                   : rx_par_data[0][1:0];
+            /* verilator lint_off PINCONNECTEMPTY */
+            pcs_64b66b_lock #(
+                .GOOD_FOR_LOCK(4), .BAD_TO_UNLOCK(4), .WIN_BLOCKS(16)
+            ) u_blk_lock (
+                .clk(rx_clk), .rst_n(rx_rst_n_sync), .enable(rx_enable),
+                .blk_valid(rx_par_valid), .sync_hdr(hdr),
+                .block_lock(blk_lock), .presync(), .bad_hdr()
+            );
+            /* verilator lint_on PINCONNECTEMPTY */
+        end else begin : g_no_blk_lock
+            assign blk_lock = 1'b1;
+        end
+    endgenerate
+
     assign rx_lock          = cdr_lock;
     assign rx_lock_stale    = cdr_lock_stale;
     assign rx_sample_strobe = cdr_sample_strobe;
     assign rx_clk_out       = cdr_clk_out;
-    assign rx_frame_locked  = (ALIGN_MODE != 0) ? comma_locked : 1'b1;
+    assign rx_frame_locked  = (ALIGN_MODE == 4) ? blk_lock :
+                              (ALIGN_MODE != 0) ? comma_locked : 1'b1;
     assign rx_frame_valid   = rx_par_valid & rx_frame_locked;
     assign rx_serial_data   = cdr_data_out;
     assign rx_serial_valid  = cdr_sample_strobe & cdr_lock;
