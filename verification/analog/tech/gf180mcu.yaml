@@ -85,3 +85,46 @@ pcell:
     The PCell has no gate contact or labels.  Closure adds a 220 nm contact on
     Poly2 above the active region, a local Poly2/Metal1 gate pad, and MET1
     text labels (34/10) for S/D/B/G.  These are probe-only additions.
+macros:
+  rx_fb_pcell:
+    status: verified
+    cell: gf180_rx_macro
+    topology: >-
+      3 CMOS inverters (3 nfet_03v3 + 3 pfet_03v3), 3 extra parallel
+      pfet_03v3, and 2 series feedback pfet_03v3 from OUT to IN via net06.
+      8 block instances / 11 MOS device instances / 5 nets.
+    ports: [VSS, VDD, OUT, IN]
+    sizes:
+      inverter_n: nfet_03v3 W=5u L=0.28u
+      inverter_p: pfet_03v3 W=5u L=0.28u
+      extra_p: pfet_03v3 W=5u L=0.28u
+      feedback: pfet_03v3 W=0.55u L=8u
+    drc_errors: 0
+    lvs:
+      klayout: match
+      netgen: match
+      netgen_hierarchical: match
+      device_instances: 11
+      nets: 5
+    pex:
+      devices: 11
+      device_types:
+        nfet_03v3: 3
+        pfet_03v3: 8
+      R: 0
+      C: 10
+      X: 11
+      body_nets: [VSS, VDD]
+      note: >-
+        Magic extract/extresist with cthresh 0.  R=0 is real for this
+        single-M1-rail macro; this is not full RC parasitic signoff.
+    negative_control: >-
+      Removing the first PMOS bulk-to-VDD strap makes its body float and
+      KLayout LVS fails.
+    evidence: build/verify/gf180_rx_macro/gf180_rx_macro_evidence.json
+    note: >-
+      Macro-level DRC/LVS/PEX closure for this placement and sizing only.
+      Not full-chip or foundry signoff.  The LVS reference is a flat
+      primitive-M schematic (11 M devices) because the PDK LVS schematic
+      reader does not flatten X-inverter blocks; the hierarchical CDL with
+      8 block instances is shipped alongside it.
