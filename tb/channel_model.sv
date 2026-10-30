@@ -17,19 +17,36 @@ module channel_model #(
     input  logic rst_n,
     input  logic serial_in,
     input  logic serial_valid,
+    // Runtime controls: pulse corrupt_pulse to flip one serial bit, or
+    // slip_pulse to hold the current serial bit for one extra bit period --
+    // the downstream free-running sampler then sees one bit duplicated, which
+    // is a single-bit phase slip.  Both are optional; leave them low for the
+    // parameter-only behaviour.
+    input  logic corrupt_pulse = 1'b0,
+    input  logic slip_pulse    = 1'b0,
     output logic serial_out,
     output logic serial_valid_out
 );
 
     logic corrupted;
     logic inject_error;
+    logic slip_hold_q;
+    logic slipped_bit;
     int   bit_count;
 
     always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n)
-            bit_count <= 0;
-        else if (serial_valid)
-            bit_count <= bit_count + 1;
+        if (!rst_n) begin
+            bit_count  <= 0;
+            slip_hold_q <= 1'b0;
+            slipped_bit <= 1'b0;
+        end else begin
+            if (serial_valid)
+                bit_count <= bit_count + 1;
+            // Latch the bit being held so the next cycle repeats it.
+            if (slip_pulse)
+                slipped_bit <= serial_in;
+            slip_hold_q <= slip_pulse;
+        end
     end
 
     always @(bit_count or serial_valid) begin
@@ -40,7 +57,9 @@ module channel_model #(
         end
     end
 
-    assign corrupted = serial_in ^ INVERT ^ inject_error;
+    // During a slip the output replays the held bit instead of the live one.
+    assign corrupted = (slip_hold_q ? slipped_bit : serial_in)
+                       ^ INVERT ^ inject_error ^ corrupt_pulse;
 
     generate
         if (DELAY_CYCLES == 0) begin : g_no_delay
