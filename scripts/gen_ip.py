@@ -93,6 +93,45 @@ PRESETS = {
 
 CODING_FACTOR = {"raw": 1.0, "none": 1.0, "8b10b": 1.25, "64b66b": 66.0 / 64.0}
 
+# Digital capability vocabulary.  Values are implementation classes; the
+# generator only accepts options that are present in an integrated generated
+# package.  Standalone, verified RTL is still listed in the manifest but is not
+# promoted to a link capability.
+CAPABILITY_CHOICES = {
+    "coding": {"raw", "8b10b", "64b66b"},
+    "framing": {"none", "sync_word", "crc16", "crc32"},
+    "training": {"none", "phase_threshold"},
+    "clock_source": {"source_sync", "independent", "external_reference",
+                     "ring_pll", "adpll", "dll"},
+    "clock_recovery": {"none", "source_sync", "fixed_oversampling",
+                       "adaptive_oversampling", "bang_bang", "pi_cdr"},
+    "sampler": {"single_edge", "ddr", "multiphase", "interleaved"},
+    "tx_driver": {"rtl", "analog_macro", "generated_macro", "cml"},
+    "rx_frontend": {"rtl", "analog_macro", "generated_macro", "resistive_fb",
+                    "comparator", "ctle"},
+    "equalization": {"none", "ctle", "dfe", "ffe"},
+    "termination": {"none", "high_z", "on_chip", "programmable"},
+    "lane_bonding": {"single", "2_lane", "4_lane"},
+    "power_management": {"none", "clock_gating", "sleep", "wake"},
+    "fec": {"none", "block", "rs", "bch"},
+}
+CAPABILITY_INTEGRATED = {
+    "coding": {"raw": True},
+    "framing": {"none": True, "sync_word": True},
+    "training": {"none": True},
+    "clock_source": {"source_sync": True, "independent": True},
+    "clock_recovery": {"none": True, "source_sync": True,
+                       "fixed_oversampling": True, "adaptive_oversampling": True},
+    "sampler": {"single_edge": True},
+    "tx_driver": {"rtl": True},
+    "rx_frontend": {"rtl": True},
+    "equalization": {"none": True},
+    "termination": {"none": True},
+    "lane_bonding": {"single": True},
+    "power_management": {"none": True},
+    "fec": {"none": True},
+}
+
 
 class SpecError(Exception):
     pass
@@ -592,6 +631,66 @@ def validate(spec: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
             "inside a wider word"
         )
 
+    # Optional capability selection.  Defaults describe what this generator
+    # actually integrates today.  A requested standalone block is rejected;
+    # explicit `none` is the supported bypass.
+    if clocking == "source_sync":
+        recovery_default = "source_sync"
+    elif rx_arch_name == "adaptive_oversampling":
+        recovery_default = "adaptive_oversampling"
+    elif target == "tx":
+        recovery_default = "none"
+    else:
+        recovery_default = "fixed_oversampling"
+    cap_defaults = {
+        "coding": coding,
+        "framing": "sync_word" if align != "external" else "none",
+        "training": "none",
+        "clock_source": clocking,
+        "clock_recovery": recovery_default,
+        "sampler": "single_edge",
+        "tx_driver": "rtl" if target in ("link", "tx") else "none",
+        "rx_frontend": "rtl" if target in ("link", "rx") else "none",
+        "equalization": "none",
+        "termination": "none",
+        "lane_bonding": "single",
+        "power_management": "none",
+        "fec": "none",
+    }
+    cap_in = spec.get("capabilities", {}) or {}
+    if not isinstance(cap_in, dict):
+        fail("capabilities must be a mapping")
+    for key, value in cap_in.items():
+        if key not in CAPABILITY_CHOICES:
+            fail(f"unknown capabilities.{key}")
+        value = str(value).lower()
+        if value not in CAPABILITY_CHOICES[key]:
+            fail(f"capabilities.{key} must be one of {sorted(CAPABILITY_CHOICES[key])}")
+        cap_defaults[key] = value
+    if cap_defaults["coding"] != coding:
+        fail("capabilities.coding must match link.coding")
+    if cap_defaults["clock_source"] != clocking:
+        fail("capabilities.clock_source must match rx.clocking")
+    if cap_defaults["clock_recovery"] != recovery_default:
+        fail("capabilities.clock_recovery must match the selected RX architecture")
+    framing_default = "sync_word" if align != "external" else "none"
+    if cap_defaults["framing"] != framing_default:
+        fail("capabilities.framing must match rx.align")
+    for key, value in cap_defaults.items():
+        if value == "none":
+            continue
+        if not CAPABILITY_INTEGRATED.get(key, {}).get(value, False):
+            if value in ("crc16", "crc32") or key == "training":
+                fail(
+                    f"capabilities.{key}={value!r} is RTL_STANDALONE and is not "
+                    "integrated into the generated package; use the explicit "
+                    "bypass `none` until the block is wired and verified"
+                )
+            fail(
+                f"capabilities.{key}={value!r} is not integrated for this "
+                "generated design; use an available option or explicit `none`"
+            )
+
     return {
         "name": name,
         "target": target,
@@ -625,6 +724,7 @@ def validate(spec: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
         "align_mode": align_map[align],
         "sync_pattern": sync_pattern_int,
         "sync_len": sync_len,
+        "capabilities": cap_defaults,
         "warnings": spec.get("_warnings", []),
     }
 
@@ -1349,6 +1449,7 @@ def main() -> int:
         "tx_capture_semantics": plan["capture_semantics"],
         "optional_blocks": plan["optional_blocks"],
         "capabilities": digital_capability_report(cfg, plan),
+        "capability_request": cfg["capabilities"],
         "sv2v": sv2v_meta,
         "verification_config": {
             "cdr_mode": int(plan["params"].get(

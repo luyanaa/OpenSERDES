@@ -113,6 +113,32 @@ This is a status report, not permission to claim the feature.  A block stays
 `integrated: false` until it is in the package file list and has package-level
 evidence.
 
+## Capability requests in the spec
+
+`capabilities` is an optional spec mapping.  It uses the same vocabulary as
+the manifest report and is checked for consistency with `link.coding`,
+`rx.clocking`, `rx.align`, and the selected CDR architecture.  For example:
+
+```yaml
+capabilities:
+  coding: raw
+  framing: sync_word
+  training: none          # explicit bypass, not a fake training block
+  equalization: none
+  termination: none
+```
+
+A request for a standalone or unimplemented option is rejected.  For example,
+`training: phase_threshold` currently fails with:
+
+```text
+capabilities.training='phase_threshold' is RTL_STANDALONE and is not
+integrated into the generated package; use the explicit bypass `none`
+```
+
+This preserves the rule that a package may declare a capability only when the
+block is wired into the generated design and has package-level evidence.
+
 ## Rules for the generator
 
 1. A requested capability may only be marked `integrated` if the block is in

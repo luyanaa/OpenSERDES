@@ -68,6 +68,23 @@ class TestGeneratorContracts(unittest.TestCase):
         self.assertEqual(code, 2)
         self.assertIn("not implemented", text)
 
+    def test_standalone_training_is_fail_closed(self) -> None:
+        spec = _base_spec()
+        spec["capabilities"] = {"training": "phase_threshold"}
+        code, text = self._run(spec)
+        self.assertEqual(code, 2)
+        self.assertIn("RTL_STANDALONE", text)
+
+    def test_explicit_none_capability_is_the_bypass(self) -> None:
+        spec = _base_spec()
+        spec["capabilities"] = {
+            "training": "none",
+            "equalization": "none",
+            "termination": "none",
+        }
+        code, text = self._run(spec)
+        self.assertEqual(code, 0, text)
+
     def test_unproven_cdc_auto_becomes_async(self) -> None:
         spec = _base_spec()
         spec["interface"]["cdc"] = "auto"
