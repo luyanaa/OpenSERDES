@@ -17,6 +17,7 @@
 // -----------------------------------------------------------------------------
 module pcs_64b66b_encoder (
     input  logic [63:0] data_in,
+    input  logic        ctrl = 1'b0,
     output logic [65:0] block_out,
     output logic        sync_ok
 );
@@ -34,7 +35,7 @@ module pcs_64b66b_encoder (
         end
     end
 
-    assign block_out = {2'b01, scrambled};
+    assign block_out = {ctrl ? 2'b10 : 2'b01, scrambled};
     assign sync_ok = 1'b1;
 endmodule
 
@@ -59,7 +60,63 @@ module pcs_64b66b_decoder (
     end
 
     assign data_out  = descrambled;
-    assign sync_ok   = (block_in[65:64] == 2'b01);
+    assign sync_ok   = (block_in[65:64] == 2'b01) || (block_in[65:64] == 2'b10);
     assign ctrl_block = (block_in[65:64] == 2'b10);
 endmodule
 /* verilator lint_on DECLFILENAME */
+
+// -----------------------------------------------------------------------------
+// 66-to-64-bit gearbox.
+//
+// Packs a stream of 66-bit PCS blocks into 64-bit words.  The buffer holds up
+// to two words of data; `block_ready` deasserts while the buffer must drain.
+// This is a datapath primitive; block distribution and PCS lane alignment are
+// separate layers.
+// -----------------------------------------------------------------------------
+module pcs_64b66b_gearbox (
+    input  logic        clk,
+    input  logic        rst_n,
+    input  logic        enable,
+    input  logic [65:0] block_in,
+    input  logic        block_valid,
+    output logic        block_ready,
+    output logic [63:0] word_out,
+    output logic        word_valid,
+    input  logic        word_ready
+);
+    logic [129:0] buf_q;
+    logic [7:0]   count_q;
+    logic [63:0]  word_q;
+    logic         valid_q;
+
+    assign block_ready = enable && !valid_q && (count_q < 8'd64);
+    assign word_out    = word_q;
+    assign word_valid  = valid_q;
+
+    always_ff @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            buf_q   <= '0;
+            count_q <= '0;
+            word_q  <= '0;
+            valid_q <= 1'b0;
+        end else if (!enable) begin
+            buf_q   <= '0;
+            count_q <= '0;
+            word_q  <= '0;
+            valid_q <= 1'b0;
+        end else begin
+            if (valid_q && word_ready)
+                valid_q <= 1'b0;
+
+            if (!valid_q && count_q >= 8'd64) begin
+                word_q  <= buf_q[63:0];
+                buf_q   <= buf_q >> 64;
+                count_q <= count_q - 8'd64;
+                valid_q <= 1'b1;
+            end else if (block_valid && block_ready) begin
+                buf_q   <= {block_in, buf_q[63:0]};
+                count_q <= count_q + 8'd66;
+            end
+        end
+    end
+endmodule

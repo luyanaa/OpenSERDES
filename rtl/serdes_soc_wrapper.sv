@@ -277,6 +277,7 @@ module serdes_soc_wrapper #(
         .tx_frame_error(tx_frame_error)
     );
 
+    /* verilator lint_off PINCONNECTEMPTY */
     serdes_rx_axis_digital #(
         .DATA_WIDTH(DATA_WIDTH),
         .WORDS(RX_WORDS),
@@ -309,7 +310,8 @@ module serdes_soc_wrapper #(
         .rx_serial_valid(rx_serial_valid),
         .rx_freq_trim(rx_freq_trim),
         .rx_busy(rx_busy),
-        .rx_clk_out(rx_clk_out)
+        .rx_clk_out(rx_clk_out),
+        .crc_error()
     );
 
     // In word-BIST mode the RX AXIS frame is consumed by the checker instead

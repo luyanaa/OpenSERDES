@@ -8,7 +8,8 @@
 // this cycle), frame_overflow is set and the new frame is dropped.
 module axis_rx_adapter #(
     parameter int DATA_WIDTH = 32,
-    parameter int WORDS      = 8
+    parameter int WORDS      = 8,
+    parameter int PAYLOAD_WORDS = WORDS
 ) (
     input  logic                              clk,
     input  logic                              rst_n,
@@ -19,11 +20,13 @@ module axis_rx_adapter #(
     input  logic                              m_axis_tready,
     output logic [DATA_WIDTH-1:0]             m_axis_tdata,
     output logic                              m_axis_tlast,
+    output logic                              m_axis_tuser,
     output logic                              frame_overflow
 );
 
     localparam int WORD_W = (WORDS <= 1) ? 1 : $clog2(WORDS);
     localparam logic [WORD_W-1:0] LAST_WORD = WORD_W'(WORDS-1);
+    localparam logic [WORD_W-1:0] PAYLOAD_LAST = WORD_W'(PAYLOAD_WORDS-1);
 
     logic [WORDS-1:0][DATA_WIDTH-1:0] frame_q;
     logic [WORD_W-1:0] beat_q;
@@ -59,6 +62,7 @@ module axis_rx_adapter #(
     assign m_axis_tvalid = pending_q;
     assign m_axis_tdata  = axis_data;
     assign m_axis_tlast  = (beat_q == LAST_WORD) && pending_q;
+    assign m_axis_tuser  = (beat_q == PAYLOAD_LAST) && pending_q;
     assign frame_overflow = overflow_q;
 
     always_ff @(posedge clk or negedge rst_n) begin

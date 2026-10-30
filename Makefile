@@ -154,6 +154,21 @@ $(BUILD)/tb_8b10b: tb/tb_8b10b.sv rtl/encoder_8b10b.sv rtl/decoder_8b10b.sv | $(
 $(BUILD)/tb_64b66b: tb/tb_64b66b.sv rtl/pcs_64b66b.sv | $(BUILD)
 	$(IVERILOG) -g2012 -Wall -o $@ $^
 
+$(BUILD)/tb_64b66b_gearbox: tb/tb_64b66b_gearbox.sv rtl/pcs_64b66b.sv | $(BUILD)
+	$(IVERILOG) -g2012 -Wall -o $@ $^
+
+$(BUILD)/tb_pcs_8b10b: tb/tb_pcs_8b10b.sv rtl/pcs_8b10b_tx.sv rtl/pcs_8b10b_rx.sv rtl/encoder_8b10b.sv rtl/decoder_8b10b.sv | $(BUILD)
+	$(IVERILOG) -g2012 -Wall -o $@ $^
+
+$(BUILD)/tb_soc_cdc_training: tb/tb_soc_cdc_training.sv $(RTL) | $(BUILD)
+	$(IVERILOG) -g2012 -Wall -o $@ $^
+
+$(BUILD)/tb_crc_tx_endpoint: tb/tb_crc_tx_endpoint.sv $(RTL) | $(BUILD)
+	$(IVERILOG) -g2012 -Wall -o $@ $^
+
+$(BUILD)/tb_crc_rx_endpoint: tb/tb_crc_rx_endpoint.sv $(RTL) | $(BUILD)
+	$(IVERILOG) -g2012 -Wall -o $@ $^
+
 $(BUILD)/tb_async_fifo: tb/tb_async_fifo.sv rtl/async_fifo.sv | $(BUILD)
 	$(IVERILOG) -g2012 -Wall -o $@ $^
 
@@ -245,6 +260,11 @@ sim: $(SIM_BINS)
 	$(VVP) $(BUILD)/tb_axis_crc
 	$(VVP) $(BUILD)/tb_8b10b
 	$(VVP) $(BUILD)/tb_64b66b
+	$(VVP) $(BUILD)/tb_64b66b_gearbox
+	$(VVP) $(BUILD)/tb_pcs_8b10b
+	$(VVP) $(BUILD)/tb_crc_tx_endpoint
+	$(VVP) $(BUILD)/tb_crc_rx_endpoint
+	$(VVP) $(BUILD)/tb_soc_cdc_training
 	$(VVP) $(BUILD)/tb_serdes_training
 	$(VVP) $(BUILD)/tb_axis_tx_adapter
 	$(VVP) $(BUILD)/tb_axis_rx_adapter

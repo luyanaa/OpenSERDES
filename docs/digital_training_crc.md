@@ -10,11 +10,11 @@ actuator, and is included in the package's verification evidence.
 
 | Block | File | Status | Integration |
 |---|---|---|---|
-| Link-training FSM | `rtl/link_training_fsm.sv` | RTL verified (`tb/tb_link_training_fsm.sv`) | optional `TRAINING_ENABLE` path in `serdes_digital_top`; external error count required |
+| Link-training FSM | `rtl/link_training_fsm.sv` | RTL verified (`tb/tb_link_training_fsm.sv`) | optional `TRAINING_ENABLE` in `serdes_digital_top` and `serdes_soc_cdc_wrapper`; APB CSR 13/14 telemetry; external error count required |
 | Framed CRC | `rtl/crc_frame.sv` | RTL verified (`tb/tb_crc_frame.sv`) | primitive |
-| AXIS CRC insert/check | `rtl/axis_crc_inserter.sv`, `rtl/axis_crc_checker.sv` | RTL verified (`tb/tb_axis_crc.sv`) | standalone; `tuser` marks payload end, `tlast` marks final CRC |
-| 8b10b encoder/decoder | `rtl/encoder_8b10b.sv`, `rtl/decoder_8b10b.sv` | RTL verified (`tb/tb_8b10b.sv`) | standalone; all 256 data bytes + K28.5 round-trip |
-| 64b66b data block | `rtl/pcs_64b66b.sv` | RTL verified (`tb/tb_64b66b.sv`) | standalone; data blocks and sync-header check only |
+| AXIS CRC insert/check | `rtl/axis_crc_inserter.sv`, `rtl/axis_crc_checker.sv` | RTL verified (`tb/tb_axis_crc.sv`) | optional `CRC_ENABLE` in the AXIS TX/RX endpoints; `tuser` marks payload end, `tlast` marks final CRC |
+| 8b10b encoder/decoder | `rtl/pcs_8b10b_tx.sv`, `rtl/pcs_8b10b_rx.sv` | RTL verified (`tb/tb_pcs_8b10b.sv`) | standalone PCS wrappers; all 256 data bytes + K28.5 |
+| 64b66b blocks | `rtl/pcs_64b66b.sv` | RTL verified (`tb/tb_64b66b.sv`) | data + control-header blocks; 66-to-64 gearbox (`tb/tb_64b66b_gearbox.sv`) |
 
 ### `link_training_fsm`
 
@@ -41,13 +41,16 @@ link_training_fsm #(
 );
 ```
 
-`cdr_oversampling` and `cdr_adaptive` now accept a bounded external
-`phase_offset` (wrapping over their phase period), and `serdes_digital_top`
-has an optional `TRAINING_ENABLE` path that connects the FSM phase request to
-that input.  The error counter is still an external monotonic input
-(`train_error_count`); it is not yet connected to the SoC BIST checker, and
-the generator does not yet expose the training parameter as a capability.
-Therefore the block is `RTL_OPTIONAL`, not `training: verified` at link level.
+`cdr_oversampling` and `cdr_adaptive` accept a bounded external `phase_offset`
+(wrapping over their phase period).  `serdes_digital_top` and
+`serdes_soc_cdc_wrapper` have optional `TRAINING_ENABLE` paths that connect the
+FSM phase request to that input.  The SoC wrapper exposes training status in
+APB read-only registers 13 (`best_errors[7:0]`) and 14 (`locked`, `busy`,
+`retrain`, current phase, best phase); `tb_soc_cdc_training` checks the CSR
+path.  The error counter is still an external monotonic input
+(`train_error_count`) and is not yet connected to the SoC BIST checker.  The
+generator still does not expose the training parameter as a capability, so the
+link-level claim remains `RTL_OPTIONAL`, not `training: verified`.
 
 ### `crc_frame`
 
@@ -67,9 +70,12 @@ CRC-32/ISO-HDLC("123456789")    = 0xCBF43926
 `axis_crc_inserter` appends the CRC beats after the payload and uses
 `m_axis_tuser` to mark the last payload beat; `m_axis_tlast` is reserved for
 the final CRC beat.  `axis_crc_checker` forwards payload, consumes the CRC
-beats, and pulses `crc_ok`/`crc_error`.  This is a bounded AXIS framing
-primitive; sync words, sequence IDs and retransmission policy remain outside
-the CRC block and are not yet integrated into the SoC wrapper.
+beats, and pulses `crc_ok`/`crc_error`.  `serdes_tx_axis_digital` and
+`serdes_rx_axis_digital` expose `CRC_ENABLE` and extend the serialized frame
+by `ceil(CRC_WIDTH/DATA_WIDTH)` words.  `tb_crc_tx_endpoint` and
+`tb_crc_rx_endpoint` verify the 4-word payload plus CRC16 path.  The SoC async
+wrapper does not yet expose a CRC-enable CSR bit; sync words, sequence IDs and
+retransmission policy remain outside the CRC block.
 
 ## Capability matrix
 
@@ -161,9 +167,10 @@ block is wired into the generated design and has package-level evidence.
    control.  In particular, do not connect `phase_sel` to a CDR that has no
    phase input.
 4. `coding: 8b10b` and `coding: 64b66b` remain rejected by the generator until
-   the verified encoder/decoder primitives are integrated into the PCS data
-   path with comma/gear box semantics and package-level tests.  The standalone
-   blocks are not sufficient to change the link-level coding claim.
+   the verified encoder/decoder primitives are integrated into the selected
+   serializer data path (including the 10-bit 8b10b serializer and 66-bit
+   block distribution/lane alignment) and package-level tests exist.  The
+   standalone blocks are not sufficient to change the link-level coding claim.
 5. Analog macros are separate capability objects.  A closed GF180/IHP macro
    does not by itself prove a digital training axis or a link-level PCS.
 

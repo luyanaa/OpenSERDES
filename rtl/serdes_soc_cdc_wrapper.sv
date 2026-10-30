@@ -57,7 +57,13 @@ module serdes_soc_cdc_wrapper #(
     parameter int ADAPT_FRAC_BITS = 12,
     parameter int FIFO_DEPTH  = 16,
     parameter int BIST_PRBS_WIDTH = 7,
-    parameter logic [BIST_PRBS_WIDTH-1:0] BIST_SEED = '1
+    parameter logic [BIST_PRBS_WIDTH-1:0] BIST_SEED = '1,
+    parameter int OVERSAMPLE = 1,
+    parameter int CDR_MODE = 2,
+    parameter bit TRAINING_ENABLE = 1'b0,
+    parameter int TRAIN_DWELL_CYCLES = 64,
+    parameter int TRAIN_ERROR_WIDTH = 16,
+    parameter int PHASE_CTRL_W = (OVERSAMPLE <= 1) ? 1 : $clog2(OVERSAMPLE)
 ) (
     // APB
     input  logic                              pclk,
@@ -102,7 +108,21 @@ module serdes_soc_cdc_wrapper #(
     output logic                              rx_serial_valid,
     output logic signed [ADAPT_FRAC_BITS:0]   rx_freq_trim,
     output logic                              rx_clk_out,
-    output logic [15:0][31:0]                 csr_regs
+    output logic [15:0][31:0]                 csr_regs,
+
+    // Optional training control/telemetry (rx_clk domain).  The error count
+    // is supplied by the RX-side scoreboard/PRBS checker; this wrapper does
+    // not create a synthetic error source.
+    /* verilator lint_off UNUSEDSIGNAL */
+    input  logic                              train_start = 1'b0,
+    input  logic [TRAIN_ERROR_WIDTH-1:0]      train_error_count = '0,
+    /* verilator lint_on UNUSEDSIGNAL */
+    output logic                              train_locked,
+    output logic                              train_busy,
+    output logic                              train_retrain,
+    output logic [PHASE_CTRL_W-1:0]           train_phase,
+    output logic [PHASE_CTRL_W-1:0]           train_best_phase,
+    output logic [TRAIN_ERROR_WIDTH-1:0]      train_best_errors
 );
 
     localparam int TX_WORDS = WORDS + 1;
@@ -147,7 +167,7 @@ module serdes_soc_cdc_wrapper #(
         .DATA_WIDTH(32),
         .ADDR_WIDTH(16),
         .STATUS_IDX(7),
-        .RO_MASK(16'b0001_1100_0000_0000)
+        .RO_MASK(16'b0111_1100_0000_0000)
     ) u_csr (
         .pclk(pclk),
         .presetn(presetn),
@@ -368,13 +388,21 @@ module serdes_soc_cdc_wrapper #(
         .running_i(bist_running)
     );
 
-    // APB read-only view of the BIST registers (RO_MASK bits 10, 11, 12).
+    // APB read-only view: BIST registers (bits 10-12) and training telemetry
+    // (bit 13 = best_errors[7:0], bit 14 = lock/busy/retrain/phase).
     always_comb begin
         csr_ro = '0;
         csr_ro[10] = bist_error_count_snap;
         csr_ro[11] = bist_bit_count_snap;
         csr_ro[12] = {24'b0, BIST_WIDTH_CODE, bist_inject_p, bist_loopback_p,
                       bist_snap_valid, bist_running_snap, bist_error_snap};
+        csr_ro[13] = 32'(train_best_errors);
+        csr_ro[14] = '0;
+        csr_ro[14][0] = train_locked;
+        csr_ro[14][1] = train_busy;
+        csr_ro[14][2] = train_retrain;
+        csr_ro[14][3 +: PHASE_CTRL_W] = train_phase;
+        csr_ro[14][3 + PHASE_CTRL_W +: PHASE_CTRL_W] = train_best_phase;
     end
 
     // -------------------------------------------------------------------------
@@ -389,6 +417,7 @@ module serdes_soc_cdc_wrapper #(
     logic rx_fifo_wfull, rx_fifo_rempty, rx_fifo_winc, rx_fifo_rinc;
     logic rx_frame_seen_sticky;
     logic rx_core_enable, rx_core_serial_in, tx_serial_out_rx;
+    logic [PHASE_CTRL_W-1:0] phase_offset;
 
     // BIST loopback into the RX core: the TX serial output is a static-rate
     // level in rx_clk terms for loopback testing, so a 2FF sync is sufficient;
@@ -400,12 +429,44 @@ module serdes_soc_cdc_wrapper #(
     assign rx_core_enable    = rx_enable_rx & ~bist_enable_rx;
     assign rx_core_serial_in = bist_loopback_rx ? tx_serial_out_rx : rx_serial_in;
 
+    generate
+        if (TRAINING_ENABLE) begin : g_train
+            /* verilator lint_off PINCONNECTEMPTY */
+            link_training_fsm #(
+                .PHASE_STEPS(OVERSAMPLE), .THRESH_STEPS(1),
+                .DWELL_CYCLES(TRAIN_DWELL_CYCLES),
+                .ERROR_WIDTH(TRAIN_ERROR_WIDTH),
+                .RETRAIN_ERR_THRESH(4), .RETRAIN_WINDOW(256)
+            ) u_train (
+                .clk(rx_clk), .rst_n(rx_rst_n),
+                .enable(rx_enable_rx), .start(train_start),
+                .error_count(train_error_count),
+                .phase_sel(phase_offset), .thresh_sel(),
+                .phase_we(), .thresh_we(),
+                .busy(train_busy), .locked(train_locked), .retrain(train_retrain),
+                .state(), .best_phase(train_best_phase), .best_thresh(),
+                .best_errors(train_best_errors)
+            );
+            /* verilator lint_on PINCONNECTEMPTY */
+            assign train_phase = phase_offset;
+        end else begin : g_no_train
+            assign phase_offset      = '0;
+            assign train_locked      = 1'b0;
+            assign train_busy        = 1'b0;
+            assign train_retrain     = 1'b0;
+            assign train_phase       = '0;
+            assign train_best_phase  = '0;
+            assign train_best_errors = '0;
+        end
+    endgenerate
+
     serdes_rx_digital #(
         .DATA_WIDTH(DATA_WIDTH),
         .WORDS(RX_WORDS),
         .LSB_FIRST(LSB_FIRST),
-        .OVERSAMPLE(1),
-        .CDR_BYPASS(1'b1),
+        .OVERSAMPLE(OVERSAMPLE),
+        .CDR_MODE(CDR_MODE),
+        .CDR_BYPASS(OVERSAMPLE == 1),
         .ALIGN_MODE(2),
         .SYNC_LEN(SYNC_LEN),
         .SYNC_PATTERN(SYNC_PATTERN),
@@ -417,6 +478,7 @@ module serdes_soc_cdc_wrapper #(
         .rx_flush(rx_flush_pulse),
         .rx_align(1'b0),
         .rx_serial_in(rx_core_serial_in),
+        .phase_offset(phase_offset),
         .rx_par_data(rx_par_data),
         .rx_par_valid(rx_par_valid),
         .rx_busy(rx_busy),
@@ -431,6 +493,7 @@ module serdes_soc_cdc_wrapper #(
         .rx_freq_trim(rx_freq_trim)
     );
 
+    /* verilator lint_off PINCONNECTEMPTY */
     axis_rx_adapter #(
         .DATA_WIDTH(DATA_WIDTH),
         .WORDS(RX_WORDS)
@@ -444,8 +507,10 @@ module serdes_soc_cdc_wrapper #(
         .m_axis_tready(rx_axis_tready),
         .m_axis_tdata(rx_axis_tdata),
         .m_axis_tlast(rx_axis_tlast),
+        .m_axis_tuser(),
         .frame_overflow(rx_frame_overflow)
     );
+    /* verilator lint_on PINCONNECTEMPTY */
 
     assign rx_fifo_winc  = rx_axis_tvalid && ~rx_fifo_wfull;
     assign rx_fifo_wdata = {rx_axis_tlast, rx_axis_tdata};
