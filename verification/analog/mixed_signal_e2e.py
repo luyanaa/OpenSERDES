@@ -49,7 +49,8 @@ def run(tx: Path, rx: Path, bits: list[int], ui_ns: float, pdk: Path,
         c_pf: float = 16.0, vin_high: float = 1.8,
         noise_mv: float = 0.0, noise_seed: int = 1,
         mc_seed: int | None = None,
-        vdd: float = 1.8, temp_c: float | None = None) -> dict[str, Any]:
+        vdd: float = 1.8, temp_c: float | None = None,
+        phase_len: int = 0) -> dict[str, Any]:
     workdir.mkdir(parents=True, exist_ok=True)
     wave = workdir / "wave.dat"
     tb = workdir / "mixed.sp"
@@ -101,12 +102,16 @@ wrdata {wave.resolve()} v(VIN) v(VOUT) v(RXIN) v(OUT)
     txout = arr[:, 3]
     rxin = arr[:, 5]
     out = arr[:, 7]
-    # A simple delay scan: choose the sampling offset that minimizes errors
-    # over the middle bits.  This is a characterization search, not a CDR.
-    best = None
+    # Open-loop delay scan: when phase_len is set, only the training prefix
+    # chooses the phase.  The returned score is evaluated on all bits, and
+    # validation_errors covers the held-out suffix.
+    phase_len = min(phase_len, len(bits)) if phase_len > 0 else len(bits)
     ui = ui_ns
     offset_grid = np.linspace(0.0, 0.9 * ui, 19)
     offset_errors = []
+    phase_errors = []
+    samples_by_offset = []
+    sample_v_by_offset = []
     for offset_ns in offset_grid:
         samples = []
         sample_v = []
@@ -117,11 +122,25 @@ wrdata {wave.resolve()} v(VIN) v(VOUT) v(RXIN) v(OUT)
             samples.append(1 if v > (vin_high / 2.0) else 0)
         # The chain has two inverting stages: expected output is non-inverted.
         errs = sum(1 for a, b in zip(samples, bits) if a != b)
+        phase_errs = sum(1 for a, b in zip(samples[:phase_len], bits[:phase_len])
+                         if a != b)
         offset_errors.append(errs)
-        if best is None or errs < best[0]:
-            best = (errs, offset_ns, samples, sample_v)
-    errs, off, samples, sample_v = best
-    good_offsets = [o for o, e in zip(offset_grid, offset_errors) if e == errs]
+        phase_errors.append(phase_errs)
+        samples_by_offset.append(samples)
+        sample_v_by_offset.append(sample_v)
+    min_phase_errors = min(phase_errors)
+    good_indices = [i for i, e in enumerate(phase_errors)
+                    if e == min_phase_errors]
+    # Pick the centre of the best training region, not its first edge, so the
+    # frozen validation phase has margin on both sides.
+    best_index = good_indices[len(good_indices) // 2]
+    off = offset_grid[best_index]
+    samples = samples_by_offset[best_index]
+    sample_v = sample_v_by_offset[best_index]
+    errs = sum(1 for a, b in zip(samples, bits) if a != b)
+    validation_errors = (sum(1 for a, b in zip(samples[phase_len:], bits[phase_len:])
+                             if a != b) if phase_len < len(bits) else 0)
+    good_offsets = [offset_grid[i] for i in good_indices]
     eye_width_ns = max(good_offsets) - min(good_offsets) if len(good_offsets) > 1 else 0.0
     high_v = [v for v, b in zip(sample_v, bits) if b == 1]
     low_v = [v for v, b in zip(sample_v, bits) if b == 0]
@@ -141,6 +160,11 @@ wrdata {wave.resolve()} v(VIN) v(VOUT) v(RXIN) v(OUT)
         "eye_height_v": float(eye_height_v),
         "offset_scan_ns": [float(x) for x in offset_grid],
         "offset_errors": [int(x) for x in offset_errors],
+        "phase_len": int(phase_len),
+        "phase_errors": [int(x) for x in phase_errors],
+        "validation_errors": int(validation_errors),
+        "validation_ber": (float(validation_errors) / (len(bits) - phase_len)
+                           if len(bits) > phase_len else 0.0),
         "txout_min_v": float(np.min(txout)),
         "txout_max_v": float(np.max(txout)),
         "rxin_min_v": float(np.min(rxin)),
@@ -171,6 +195,8 @@ def main() -> int:
                     help="enable sky130 local mismatch with this ngspice seed")
     ap.add_argument("--vdd", type=float, default=1.8)
     ap.add_argument("--temp-c", type=float, default=None)
+    ap.add_argument("--phase-len", type=int, default=0,
+                    help="prefix bits used only to select the sampling phase")
     ap.add_argument("--out", default=str(ROOT / "build/verify/mixed_signal_e2e.json"))
     ap.add_argument("--workdir", default=str(ROOT / "build/verify/mixed_signal_e2e"))
     args = ap.parse_args()
@@ -187,7 +213,7 @@ def main() -> int:
     report = run(Path(args.tx_pex), Path(args.rx_pex), bits,
                  1000.0 / args.rate_mbps, pdk, Path(args.workdir),
                  args.corner, args.r_ohm, args.c_pf, mc_seed=args.mc_seed,
-                 vdd=args.vdd, temp_c=args.temp_c)
+                 vdd=args.vdd, temp_c=args.temp_c, phase_len=args.phase_len)
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(report, indent=2) + "\n")

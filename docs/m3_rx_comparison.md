@@ -217,3 +217,17 @@ This frame does not produce a zero-error point at 1.8 V, so it cannot establish
 a minimum sensitivity; it only shows the PCell route tracks the original
 feedback route.  A proper sensitivity test needs a longer frame and controlled
 sampling/CDR conditions and remains open.
+
+## Held-out M3 closure
+
+`verification/analog/m3_holdout.py` and `verification/analog/m3_closure.py`
+add an independent training/validation split: 64 training bits select the
+sampling phase, then 64 disjoint validation bits are scored with the phase
+frozen.  The 12-case campaign (three routes, 800/1200 Mb/s, 0/100 mV noise)
+completed with `characterization_complete: true` and
+`production_qualified: false`; details and limitations are in
+[`m3_closure.md`](m3_closure.md).
+
+The held-out aggregate was feedback 43/256, parallel 68/256 and PCell feedback
+48/256.  This supports the feedback route directionally, but the short open-loop
+frames still do not constitute production BER or CDR qualification.
