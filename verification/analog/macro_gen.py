@@ -134,10 +134,46 @@ endmodule
 """
 
 
+def _report_match(path: Path | None) -> bool:
+    if path is None:
+        return False
+    text = path.read_text(errors="replace")
+    if path.suffix.lower() == ".json":
+        try:
+            data = json.loads(text)
+        except json.JSONDecodeError:
+            return False
+        if isinstance(data, dict):
+            if data.get("match") is True or data.get("clean") is True:
+                return True
+            if str(data.get("status", "")).lower() in ("match", "matched", "clean", "pass"):
+                return True
+        return False
+    lowered = text.lower()
+    return ("circuits match uniquely" in lowered
+            or "lvs match" in lowered
+            or "lvs clean" in lowered)
+
+
+def _drc_clean(path: Path | None) -> bool:
+    if path is None:
+        return False
+    text = path.read_text(errors="replace")
+    if path.suffix.lower() == ".json":
+        try:
+            data = json.loads(text)
+        except json.JSONDecodeError:
+            return False
+        return bool(isinstance(data, dict) and data.get("clean") is True)
+    return "drc clean" in text.lower() or "errors=0" in text.lower()
+
+
 def write_macro(outdir: Path, tech: dict, topology: str, name: str,
                 circuit: str, meta: dict, layout_gds: Path | None,
                 lef_path: Path | None = None, cdl_path: Path | None = None,
-                pex_path: Path | None = None) -> dict:
+                pex_path: Path | None = None,
+                lvs_report: Path | None = None,
+                drc_report: Path | None = None) -> dict:
     outdir.mkdir(parents=True, exist_ok=True)
     layout_physical = False
     layout_audit = None
@@ -155,6 +191,27 @@ def write_macro(outdir: Path, tech: dict, topology: str, name: str,
                 f"{layout_gds}: top cell {layout_audit.get('cell')!r} != requested name {name!r}; "
                 "refusing to attach views to the wrong macro"
             )
+    lvs_ok = _report_match(lvs_report)
+    drc_ok = _drc_clean(drc_report)
+    pex_ok = bool(pex_path and Path(pex_path).is_file())
+    signoff = bool(layout_physical and drc_ok and lvs_ok and pex_ok)
+    if lvs_report is not None and not lvs_ok:
+        raise SystemExit(
+            f"{lvs_report}: LVS report does not prove a unique match; "
+            "refusing to attach it as signoff evidence"
+        )
+    if drc_report is not None and not drc_ok:
+        raise SystemExit(f"{drc_report}: DRC report is not clean")
+    if signoff:
+        stage = "SIGNOFF_ELIGIBLE"
+    elif lvs_ok:
+        stage = "LVS_MATCHED"
+    elif drc_ok:
+        stage = "GEOMETRY_DRC_PASS"
+    elif layout_physical:
+        stage = "LAYOUT_ATTACHED"
+    else:
+        stage = "SCHEMATIC_ONLY"
     (outdir / "circuit.spice").write_text(circuit)
     (outdir / "macro.v").write_text(macro_v(name))
     views = {
@@ -169,6 +226,10 @@ def write_macro(outdir: Path, tech: dict, topology: str, name: str,
         "cdl": ({"path": str(cdl_path), "status": "available", "format": "cdl", "top": name}
                 if cdl_path else {"status": "missing"}),
         "liberty": {"status": "missing"},
+        "drc": ({"path": str(drc_report), "status": "clean" if drc_ok else "unusable"}
+                if drc_report else {"status": "missing"}),
+        "lvs": ({"path": str(lvs_report), "status": "match-unique" if lvs_ok else "unusable"}
+                if lvs_report else {"status": "missing"}),
         "pex": ({"path": str(pex_path), "status": "available", "format": "spice", "top": name}
                 if pex_path else {"status": "missing"}),
     }
@@ -180,15 +241,20 @@ def write_macro(outdir: Path, tech: dict, topology: str, name: str,
         "pdk": tech.get("pdk"),
         "supply_v": tech.get("vdd_v"),
         **meta,
+        "status": stage,
+        "physical_layout": layout_physical,
+        "physical_signoff_eligible": signoff,
+        "topology_match": bool(lvs_ok),
         "canonical_ports": [
             {"name": p, "index": i, "direction": "power" if p == "VDD" else
              "ground" if p == "VSS" else "input" if p == "IN" else "output"}
             for i, p in enumerate(("VDD", "VSS", "IN", "OUT"))
         ],
         "views": views,
-        "physical_layout": layout_physical,
-        "note": ("Schematic/blackbox generation only unless an explicit physical "
-                 "PDK layout template is supplied; no fabricated GDS/LEF/Liberty."),
+        "note": ("GDS attachment alone is LAYOUT_ATTACHED, not topology proof; "
+                 "no fabricated GDS/LEF/Liberty is emitted. SIGNOFF_ELIGIBLE "
+                 "requires clean DRC report, unique-match LVS report and PEX "
+                 "for this exact generated circuit."),
     }
     (outdir / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
     return manifest
@@ -213,6 +279,10 @@ def main() -> int:
     ap.add_argument("--lef", default=None, help="explicit LEF view for the layout")
     ap.add_argument("--cdl", default=None, help="explicit CDL/LVS view for the layout")
     ap.add_argument("--pex", default=None, help="explicit Magic/RC PEX SPICE view")
+    ap.add_argument("--lvs-report", default=None,
+                    help="explicit LVS report proving this exact circuit matches the GDS")
+    ap.add_argument("--drc-report", default=None,
+                    help="explicit DRC report for the attached GDS")
     args = ap.parse_args()
     tech = load_tech(args.tech)
     layout = Path(args.layout_gds) if args.layout_gds else None
@@ -237,8 +307,11 @@ def main() -> int:
     pex = Path(args.pex) if args.pex else None
     if bool(lef) != bool(cdl):
         raise SystemExit("--lef and --cdl must be supplied together")
+    lvs_report = Path(args.lvs_report) if args.lvs_report else None
+    drc_report = Path(args.drc_report) if args.drc_report else None
     manifest = write_macro(Path(args.out), tech, args.topology, name,
-                           circuit, meta, layout, lef, cdl, pex)
+                           circuit, meta, layout, lef, cdl, pex,
+                           lvs_report, drc_report)
     print(f"generated {name} ({args.tech}/{args.topology}) -> {args.out}")
     print(f"  physical layout: {manifest['views']['layout']['status']}")
     return 0

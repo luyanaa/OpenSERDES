@@ -40,8 +40,11 @@ met1 pin rectangles.  For the current repository GDS this audit fails:
 abstract fixture only: missing diff, poly, li1
 ```
 
-That is intentional.  The schematic generator remains useful for device
-binding and contract generation, while physical signoff stays fail-closed.
+That is intentional.  Supplying a physical GDS only reaches
+`LAYOUT_ATTACHED`; it is not topology proof.  To reach `SIGNOFF_ELIGIBLE` the
+manifest must also carry a clean DRC report, a unique-match LVS report for the
+same generated circuit, and a PEX view.  A supplied LVS report that does not
+prove a unique match is rejected outright.
 
 ## Portability rules
 
@@ -94,9 +97,12 @@ The RX identities are deliberately separate:
   advertised as a feedback macro.
 
 `--layout-gds` also requires physical `diff/poly/li1`; a pin-only abstract GDS
-is rejected.  Optional `--lef`, `--cdl`, and `--pex` attach explicit PCell
-views; the layout top cell must equal `--name`, otherwise generation fails
-closed.  File hashes in manifests bind GDS, LEF, SPICE, Liberty and PEX.
+is rejected.  Optional `--lef`, `--cdl`, `--pex`, `--drc-report`, and
+`--lvs-report` attach explicit PCell views/evidence; the layout top cell must
+equal `--name`, otherwise generation fails closed.  GDS-only manifests carry
+`status=LAYOUT_ATTACHED` and `physical_signoff_eligible=false`; only the
+report-backed combination can become `SIGNOFF_ELIGIBLE`.  File hashes in
+manifests bind GDS, LEF, SPICE, Liberty and PEX.
 
 Example for the verified PCell RX macro:
 
@@ -117,10 +123,14 @@ Example for the verified PCell RX macro:
 `verification/analog/pya_pcell.py` ports the supported subset of the PDK
 `draw_fet.py` to KLayout's native `pya` API:
 
-- supported: `nfet/pfet 01v8`, arbitrary W/L, `nf==1..N`, `bulk=None`,
-  gate contact top/bottom;
+- supported: `nfet/pfet 01v8`, arbitrary W/L, `nf==1..N`,
+  `bulk=None/bulk tie`, gate contact top/bottom;
 - unsupported: guard-ring boolean operations, interdigitated patterns,
   RF devices; these fail rather than silently approximating.
+- `bulk tie` adds an n/p tap and met1 body strap; headless device LVS
+  (`pya_pcell_verify.py --bulk 'bulk tie'`) matches pfet and nfet with an
+  explicit `B` terminal.  The RX macro still uses `bulk=None`; macro-level
+  body-tie integration remains open.
 
 The port uses `verification/analog/pya_draw/` and a small pya-backed
 `gdsfactory` compatibility shim.  A headless probe can be run with:

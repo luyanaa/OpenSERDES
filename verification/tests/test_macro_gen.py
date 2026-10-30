@@ -56,7 +56,7 @@ class TestMacroGen(unittest.TestCase):
                           Path(td, "tx/circuit.spice").read_text())
             self.assertIn("module custom_tx", Path(td, "tx/macro.v").read_text())
 
-    def test_physical_layout_is_accepted(self):
+    def test_physical_layout_is_attached_but_not_signoff(self):
         if shutil.which("klayout") is None:
             self.skipTest("klayout not installed")
         with tempfile.TemporaryDirectory() as td:
@@ -64,6 +64,23 @@ class TestMacroGen(unittest.TestCase):
                              "--layout-gds", "analog/macros/tx_inv_chain_1_3_9/layout.gds",
                              "--out", td + "/tx")
             self.assertEqual(p.returncode, 0, p.stderr)
+            manifest = json.loads(Path(td, "tx/manifest.json").read_text())
+            self.assertEqual(manifest["status"], "LAYOUT_ATTACHED")
+            self.assertFalse(manifest["physical_signoff_eligible"])
+            self.assertFalse(manifest["topology_match"])
+
+    def test_mismatched_lvs_report_is_rejected(self):
+        if shutil.which("klayout") is None:
+            self.skipTest("klayout not installed")
+        with tempfile.TemporaryDirectory() as td:
+            report = Path(td) / "lvs.rpt"
+            report.write_text("Circuit 1 contains 7 devices, Circuit 2 contains 8.\n"
+                              "Final result: MISMATCH\n")
+            p = self.run_gen("--tech", "sky130", "--topology", "tx_inv_chain",
+                             "--layout-gds", "analog/macros/tx_inv_chain_1_3_9/layout.gds",
+                             "--lvs-report", str(report), "--out", td + "/tx")
+            self.assertNotEqual(p.returncode, 0)
+            self.assertIn("LVS report does not prove", p.stderr + p.stdout)
 
     def test_abstract_layout_is_rejected(self):
         if shutil.which("klayout") is None:

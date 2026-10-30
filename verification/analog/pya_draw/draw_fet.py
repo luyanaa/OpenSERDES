@@ -373,13 +373,17 @@ def draw_pfet(
 
     elif bulk == "bulk tie":
         rect_bulk = c_inst.add_ref(gf.components.rectangle(size=(1.3*sd_l,w),layer=tap_layer))
-        rect_bulk.connect("e1",other=sd_diff.ports["e3"],allow_layer_mismatch=True)
+        # Ref.ports is not available in the lightweight pya shim; place the
+        # left edge of the tap on the diffusion's right edge explicitly.
+        rect_bulk.move((sd_diff.xmax + diff_tap_spacing, sd_diff.ymin))
         psdm = c_inst.add_ref(gf.components.rectangle(size=(sd_diff.xmax - sd_diff.xmin + diff_psdm_enc,w + 2*diff_psdm_enc),layer=psdm_layer))
         psdm.move((-diff_psdm_enc,-diff_psdm_enc))
         nsdm = c_inst.add_ref(gf.components.rectangle(size=(rect_bulk.xmax - rect_bulk.xmin +tap_nsdm_enc, w+ 2*tap_nsdm_enc), layer= nsdm_layer))
         nsdm.move((rect_bulk.xmin,rect_bulk.ymin - tap_nsdm_enc))
 
-        bulk_con = via_stack(x_range= (rect_bulk.xmin+0.1,rect_bulk.xmax-0.1),y_range=(rect_bulk.ymin,rect_bulk.ymax),base_layer=tap_layer,metal_level=0)
+        # Bring the tap up to met1 so the parent macro can strap it to the
+        # VDD rail (and so Magic sees a real body connection).
+        bulk_con = via_stack(x_range= (rect_bulk.xmin+0.1,rect_bulk.xmax-0.1),y_range=(rect_bulk.ymin,rect_bulk.ymax),base_layer=tap_layer,metal_level=1)
         c_inst.add_ref(bulk_con)
 
         
@@ -821,13 +825,16 @@ def draw_nfet(
     
     elif bulk == "bulk tie":
         rect_bulk = c_inst.add_ref(gf.components.rectangle(size=(sd_l*1.5,w),layer=tap_layer))
-        rect_bulk.connect("e1",other=sd_diff.ports["e3"],allow_layer_mismatch=True)
+        # Ref.ports is not available in the lightweight pya shim; place the
+        # left edge of the tap on the diffusion's right edge explicitly.
+        rect_bulk.move((sd_diff.xmax + diff_tap_spacing, sd_diff.ymin))
         nsdm = c_inst.add_ref(gf.components.rectangle(size=(sd_diff.xmax - sd_diff.xmin +diff_nsdm_enc,w + 2*diff_nsdm_enc),layer=nsdm_layer))
         nsdm.move((-diff_nsdm_enc,-diff_nsdm_enc))
         psdm = c_inst.add_ref(gf.components.rectangle(size=(rect_bulk.xmax - rect_bulk.xmin +tap_psdm_enc, w+ 2*tap_psdm_enc), layer= psdm_layer))
-        psdm.connect("e1",other = nsdm.ports["e3"],allow_layer_mismatch=True)
+        psdm.move((nsdm.xmax, nsdm.ymin))
 
-        bulk_con = via_stack(x_range= (rect_bulk.xmin+0.1,rect_bulk.xmax-0.1),y_range=(rect_bulk.ymin,rect_bulk.ymax),base_layer=tap_layer,metal_level=0)
+        # Bring the tap up to met1 for the parent macro's VSS strap.
+        bulk_con = via_stack(x_range= (rect_bulk.xmin+0.1,rect_bulk.xmax-0.1),y_range=(rect_bulk.ymin,rect_bulk.ymax),base_layer=tap_layer,metal_level=1)
         c_inst.add_ref(bulk_con)
         
 

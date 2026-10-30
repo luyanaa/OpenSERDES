@@ -80,7 +80,7 @@ pfet W=5.00 L=0.15 nf=3   DRC 0
 
 The subset currently supports:
 
-- `bulk=None` and `bulk=guard ring`;
+- `bulk=None`, `bulk tie`, and `bulk=guard ring`;
 - `interdig=0/1` with a supplied pattern;
 - `gate_con_pos=top/bottom`;
 - RF/high-voltage devices are not claimed.
@@ -229,8 +229,12 @@ The extracted hierarchy has three `rx_inv` instances, three extra
 `rx_pfet_w5` instances, and two `rx_pfet_fb` instances.  The feedback path is
 the intended two-device series PMOS diode chain between `OUT` and `IN`.
 
-The pure-pya device cells use `bulk=None`; PMOS well/body ties are not
-generated.  This is an explicit open item for the PCell backend, not a hidden
-schematic claim.  `pya_rx_feedback_verify.py` also runs Magic RC PEX as a
-diagnostic (`build/verify/pcell_rx_fb/rx_fb_pcell.pex.spice`); it does not
-establish STA or signoff.
+The pure-pya device cells now support `bulk tie`; headless Magic/netgen probes
+match both `pfet W=5/L=0.15` and `nfet W=5/L=0.15` with explicit G/D/S/B
+ports.  The negative control `--drop-body-label` intentionally removes the B
+label and fails LVS.  The RX feedback macro itself still builds with
+`bulk=None`, so its well/body ties remain an explicit open item, not a hidden
+schematic claim.
+`pya_rx_feedback_verify.py` also runs Magic RC PEX as a diagnostic
+(`build/verify/pcell_rx_fb/rx_fb_pcell.pex.spice`); it does not establish STA
+or signoff.

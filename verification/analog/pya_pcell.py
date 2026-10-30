@@ -2,7 +2,8 @@
 """Pure-pya KLayout PCell port of the Sky130 `draw_fet` subset.
 
 Supported:
-  nfet/pfet 01v8, arbitrary W/L, nf=1..N, bulk=None, gate_con_pos=top/bottom
+  nfet/pfet 01v8, arbitrary W/L, nf=1..N, bulk=None/bulk tie,
+  gate_con_pos=top/bottom
 Unsupported:
   guard-ring boolean operations, interdigitated multi-gate patterns, RF devices
 Unsupported combinations fail rather than silently approximating geometry.
@@ -29,6 +30,7 @@ class MosPcell(pya.PCellDeclarationHelper):
         self.param("bulk", self.TypeString, "Bulk mode")
         self.bulk_handle = self.param("bulk", self.TypeString, "Bulk")
         self.bulk_handle.add_choice("None", "None")
+        self.bulk_handle.add_choice("bulk tie", "bulk tie")
         self.bulk_handle.add_choice("guard ring", "guard ring")
         self.bulk_handle.default = "None"
         self.param("interdig", self.TypeBoolean, "Interdigitated gates", default=False)
@@ -68,16 +70,24 @@ class MosPcell(pya.PCellDeclarationHelper):
         layer = layout.layer(68, 20)
         lab = layout.layer(68, 5)
         boxes = []
-        for shape in self.cell.shapes(layer).each():
+        # Include the nested via-stack shapes; bulk-tie met1 is a child ref.
+        it = self.cell.begin_shapes_rec(layer)
+        while not it.at_end():
+            shape = it.shape()
             if shape.is_box():
                 b = shape.box
                 boxes.append((b.left, b.bottom, b.right, b.top))
+            it.next()
         if not boxes:
             raise RuntimeError("pure-pya MOS produced no met1 terminals")
         # The gate contact is the terminal with the largest y center.
         center = lambda b: ((b[0] + b[2]) / 2, (b[1] + b[3]) / 2)
         gate = max(boxes, key=lambda b: center(b)[1])
-        lower = [b for b in boxes if b is not gate]
+        body = None
+        if self.bulk == "bulk tie":
+            # The tap met1 strap is the right-most terminal.
+            body = max(boxes, key=lambda b: center(b)[0])
+        lower = [b for b in boxes if b is not gate and b is not body]
         if len(lower) < 2:
             raise RuntimeError("pure-pya MOS needs source and drain met1 terminals")
         src = min(lower, key=lambda b: center(b)[0])
@@ -86,6 +96,10 @@ class MosPcell(pya.PCellDeclarationHelper):
             x, y = center(b)
             self.cell.shapes(lab).insert(
                 pya.Text(text, pya.Trans(pya.Vector(int(round(x)), int(round(y))))))
+        if body is not None:
+            x, y = center(body)
+            self.cell.shapes(lab).insert(
+                pya.Text("B", pya.Trans(pya.Vector(int(round(x)), int(round(y))))))
         if self.bulk == "guard ring":
             # Guard ring is li1; label the body net for LVS/assembly.
             lli = layout.layer(67, 5)
