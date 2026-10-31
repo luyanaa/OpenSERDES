@@ -100,36 +100,38 @@ librelane --manual-pdk --pdk-root $PDK_ROOT \
 
 **PDN recipe for tiny (~10–20 µm) hard macros.**  Verified against OpenROAD
 `pdngen`: a `-macro` grid's `add_pdn_connect` only bridges strap shapes that
-grid *itself* draws — it cannot reach the `stdcell_grid` straps, so every
-macro-local strap is a floating island disconnected from the global grid
-(`PSM-0025`).  Rings (`PDN-0351`) and 153 µm-pitch straps (`PDN-0185`) cannot
-fit a 10–20 µm cell, and `rx_res_fb_pmos` carries power only on met1 stubs
-that no `-macro` grid can wire to the met4/met5 global grid.
+grid *itself* draws — it cannot reach the `stdcell_grid` straps, so any
+macro-local strap is a floating island (`PSM-0038`) and an empty macro grid
+aborts (`PDN-0233`).  Neither is needed: `PDN_MACRO_CONNECTIONS` (global
+connect) already binds the iterms to VPWR/VGND, so we declare **no `-macro`
+grids at all** — pdngen builds the stdcell grid, then a `pdngen` wrapper
+sources `pdn_patch.tcl` to draw the real binding in the ODB (the same
+technique real LibreLane designs use, e.g. the `ankhdjet` `pdn_patch`).
 
-The honest fix (the same technique real LibreLane designs use, e.g. the
-`ankhdjet` `pdn_patch`) is to let `pdngen` build the stdcell grid normally,
-then **wrap `pdngen`** so that right after it runs, `pdn_patch.tcl` draws the
-binding geometry in the ODB.  The verified short-free route per pin is a
-**vertical met4 column** in the pin's own x-column up to the **nearest
-same-net met5 horizontal strap**, then a `met4→met5` via:
+The verified short-free route per pin is a **vertical met4 column** in the
+pin's own x-column up to the **nearest global met5 horizontal strap**, then
+a `met4→met5` via:
 
 - A vertical met4 run cannot cross an opposite-net *vertical* met4 strap
   (different x), and crossing a horizontal met5 strap on a different layer
-  is harmless — vias only form where placed.
+  is harmless — vias only form where placed.  (`_nearest_m5` filters to
+  straps spanning >100 µm so it binds to the *global* grid, not a
+  macro-local stub.)
 - For met1 pins (`u_rx_frontend`) a `met1→via→met2→via2→met3→via3→met4`
-  stack lands the column on the pin; for met4 pins (`u_tx_driver` VDD/VSS
-  rails) the column lands directly.
+  stack lands the column on the pin (the tiny pin stub gets a 1 µm pad for
+  the via enclosure); for met4 pins (`u_tx_driver` VDD/VSS rails) the
+  column lands directly.
 - `u_tx_driver` VDD and VSS are two *different-net* rails sharing one
-  x-column, so their columns are pushed to distinct x (`pdn_patch` scans the
-  pin's x-extent for a column free of opposite-net met4) — otherwise the two
-  vertical runs overlap and short VPWR↔VGND.  Verified in the OpenROAD REPL:
-  all four pins bind and a same-layer overlap scan reports zero shorts.
+  x-column, so their columns are pushed to distinct x (`pdn_patch` scans
+  the pin's x-extent for a column free of opposite-net met4) — otherwise
+  the two vertical runs overlap and short VPWR↔VGND.
 
-`scripts/gen_analog_pnr_config.py` splices a `pdngen`-wrapping macro section
-into a copy of the stock recipe (`build/analog_pnr_hard/pdn_cfg_hard_macros.tcl`)
-and emits `build/analog_pnr_hard/pdn_patch.tcl` (the binding geometry) next to
-the YAML.  `PDN_HORIZONTAL_HALO`/`PDN_VERTICAL_HALO` are 0 so the keep-out does
-not swallow the cells.
+Verified: `check_power_grid` reports `PSM-0040 All shapes on net VPWR/VGND
+are connected`, and a same-layer overlap scan reports zero shorts.
+
+`scripts/gen_analog_pnr_config.py` splices the `pdngen`-wrapping hook into a
+copy of the stock recipe (`build/analog_pnr_hard/pdn_cfg_hard_macros.tcl`)
+and emits `build/analog_pnr_hard/pdn_patch.tcl` next to the YAML.
 
 This is a **physical integration signoff of real custom cells** — still not
 a foundry signoff.  Produce a separate closure record for the hard-macro
