@@ -415,7 +415,7 @@ set_false_path -to [get_ports rx_clk_out]
     # origin_y=81.6 puts both on row edges (81.6 & 84.32).  rx_res_fb_pmos is
     # met1-stub powered, same alignment rule -> keep its origin on a row edge.
     macros = {}
-    for name, inst, loc in (("tx_inv_chain_1_3_9", "u_tx_driver", (165.0, 81.6)),
+    for name, inst, loc in (("tx_inv_chain_1_3_9", "u_tx_driver", (165.0, 80.0)),
                             ("rx_res_fb_pmos", "u_rx_frontend", (169.0, 300.0))):
         base = ROOT / "analog/macros" / name
         macros[name] = {
