@@ -145,16 +145,22 @@ functional/connectivity gate passes:
   (~80–130), all clustered at the macro via towers.
 
 The residual DRC is **not** an open short or a broken connect — it is the
-macros' own stacked-via power towers (`tx_inv_chain_1_3_9` via1–via4 +
-met1–met5 rails, `rx_res_fb_pmos` met1 stubs) whose landing pads are at the
-minimum enclosure.  Each macro GDS is **DRC-clean standalone** (verified:
-`drc count total` = 0), but when magic flattens it at top level against the
-`pdn_patch` geometry the min-size via-landing pads violate
-enclosure/min-area/spacing (via2/via3/via4 enclosure, met2/met3 min-area,
-met5 width).  Iterative additive pad growth oscillates the count (each fix
-introduces new spacing notches) — the towers need a proper relayout with
-rule-driven enclosures (a layout-editor pass or regenerated via arrays),
-which is outstanding custom-layout work, not a connectivity defect.
+macros' dense internal layout.  The KLayout report attributes **~84 of ~118
+errors to `tx_inv_chain_1_3_9` itself** (`m5.1` width, `via.1a_b` enclosure,
+`m1.2`/`m4`/`via4` OFFGRID, `via4.1_b`), with most of the rest to the
+`serdes_analog_link` top cell where the macros' met1/met4 crowd neighbouring
+geometry at 10–40 nm.  Each macro GDS is **DRC-clean standalone** (verified:
+`drc count total` = 0) because the standalone run has no adjacent metal;
+when flattened against the `pdn_patch` landing pads and the powered stdcell
+rows, the macros' min-spacing/min-width internal metal violates the deck.
+
+Iterative GDS patching oscillates (each fix trades errors: 285 → 163 → 156
+→ 158 across runs) because the crowding is pervasive, not a single site.
+The correct fix is a **from-scratch layout regeneration** of
+`tx_inv_chain_1_3_9` and `rx_res_fb_pmos` that re-spaces internal metal to
+keep ≥ 1× spacing from the cell boundary and uses rule-driven via arrays —
+genuine custom-layout work, not coordinate patching.  Connectivity, LVS,
+timing, power-grid, route-DRC and antenna are all clean meanwhile.
 
 This is a **physical integration signoff of real custom cells** — still not
 a foundry signoff.  Produce a separate closure record for the hard-macro
