@@ -306,8 +306,12 @@ proc _bind_pin {inst pinname netname} {
         _box $sw met4 [expr {min($px,$cx)-$halfw}] [expr {$py-$halfw}] \
                       [expr {max($px,$cx)+$halfw}] [expr {$py+$halfw}]
     }
-    # fat pad at pin (encloses met3->met4 via) and at strap (encloses M4M5 via)
-    _box $sw met4 [expr {$cx-$padw}] [expr {$py-$padw}] [expr {$cx+$padw}] [expr {$py+$padw}]
+    # For a met1 pin the column must land on a fat pad enclosing the via
+    # stack's met4 enclosure; for a met4 pin the column butts the rail
+    # directly (extra pad would just notch the merged polygon).
+    if { $player eq "met1" } {
+        _box $sw met4 [expr {$cx-$padw}] [expr {$py-$padw}] [expr {$cx+$padw}] [expr {$py+$padw}]
+    }
     _box $sw met4 [expr {$cx-$halfw}] [expr {min($py,$mcy)-$halfw}] \
                   [expr {$cx+$halfw}] [expr {max($py,$mcy)+$halfw}]
     _box $sw met4 [expr {$cx-$padw}] [expr {$mcy-$padw}] [expr {$cx+$padw}] [expr {$mcy+$padw}]
