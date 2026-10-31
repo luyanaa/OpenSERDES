@@ -38,6 +38,13 @@ _PDN_MACRO_GRID = """
 # binding.  So we deliberately declare NO -macro grids at all, then patch.
 #
 # (Left intentionally blank: no -macro grid definitions.)
+#
+# A `-macro -default` grid was tried and rejected: it claims the macro's met1
+# VDD pin for a grid connection it cannot provide (no straps) -> PDN-0006
+# "VDD on met1 is blocked".  Keeping NO macro grid leaves the macros under
+# the stdcell followpin grid (which correctly tiles rails/vias through them);
+# the colliding followpin vias are instead kept off the macro by the
+# li1-layer PDN_OBSTRUCTIONS below.
 
 # Wrap pdngen: run the real one, then source pdn_patch.tcl (next to this
 # config in DESIGN_DIR) to draw via-stack binding from each macro power pin
@@ -401,8 +408,14 @@ set_false_path -to [get_ports rx_clk_out]
     # at the macro's right edge ~+10 um past origin; rx VDD/VSS met1 stubs are
     # ~+5.5 um.  Place origins so the pin centre lands at x~175.4 (strap
     # centre) on the same net.
+    # Macro met1 power rails must land exactly on a stdcell-row followpin rail
+    # (row-edge y = 10.88 + n*2.72 um) or the generated L1M1 via pads sit a
+    # fraction of a track off the rail -> met1.2 / via2.1a spacing DRC.
+    # tx_inv_chain_1_3_9 VSS rail center is at local y=0, VDD at +2.72; placing
+    # origin_y=81.6 puts both on row edges (81.6 & 84.32).  rx_res_fb_pmos is
+    # met1-stub powered, same alignment rule -> keep its origin on a row edge.
     macros = {}
-    for name, inst, loc in (("tx_inv_chain_1_3_9", "u_tx_driver", (165.0, 80.0)),
+    for name, inst, loc in (("tx_inv_chain_1_3_9", "u_tx_driver", (165.0, 81.6)),
                             ("rx_res_fb_pmos", "u_rx_frontend", (169.0, 300.0))):
         base = ROOT / "analog/macros" / name
         macros[name] = {
@@ -494,6 +507,28 @@ set_false_path -to [get_ports rx_clk_out]
         **({} if args.soft_stdcell else {
             "PDN_HORIZONTAL_HALO": 0.0,
             "PDN_VERTICAL_HALO": 0.0,
+            # Keep pdngen's stdcell followpin grid (met1 rail pads + L1M1 vias)
+            # out of each hard macro's footprint.  With no -macro grid the
+            # followpin stripe tiles straight across the macro, and its via
+            # pads land 28-40nm off the macro's own met1 rails -> met1.2 /
+            # via2.1a violations.  These obstructions suppress generated
+            # shapes inside the macro bbox on li1/met1..met3 (followpin vias
+            # and their landing pads); they are removed right after pdngen so
+            # signal routing is unaffected, and pdn_patch still binds the pin
+            # afterwards because it writes dbSBox geometry directly (it does
+            # not consult pdngen obstructions).  Obstructing li1+met1 alone
+            # leaves generated met2/met3 via pads stranded over the macro, so
+            # we cover the whole met1->met3 followpin stack.
+            # Keep the stdcell-grid L1M1 via CUTS off each macro footprint:
+            # obstructing li1 blocks the via's li1 pad (and thus the via)
+            # inside the macro bbox while leaving the met1 followpin rail free
+            # to reach the macro's own rail (obstructing met1 trips PDN-0006
+            # "VDD on met1 is blocked"; a -macro grid trips it too).  These
+            # are removed right after pdngen so signal routing is unaffected.
+            "PDN_OBSTRUCTIONS": [
+                ("li1", 164.81, 78.49, 185.20, 84.51),
+                ("li1", 169.08, 300.00, 179.00, 317.25),
+            ],
         }),
         "RUN_CTS": True,
         "KLAYOUT_XOR_IGNORE_LAYERS": ["235/4"],
