@@ -85,7 +85,7 @@
       "note": "Top renamed; PR boundary 235/4 added for LibreLane. Met5 rails inset inside PR boundary; via-tower landing pads fattened (met2/met3/met4 overlay columns) for top-level DRC.",
       "physical": true,
       "reason": "",
-      "sha256": "3f674323c46642e0f56b4392d998e55c2481e35b47008976d4b0bacc8c73225a"
+      "sha256": "77b1bbce127378a23768de089dfe91a0b6f1d3ac1e709a267978ab9e34833486"
     },
     "canonical_spice": {
       "path": "analog/macros/tx_inv_chain_1_3_9/canonical.spice",
