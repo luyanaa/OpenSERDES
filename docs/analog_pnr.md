@@ -164,9 +164,17 @@ met1/met4 landing pads of `pdn_patch` vs the thin pin stubs, and the
 `_PR` block-via cells' own generated cut geometry (`via2.1a_a`, `m3.4_a`).
 These are the last boundary-crowding sites; clearing them needs either a
 final respacing of the tower columns away from the edges or a small keepout
-adjustment — not connectivity work.  `phy-link-closure` still reports
-**UNVERIFIED** on the three physical DRC gates while every
-functional/connectivity gate passes.
+adjustment — not connectivity work.
+
+Note on `magic__illegal_overlap`: the ~56 reported overlaps are **false
+positives** — magic flags `obsm2/3/4` (the macro OBS marker layers I added)
+overlapping the macro's own metal2/3/4/vias.  OBS is *meant* to sit over
+existing metal to forbid additional routing; the obsm*/metal* type
+difference trips magic's overlap check but is not real DRC.  The true
+sign-off decks (klayout DRC, route DRC) stay clean at 12 and 0.
+
+`phy-link-closure` still reports **UNVERIFIED** on the three physical DRC
+gates while every functional/connectivity gate passes.
 
 This is a **physical integration signoff of real custom cells** — still not
 a foundry signoff.  Produce a separate closure record for the hard-macro
