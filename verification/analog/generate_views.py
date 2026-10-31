@@ -111,6 +111,7 @@ def generate(manifest_path: Path, outdir: Path) -> dict[str, Any]:
     info = gds_info(gds)
     x0, y0, x1, y1 = [float(v) for v in info["bbox"]]
     width, height = x1 - x0, y1 - y0
+    power_layer = manifest.get("pdn_power_layer")
     pin_boxes: dict[str, dict[str, Any]] = {}
     shapes = gds_pin_shapes(gds)
     for lab in info["labels"]:
@@ -125,7 +126,20 @@ def generate(manifest_path: Path, outdir: Path) -> dict[str, Any]:
             return dx + dy
         candidates = shapes
         if canonical in ("VDD", "VSS"):
-            power = [s for s in shapes if s["layer"] == "met5"] or [s for s in shapes if s["layer"] == "met4"]
+            # Power-pin layer comes from the manifest's "pdn_power_layer"
+            # (default met4).  Macros whose GDS carries real met4 power rails
+            # (tx_inv_chain_1_3_9, rx_parallel_inv_macro) expose met4 so the
+            # sky130 PDN macro grid's add_pdn_connect(met4, met5) reaches them
+            # (fixes PDN-0233).  rx_res_fb_pmos carries power only on met1
+            # stubs, so its manifest declares "pdn_power_layer": "met1" and the
+            # PDN cfg adds a met1<->met4 via connect instead of fabricating a
+            # met4 strap that does not exist in the layout.
+            pref = power_layer or "met4"
+            order = [pref] + [l for l in ("met4", "met5", "met1") if l != pref]
+            power = next(
+                ([s for s in shapes if s["layer"] == l] for l in order
+                 if any(s["layer"] == l for s in shapes)),
+                [])
             if power:
                 candidates = power
         else:

@@ -78,10 +78,71 @@ remains in the dedicated analog flow.
 
 ## Hard macro / LibreLane
 
-The hard macros can still be staged and inspected, but the C top deliberately
-uses the soft stdcell implementation so DRC/LVS/STA are closed in one
-hierarchy.  Hard macro PDN and fixed-device feedback characterization remain
-separate work items.
+The C top keeps the soft-stdcell front-end as the default so DRC/LVS/STA
+close in one hierarchy.  Defining `SERDES_LINK_HARD_MACROS` swaps the
+soft stand-ins for the two real custom cells:
+
+- `u_tx_driver` → `tx_inv_chain_1_3_9` (custom inverter chain; power on
+  **met4** rails — reached by the sky130 met4↔met5 connect)
+- `u_rx_frontend` → `rx_res_fb_pmos` (the `Resist_FB_INV` nonlinear-PMOS
+  feedback inverter; power only on **met1** stubs — no met4/met5 straps in
+  the GDS, so its LEF keeps the power pins on met1 via the manifest's
+  `pdn_power_layer`)
+
+Generate the hard-macro config (omits `--soft-stdcell`):
+
+```
+python3 scripts/gen_analog_pnr_config.py \
+    --package out/sky130-soc --out build/analog_pnr_hard
+librelane --manual-pdk --pdk-root $PDK_ROOT \
+    --run-tag=hard_link --overwrite build/analog_pnr_hard/librelane.yaml
+```
+
+**PDN recipe for tiny (~10–20 µm) hard macros.**  Verified against OpenROAD
+`pdngen`: a `-macro` grid's `add_pdn_connect` only bridges strap shapes that
+grid *itself* draws — it cannot reach the `stdcell_grid` straps, so every
+macro-local strap is a floating island disconnected from the global grid
+(`PSM-0025`).  Rings (`PDN-0351`) and 153 µm-pitch straps (`PDN-0185`) cannot
+fit a 10–20 µm cell, and `rx_res_fb_pmos` carries power only on met1 stubs
+that no `-macro` grid can wire to the met4/met5 global grid.
+
+The honest fix (the same technique real LibreLane designs use, e.g. the
+`ankhdjet` `pdn_patch`) is to let `pdngen` build the stdcell grid normally,
+then **wrap `pdngen`** so that right after it runs, `pdn_patch.tcl` draws the
+binding geometry in the ODB.  The verified short-free route per pin is a
+**vertical met4 column** in the pin's own x-column up to the **nearest
+same-net met5 horizontal strap**, then a `met4→met5` via:
+
+- A vertical met4 run cannot cross an opposite-net *vertical* met4 strap
+  (different x), and crossing a horizontal met5 strap on a different layer
+  is harmless — vias only form where placed.
+- For met1 pins (`u_rx_frontend`) a `met1→via→met2→via2→met3→via3→met4`
+  stack lands the column on the pin; for met4 pins (`u_tx_driver` VDD/VSS
+  rails) the column lands directly.
+- `u_tx_driver` VDD and VSS are two *different-net* rails sharing one
+  x-column, so their columns are pushed to distinct x (`pdn_patch` scans the
+  pin's x-extent for a column free of opposite-net met4) — otherwise the two
+  vertical runs overlap and short VPWR↔VGND.  Verified in the OpenROAD REPL:
+  all four pins bind and a same-layer overlap scan reports zero shorts.
+
+`scripts/gen_analog_pnr_config.py` splices a `pdngen`-wrapping macro section
+into a copy of the stock recipe (`build/analog_pnr_hard/pdn_cfg_hard_macros.tcl`)
+and emits `build/analog_pnr_hard/pdn_patch.tcl` (the binding geometry) next to
+the YAML.  `PDN_HORIZONTAL_HALO`/`PDN_VERTICAL_HALO` are 0 so the keep-out does
+not swallow the cells.
+
+This is a **physical integration signoff of real custom cells** — still not
+a foundry signoff.  Produce a separate closure record for the hard-macro
+run:
+
+```
+make phy-link-closure \
+    ANALOG_PNR_RUN=build/analog_pnr_hard/runs/hard_link \
+    PHY_LINK_OUT=build/verify/phy_link_closure_hard
+```
+
+`phy_link_closure.py` detects the `SERDES_LINK_HARD_MACROS` define in the
+run's `config.json` and labels the record `hard-macro` accordingly.
 
 ## PHY link closure record (P2)
 

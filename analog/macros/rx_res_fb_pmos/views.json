@@ -1,6 +1,6 @@
 {
   "name": "rx_res_fb_pmos",
-  "gds": "/opt/OpenSERDES/Resistive_FB_inverter/Res_FB_Inv.gds",
+  "gds": "/opt/OpenSERDES/analog/macros/rx_res_fb_pmos/layout.gds",
   "cell": "Resist_FB_INV",
   "bbox_um": [
     0.08,

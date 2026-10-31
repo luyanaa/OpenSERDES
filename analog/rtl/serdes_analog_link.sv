@@ -77,14 +77,25 @@ module serdes_analog_link #(
         .rx_clk_out(rx_clk_out), .csr_regs(csr_regs)
     );
 
-    // Both hard macros are inverting.  TX serial data is inverted by the
+    // Both front-end cells are inverting.  TX serial data is inverted by the
     // driver; the RX feedback stage inverts it back before digital recovery.
+    // SERDES_LINK_HARD_MACROS selects the custom hard macros (physical GDS);
+    // otherwise the verified soft-stdcell stand-ins are used.
+`ifdef SERDES_LINK_HARD_MACROS
+    tx_inv_chain_1_3_9 u_tx_driver (
+        .VDD(VPWR), .VSS(VGND), .IN(tx_serial_out), .OUT(tx_pad)
+    );
+    rx_res_fb_pmos u_rx_frontend (
+        .VDD(VPWR), .VSS(VGND), .IN(rx_pad), .OUT(rx_serial_in)
+    );
+`else
     tx_inv_chain_stdcell u_tx_driver (
         .VDD(VPWR), .VSS(VGND), .IN(tx_serial_out), .OUT(tx_pad)
     );
     rx_res_fb_stdcell u_rx_frontend (
         .VDD(VPWR), .VSS(VGND), .IN(rx_pad), .OUT(rx_serial_in)
     );
+`endif
 endmodule
 
 // Soft stdcell implementation used for C physical signoff.  The hard macro

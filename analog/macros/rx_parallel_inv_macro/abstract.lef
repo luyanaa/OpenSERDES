@@ -11,16 +11,16 @@ MACRO rx_parallel_inv_macro
     DIRECTION INOUT ;
     USE POWER ;
     PORT
-      LAYER met5 ;
-        RECT 0.190 5.000 7.590 6.000 ;
+      LAYER met4 ;
+        RECT 0.190 5.200 7.390 5.600 ;
     END
   END VDD
   PIN VSS
     DIRECTION INOUT ;
     USE GROUND ;
     PORT
-      LAYER met5 ;
-        RECT 0.190 0.000 7.590 1.000 ;
+      LAYER met4 ;
+        RECT 0.190 0.600 7.390 1.000 ;
     END
   END VSS
   PIN IN

@@ -24,10 +24,13 @@ it cites is sha256-hashed so the report is hash-consistent.  If the run dir or
 metrics are missing the record is written with status=UNVERIFIED, matching the
 fail-closed contract used by ``macro_pack_3pdk.py``.
 
-This is a *soft-stdcell* integrated link: the analog front-end is the
-standard-cell inverter chain documented in ``docs/analog_pnr.md``, not a
-transistor custom cell.  The record says so explicitly -- it is a physical
-integration signoff, not a custom analog signoff.
+Two front-end variants exist.  The default is the *soft-stdcell* link:
+the analog front-end is a standard-cell inverter chain documented in
+``docs/analog_pnr.md``, not a transistor custom cell.  When the run's config
+carries the ``SERDES_LINK_HARD_MACROS`` define the collector labels the
+record as the *hard-macro* link (real ``tx_inv_chain_1_3_9`` +
+``rx_res_fb_pmos`` custom cells).  Either way the record states plainly what
+was signed off -- a physical integration signoff, never a foundry signoff.
 """
 
 from __future__ import annotations
@@ -75,6 +78,39 @@ def _m(metrics: dict, key: str) -> float:
         return float(v)
     except (TypeError, ValueError):
         return float("nan")
+
+
+def _detect_implementation(run: Path) -> tuple[str, str]:
+    """Return (flow_label, implementation) derived from the run's own
+    resolved config.  The hard-macro run is identified by the
+    ``SERDES_LINK_HARD_MACROS`` define recorded in its config.json; anything
+    else (or an unreadable config) is treated as the soft-stdcell run.  The
+    verdict is evidence-derived -- the record never claims hard macros the
+    run did not actually build."""
+    cfg = run / "config.json"
+    hard = False
+    if cfg.is_file():
+        try:
+            d = json.loads(cfg.read_text())
+        except (json.JSONDecodeError, OSError):
+            d = {}
+        defines = d.get("VERILOG_DEFINES") or []
+        macros = d.get("MACROS") or {}
+        hard = ("SERDES_LINK_HARD_MACROS" in defines
+                and "tx_inv_chain_1_3_9" in macros
+                and "rx_res_fb_pmos" in macros)
+    if hard:
+        return (
+            "LibreLane hard-macro PnR "
+            "(tx_inv_chain_1_3_9 -> channel -> rx_res_fb_pmos)",
+            "custom hard macros (tx_inv_chain_1_3_9 inverter chain + "
+            "rx_res_fb_pmos nonlinear-PMOS-feedback inverter) per "
+            "docs/analog_pnr.md; a physical integration signoff of real "
+            "custom cells, not a foundry signoff")
+    return (
+        "LibreLane soft-stdcell PnR (TX inv-chain -> channel -> RX inv)",
+        "soft-stdcell inverter chain per docs/analog_pnr.md; a physical "
+        "integration signoff, not a custom transistor analog signoff")
 
 
 def collect(run: Path, out: Path) -> dict:
@@ -125,16 +161,16 @@ def collect(run: Path, out: Path) -> dict:
         problems.append("metrics_unreadable")
     status = "SIGNOFF_ELIGIBLE" if not problems else "UNVERIFIED"
 
+    flow_label, implementation = _detect_implementation(run)
+
     record = {
         "kind": "phy_link_closure",
         "generated_utc": datetime.now(timezone.utc).isoformat(),
         "design": "serdes_analog_link",
-        "flow": "LibreLane soft-stdcell PnR (TX inv-chain -> channel -> RX inv)",
+        "flow": flow_label,
         "pdk": "sky130",
         "run_dir": str(run),
-        "implementation": (
-            "soft-stdcell inverter chain per docs/analog_pnr.md; a physical "
-            "integration signoff, not a custom transistor analog signoff"),
+        "implementation": implementation,
         "signoff_metrics": {
             "xor_difference":   metrics.get("design__xor_difference__count"),
             "magic_drc_errors": metrics.get("magic__drc_error__count"),

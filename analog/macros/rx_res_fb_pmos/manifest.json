@@ -20,6 +20,7 @@
   },
   "kind": "analog_macro",
   "topology": "cmos_inverter_with_nonlinear_pmos_feedback",
+  "pdn_power_layer": "met1",
   "polarity": "inverting",
   "polarity_verified": true,
   "polarity_evidence": {
