@@ -82,9 +82,6 @@ proc _layer {name} {
 # canonical sky130 prefab via names via findVia (returns a real dbTechVia).
 proc _via_between {a b} {
     set tech [ord::get_db_tech]
-    set names {
-        "li1 met1"  "met1 met2" "met2 met3" "met3 met4" "met4 met5"
-    }
     set key "${a} ${b}"
     set vname ""
     switch -- $key {

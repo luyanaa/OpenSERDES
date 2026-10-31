@@ -1,7 +1,7 @@
 {
   "name": "rx_res_fb_pmos",
   "gds": "/opt/OpenSERDES/analog/macros/rx_res_fb_pmos/layout.gds",
-  "cell": "Resist_FB_INV",
+  "cell": "rx_res_fb_pmos",
   "bbox_um": [
     0.08,
     0.62,

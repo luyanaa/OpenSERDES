@@ -86,12 +86,12 @@
     },
     "layout": {
       "path": "analog/macros/rx_res_fb_pmos/layout.gds",
-      "top": "Resist_FB_INV",
+      "top": "rx_res_fb_pmos",
       "format": "gds",
       "status": "available-physical",
       "physical": true,
-      "note": "Original full GDS; ports GND,VDD,INP,OUT.",
-      "sha256": "5690859d0df8ed7fc94b33d948ab0504ebb90d1aecc587d5e8d1fa79d50fab76"
+      "note": "Original full GDS; ports GND,VDD,INP,OUT. Top renamed; PR boundary 235/4 added for LibreLane.",
+      "sha256": "f3ac3a21ecd4872c96d7702da75a389a760f02319b89ef02339731b909d8700f"
     },
     "canonical_spice": {
       "path": "analog/macros/rx_res_fb_pmos/canonical.spice",
