@@ -519,16 +519,12 @@ set_false_path -to [get_ports rx_clk_out]
             # not consult pdngen obstructions).  Obstructing li1+met1 alone
             # leaves generated met2/met3 via pads stranded over the macro, so
             # we cover the whole met1->met3 followpin stack.
-            # Keep the stdcell-grid L1M1 via CUTS off each macro footprint:
-            # obstructing li1 blocks the via's li1 pad (and thus the via)
-            # inside the macro bbox while leaving the met1 followpin rail free
-            # to reach the macro's own rail (obstructing met1 trips PDN-0006
-            # "VDD on met1 is blocked"; a -macro grid trips it too).  These
-            # are removed right after pdngen so signal routing is unaffected.
-            "PDN_OBSTRUCTIONS": [
-                ("li1", 164.81, 78.49, 185.20, 84.51),
-                ("li1", 169.08, 300.00, 179.00, 317.25),
-            ],
+            # No PDN obstructions: they either block the macro's own met1 pin
+            # (PDN-0006) or fail to suppress followpin vias.  The met1.2 /
+            # via2.1a cluster is fixed structurally instead -- TX origin is
+            # aligned to the followpin row-rail pitch and RX's power stubs are
+            # widened to enclose the binding via pads (see macro placement).
+            "PDN_OBSTRUCTIONS": None,
         }),
         "RUN_CTS": True,
         "KLAYOUT_XOR_IGNORE_LAYERS": ["235/4"],
