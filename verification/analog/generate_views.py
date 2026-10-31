@@ -185,53 +185,11 @@ def generate(manifest_path: Path, outdir: Path) -> dict[str, Any]:
     pin_layers = {pb["layer"] for pb in pin_boxes.values()}
     obs_layers = [l for l in ("met1", "met2", "met3", "met4", "met5")
                   if l not in pin_layers]
-    obs_rects: list[tuple[str, list[float]]] = [
-        (l, [0.0, 0.0, width, height]) for l in obs_layers]
-    # Partial met1 blockage.  The macros carry met1 pins, so met1 cannot be
-    # fully obstructed -- but the macro's internal met1 is a fragmented mesh
-    # (power rail + interleaved signal stubs) and the detail router drops
-    # signal met1/M1M2 via pads inside the footprint that land 28-40 nm off
-    # those shapes -> the met1.2 / via2.1a cluster.  Block met1 over the
-    # whole cell EXCEPT a small access window around each met1 pin, so the
-    # router can reach the pin but cannot drop via pads into the mesh.  We
-    # decompose (cell_rect - union(pin_windows)) into disjoint OBS rects via
-    # a guillotine cut along each pin window's x-span.
-    if "met1" in pin_layers:
-        win_margin = 0.85  # um; must clear the access via's full met1 pad
-        wins = sorted(
-            (max(0.0, r[0] - win_margin), max(0.0, r[1] - win_margin),
-             min(width, r[2] + win_margin), min(height, r[3] + win_margin))
-            for pb in pin_boxes.values()
-            for r in [pb["rect"]] if pb["layer"] == "met1")
-        # merge overlapping windows
-        merged: list[list[float]] = []
-        for xa, ya, xb, yb in wins:
-            if merged and xa <= merged[-1][2] and ya <= merged[-1][3] and \
-                    xb >= merged[-1][0] and yb >= merged[-1][1]:
-                m = merged[-1]
-                m[0], m[1] = min(m[0], xa), min(m[1], ya)
-                m[2], m[3] = max(m[2], xb), max(m[3], yb)
-            else:
-                merged.append([xa, ya, xb, yb])
-        # vertical strips between consecutive pin windows span full height
-        cur = 0.0
-        for xa, ya, xb, yb in merged:
-            if xa - cur > 0.02:
-                obs_rects.append(("met1", [cur, 0.0, xa, height]))
-            # within the window's x-span, block below & above the window
-            if ya > 0.02:
-                obs_rects.append(("met1", [xa, 0.0, xb, ya]))
-            if height - yb > 0.02:
-                obs_rects.append(("met1", [xa, yb, xb, height]))
-            cur = max(cur, xb)
-        if width - cur > 0.02:
-            obs_rects.append(("met1", [cur, 0.0, width, height]))
-    if obs_rects:
+    if obs_layers:
         lines.append("  OBS")
-        for lay, r in obs_rects:
+        for lay in obs_layers:
             lines.append(f"    LAYER {lay} ;")
-            lines.append(
-                f"      RECT {r[0]:.3f} {r[1]:.3f} {r[2]:.3f} {r[3]:.3f} ;")
+            lines.append(f"      RECT 0.000 0.000 {width:.3f} {height:.3f} ;")
         lines.append("  END")
     lines += [f"END {name}", "END LIBRARY", ""]
     lef.write_text("\n".join(lines))
