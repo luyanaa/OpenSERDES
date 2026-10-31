@@ -118,13 +118,19 @@ proc _straps {net layname} {
 # Macro-grids also draw small local met5 straps inside the instance bbox --
 # those are floating islands, not the global grid, so bind only to straps
 # that span (nearly) the whole die width.
-proc _nearest_m5 {net px py} {
+# $dir: "" = nearest, "below" = strap centre below the pin, "above" = above.
+# For a pin whose column would cross a sibling power rail on the SAME net's
+# opposite net (TX's stacked VDD/VSS rails), pick a strap on the far side so
+# the column does not run through the sibling rail.
+proc _nearest_m5 {net px py {dir ""}} {
     set best "" ; set bd 1e30
     foreach s [_straps $net met5] {
         lassign $s x0 x1 y0 y1
         # skip macro-local stubs (width < 100 um): only global straps span the die
         if { [expr {$x1-$x0}] < 100000 } { continue }
         set cy [expr {($y0+$y1)/2.0}]
+        if { $dir eq "below" && $cy >= $py } { continue }
+        if { $dir eq "above" && $cy <= $py } { continue }
         set d [expr {abs($cy-$py)}]
         if { $d < $bd } { set bd $d ; set best $s }
     }
@@ -137,6 +143,61 @@ proc _nearest_m5 {net px py} {
 # up to met5.  A vertical met4 column cannot cross an opposite-net vertical
 # met4 strap (different x), and crossing a horizontal met5 strap on a
 # different layer is harmless -- vias only form where we place them.
+# Nearest GLOBAL same-net met4 strap whose y-span covers the pin's y.
+# Global straps span the core height (y extent > 200 um); my own fat pads
+# (a few um) are filtered out by that size test, and macro-local stubs are
+# likewise excluded.  Returns {x0 x1 y0 y1} or "".
+proc _m4_at_y {net px py} {
+    set best "" ; set bd 1e30
+    foreach s [_straps $net met4] {
+        lassign $s x0 x1 y0 y1
+        if { [expr {$y1-$y0}] < 200000 } { continue }
+        if { $py < $y0 || $py > $y1 } { continue }
+        set d [expr {abs(($x0+$x1)/2.0 - $px)}]
+        if { $d < $bd } { set bd $d ; set best $s }
+    }
+    return $best
+}
+
+# Y-centre of the sibling power pin on the same instance (the opposite
+# polarity rail it shares an x-column with), or "" if none.  For a met4
+# pin-rail pair (TX VDD/VSS) the column must route AWAY from the sibling so
+# it does not run through the opposite net's rail.
+proc _sib_rail {inst pinname} {
+    set other [expr {$pinname eq "VDD" ? "VSS" : "VDD"}]
+    set it [$inst findITerm $other]
+    if { $it eq "NULL" || $it eq "" } { return "" }
+    set bb [$it getBBox]
+    return [expr {int(([$bb yMin]+[$bb yMax])/2)}]
+}
+
+# Draw an SBox metal run on $sw on layer $lay.
+proc _box {sw lay x0 y0 x1 y1} {
+    odb::dbSBox_create $sw [_layer $lay] \
+        [expr {int($x0)}] [expr {int($y0)}] [expr {int($x1)}] [expr {int($y1)}] STRIPE
+}
+# Place a via SBox on $sw between layers a->b at (x,y).
+proc _via {sw a b x y} {
+    set v [_via_between $a $b]
+    if { $v ne "" } { odb::dbSBox_create $sw $v [expr {int($x)}] [expr {int($y)}] STRIPE }
+}
+
+# Bind a macro power pin to the global grid with DRC-clean geometry.  Every
+# dbSBox via already places its full enclosure metal (cut + top/bottom rects
+# from the LEF via cell), so we only draw metal runs sized to enclose the
+# via's layer rects -- no undersized pads (the earlier DRC-violation source).
+#
+# Two routes, picked by geometry:
+#   * If a same-net met4 vertical strap already crosses the pin's y within
+#     reach, jog HORIZONTALLY on met4 at the pin's y to it (the jog sits in
+#     the macro keep-out where no other met4 runs, so it cannot cross an
+#     opposite-net strap).  This is the rx_frontend case.
+#   * Otherwise run a VERTICAL met4 column from the pin up to the nearest
+#     same-net met5 strap (tx_driver case, where the met4 strap has a
+#     keep-out gap over the macro).
+# For met1 pins a met1->met4 via stack lands the route on the pin; for met4
+# pins the run lands directly.  TX's VDD/VSS rails share an x-column so
+# their columns are pushed to distinct x (avoids VPWR<->VGND overlap).
 proc _bind_pin {inst pinname netname} {
     set block [ord::get_db_block]
     set tech  [ord::get_db_tech]
@@ -145,89 +206,107 @@ proc _bind_pin {inst pinname netname} {
     set it [$i findITerm $pinname]
     if { $it eq "NULL" || $it eq "" } { return }
     set bb [$it getBBox]
+    set px [expr {int(([$bb xMin]+[$bb xMax])/2)}]
     set py [expr {int(([$bb yMin]+[$bb yMax])/2)}]
     set net [$block findNet $netname]
     if { $net eq "NULL" || $net eq "" } { return }
     set sw [odb::dbSWire_create $net ROUTED]
-    # For a wide pin (TX's VDD/VSS rails span the macro width), choose a
-    # column x that does not collide with an opposite-net vertical met4
-    # column already drawn for the sibling pin.  The two TX power columns
-    # must be kept apart on met4 or they short VPWR<->VGND.  Scan candidate
-    # x across the pin, pick the first whose vertical met4 run is free of the
-    # OTHER net's met4 shapes.
     set onet [expr {$netname eq "VPWR" ? "VGND" : "VPWR"}]
     set on [$block findNet $onet]
-    set px [expr {int(([$bb xMin]+[$bb xMax])/2)}]
-    set m5 [_nearest_m5 $net $px $py]
-    if { $m5 eq "" } { puts "pdn_patch: no met5 strap for $inst/$pinname"; return }
-    lassign $m5 mx0 mx1 my0 my1
-    set mcy [expr {int(($my0+$my1)/2.0)}]
-    # pin layer
     set player ""
     foreach mp [[$it getMTerm] getMPins] {
         foreach g [$mp getGeometry] { set player [[$g getTechLayer] getName] }
     }
-    # Column half-width.  Keep it narrow so the vertical run can sit in the
-    # gap between adjacent opposite-net met4 straps (which are only ~1.7 um
-    # apart) without touching them.  A 0.5 um-wide column still lands a via.
-    set halfw 500
-    # candidate x columns across the pin width, centre first then spread out
-    set mid [expr {int(([$bb xMin]+[$bb xMax])/2)}]
-    set cands [list $mid]
-    for {set dx 2000} {$dx <= [expr {[$bb xMax]-[$bb xMin]}]} {incr dx 2000} {
-        lappend cands [expr {$mid + $dx}]
-        lappend cands [expr {$mid - $dx}]
-    }
-    set chosenx ""
-    foreach cx $cands {
-        # does a met4 column at cx (y=py..mcy) overlap any onet met4 shape?
-        set hit 0
-        set yl [expr {min($py,$mcy)-$halfw}]; set yh [expr {max($py,$mcy)+$halfw}]
-        foreach os [_straps $on met4] {
-            lassign $os ox0 ox1 oy0 oy1
-            if {[expr {$cx-$halfw}]<$ox1 && [expr {$cx+$halfw}]>$ox0 &&
-                $yl<$oy1 && $yh>$oy0} { set hit 1; break }
-        }
-        if { !$hit } {
-            set chosenx $cx
-            break
-        }
-    }
-    if { $chosenx eq "" } { set chosenx $mid }
-    set px $chosenx
-    # 1. metal on the pin's own layer so the stack lands on the pin shape.
-    # The met1 pin is a tiny (~175x195 DBU) stub -- too small for a via plus
-    # its enclosure.  Draw a generous met1 pad centred on the pin (overlapping
-    # it) plus same-size met2/met3/met4 pads, then the via stack through them.
-    # A pad overlapping the pin on the same layer is the connect.
+    # land the via stack on the pin (met1 pins only); met4 pins land direct.
     if { $player eq "met1" } {
         set pad 500
         odb::dbSBox_create $sw [_layer met1] \
-            [expr {int($px-$pad)}] [expr {int($py-$pad)}] \
-            [expr {int($px+$pad)}] [expr {int($py+$pad)}] STRIPE
-        # keep the tiny pin shape too so the net definitely owns it
-        odb::dbSBox_create $sw [_layer met1] \
-            [$bb xMin] [$bb yMin] [$bb xMax] [$bb yMax] STRIPE
-        odb::dbSBox_create $sw [_layer met2] \
-            [expr {int($px-$pad)}] [expr {int($py-$pad)}] \
-            [expr {int($px+$pad)}] [expr {int($py+$pad)}] STRIPE
-        odb::dbSBox_create $sw [_layer met3] \
-            [expr {int($px-$pad)}] [expr {int($py-$pad)}] \
-            [expr {int($px+$pad)}] [expr {int($py+$pad)}] STRIPE
-        foreach {a b} {met1 met2 met2 met3 met3 met4} {
-            set v [_via_between $a $b]
-            if { $v ne "" } { odb::dbSBox_create $sw $v $px $py STRIPE }
+            [expr {int(min([$bb xMin],$px-$pad))}] [expr {int(min([$bb yMin],$py-$pad))}] \
+            [expr {int(max([$bb xMax],$px+$pad))}] [expr {int(max([$bb yMax],$py+$pad))}] STRIPE
+        foreach {a b} {met1 met2 met2 met3 met3 met4} { _via $sw $a $b $px $py }
+        # met4 pad covering the met3->met4 via's met4 enclosure (+-165)
+        _box $sw met4 [expr {$px-400}] [expr {$py-400}] [expr {$px+400}] [expr {$py+400}]
+    }
+
+    # Strategy 1: horizontal met4 jog to a same-net met4 strap crossing pin-y.
+    # Only valid if the jog span crosses NO opposite-net met4 shape -- a
+    # far-away strap (TX case) would smear across many opposite straps.
+    set m4 [_m4_at_y $net $px $py]
+    if { $m4 ne "" } {
+        lassign $m4 sx0 sx1 sy0 sy1
+        set halfw 300
+        set x_lo [expr {min($px,$sx0)-$halfw}]
+        set x_hi [expr {max($px,$sx1)+$halfw}]
+        set blocked 0
+        foreach os [_straps $on met4] {
+            lassign $os ox0 ox1 oy0 oy1
+            if { $x_lo < $ox1 && $x_hi > $ox0 &&
+                 [expr {$py-$halfw}] < $oy1 && [expr {$py+$halfw}] > $oy0 } {
+                set blocked 1; break
+            }
+        }
+        if { !$blocked } {
+            _box $sw met4 $x_lo [expr {$py-$halfw}] $x_hi [expr {$py+$halfw}]
+            puts "pdn_patch: bound $inst/$pinname ($player @$px,$py) -> met4 strap x=$sx0..$sx1 (horizontal jog)"
+            return
         }
     }
-    # 2. vertical met4 column from pin-y to the met5 strap centre-y
-    set y_lo [expr {int(min($py,$mcy)-$halfw)}]
-    set y_hi [expr {int(max($py,$mcy)+$halfw)}]
-    odb::dbSBox_create $sw [_layer met4] \
-        [expr {int($px-$halfw)}] $y_lo [expr {int($px+$halfw)}] $y_hi STRIPE
-    # 3. via met4->met5 at the column top, landing on the met5 strap
-    set v45 [_via_between met4 met5]
-    if { $v45 ne "" } { odb::dbSBox_create $sw $v45 $px $mcy STRIPE }
-    puts "pdn_patch: bound $inst/$pinname ($player @$px,$py) -> met5 strap y=$my0..$my1"
+
+    # Strategy 2: vertical met4 column up to a same-net met5 strap.  Pick the
+    # strap on the far side of the pin from any sibling power rail the column
+    # would cross: a VDD (VPWR) pin above a VSS rail goes UP to a strap above
+    # it, and vice-versa, so the column never runs through the opposite net.
+    set sib [_sib_rail $i $pinname]
+    set dir ""
+    if { $sib ne "" } { set dir [expr {$sib < $py ? "above" : "below"}] }
+    set m5 [_nearest_m5 $net $px $py $dir]
+    if { $m5 eq "" } { set m5 [_nearest_m5 $net $px $py] }
+    if { $m5 eq "" } { puts "pdn_patch: no route for $inst/$pinname"; return }
+    lassign $m5 mx0 mx1 my0 my1
+    set mcy [expr {int(($my0+$my1)/2.0)}]
+    set halfw 300
+    set padw 600
+    set mid $px
+    set cands [list $mid]
+    for {set dx 1500} {$dx <= 8000} {incr dx 1500} {
+        lappend cands [expr {$mid + $dx}]
+        lappend cands [expr {$mid - $dx}]
+    }
+    # scan for a column-x whose narrow run + end pads clear every OPPOSITE-net
+    # met4 shape (the pads are 2*padw wide at the two ends)
+    set chosenx ""
+    foreach cx $cands {
+        set hit 0
+        foreach os [_straps $on met4] {
+            lassign $os ox0 ox1 oy0 oy1
+            if {[expr {$cx-$halfw}]<$ox1 && [expr {$cx+$halfw}]>$ox0 &&
+                [expr {min($py,$mcy)-$halfw}]<$oy1 && [expr {max($py,$mcy)+$halfw}]>$oy0} {
+                set hit 1; break
+            }
+            foreach ey [list [expr {$py-$padw}] [expr {$py+$padw}] \
+                             [expr {$mcy-$padw}] [expr {$mcy+$padw}]] {
+                lassign $ey e0 e1
+                if {[expr {$cx-$padw}]<$ox1 && [expr {$cx+$padw}]>$ox0 &&
+                    $e0<$oy1 && $e1>$oy0} { set hit 1; break }
+            }
+            if { $hit } { break }
+        }
+        if { !$hit } { set chosenx $cx; break }
+    }
+    if { $chosenx eq "" } { set chosenx $mid }
+    set cx $chosenx
+    # horizontal jog pin-x -> column-x at pin-y (inside keep-out, no crossings)
+    if { $cx != $px } {
+        _box $sw met4 [expr {min($px,$cx)-$halfw}] [expr {$py-$halfw}] \
+                      [expr {max($px,$cx)+$halfw}] [expr {$py+$halfw}]
+    }
+    # fat pad at pin (encloses met3->met4 via) and at strap (encloses M4M5 via)
+    _box $sw met4 [expr {$cx-$padw}] [expr {$py-$padw}] [expr {$cx+$padw}] [expr {$py+$padw}]
+    _box $sw met4 [expr {$cx-$halfw}] [expr {min($py,$mcy)-$halfw}] \
+                  [expr {$cx+$halfw}] [expr {max($py,$mcy)+$halfw}]
+    _box $sw met4 [expr {$cx-$padw}] [expr {$mcy-$padw}] [expr {$cx+$padw}] [expr {$mcy+$padw}]
+    _via $sw met4 met5 $cx $mcy
+    puts "pdn_patch: bound $inst/$pinname ($player @$px,$py) -> met5 strap y=$my0..$my1 (col x=$cx)"
 }
 
 foreach inst {u_tx_driver u_rx_frontend} {
