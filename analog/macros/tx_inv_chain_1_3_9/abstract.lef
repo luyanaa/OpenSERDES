@@ -5,14 +5,14 @@ MACRO tx_inv_chain_1_3_9
   CLASS BLOCK ;
   ORIGIN 0 0 ;
   FOREIGN tx_inv_chain_1_3_9 0 0 ;
-  SIZE 20.590 BY 6.000 ;
+  SIZE 20.590 BY 6.020 ;
   SYMMETRY X Y ;
   PIN VDD
     DIRECTION INOUT ;
     USE POWER ;
     PORT
       LAYER met4 ;
-        RECT 0.190 5.200 20.190 5.600 ;
+        RECT 0.190 5.110 20.190 5.510 ;
     END
   END VDD
   PIN VSS
@@ -20,7 +20,7 @@ MACRO tx_inv_chain_1_3_9
     USE GROUND ;
     PORT
       LAYER met4 ;
-        RECT 0.190 0.600 20.190 1.000 ;
+        RECT 0.190 0.510 20.190 0.910 ;
     END
   END VSS
   PIN IN
@@ -28,7 +28,7 @@ MACRO tx_inv_chain_1_3_9
     USE SIGNAL ;
     PORT
       LAYER met1 ;
-        RECT 0.190 2.650 1.390 2.950 ;
+        RECT 0.190 2.560 1.390 2.860 ;
     END
   END IN
   PIN OUT
@@ -36,8 +36,29 @@ MACRO tx_inv_chain_1_3_9
     USE SIGNAL ;
     PORT
       LAYER met1 ;
-        RECT 8.390 1.950 8.990 2.350 ;
+        RECT 8.390 1.860 8.990 2.260 ;
     END
   END OUT
+  OBS
+    LAYER met1 ;
+      RECT 0.000 0.000 20.590 1.660 ;
+      RECT 0.000 1.660 8.190 2.360 ;
+      RECT 9.190 1.660 20.590 2.360 ;
+      RECT 0.000 2.360 20.590 2.460 ;
+      RECT 1.590 2.460 20.590 3.060 ;
+      RECT 0.000 3.060 20.590 6.020 ;
+    LAYER met2 ;
+      RECT 0.000 0.000 20.590 6.020 ;
+    LAYER met3 ;
+      RECT 0.000 0.000 20.590 6.020 ;
+    LAYER met4 ;
+      RECT 0.000 0.000 20.590 0.310 ;
+      RECT 20.390 0.310 20.590 1.110 ;
+      RECT 0.000 1.110 20.590 4.910 ;
+      RECT 20.390 4.910 20.590 5.710 ;
+      RECT 0.000 5.710 20.590 6.020 ;
+    LAYER met5 ;
+      RECT 0.000 0.000 20.590 6.020 ;
+  END
 END tx_inv_chain_1_3_9
 END LIBRARY

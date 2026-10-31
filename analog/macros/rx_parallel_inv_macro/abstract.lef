@@ -39,5 +39,26 @@ MACRO rx_parallel_inv_macro
         RECT 2.390 2.050 5.390 2.300 ;
     END
   END OUT
+  OBS
+    LAYER met1 ;
+      RECT 0.000 0.000 8.190 1.850 ;
+      RECT 0.000 1.850 2.190 2.500 ;
+      RECT 5.590 1.850 8.190 2.500 ;
+      RECT 0.000 2.500 8.190 2.500 ;
+      RECT 2.590 2.500 8.190 3.100 ;
+      RECT 0.000 3.100 8.190 6.000 ;
+    LAYER met2 ;
+      RECT 0.000 0.000 8.190 6.000 ;
+    LAYER met3 ;
+      RECT 0.000 0.000 8.190 6.000 ;
+    LAYER met4 ;
+      RECT 0.000 0.000 8.190 0.400 ;
+      RECT 7.590 0.400 8.190 1.200 ;
+      RECT 0.000 1.200 8.190 5.000 ;
+      RECT 7.590 5.000 8.190 5.800 ;
+      RECT 0.000 5.800 8.190 6.000 ;
+    LAYER met5 ;
+      RECT 0.000 0.000 8.190 6.000 ;
+  END
 END rx_parallel_inv_macro
 END LIBRARY

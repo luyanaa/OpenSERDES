@@ -5,14 +5,14 @@ MACRO rx_res_fb_pmos
   CLASS BLOCK ;
   ORIGIN 0 0 ;
   FOREIGN rx_res_fb_pmos 0 0 ;
-  SIZE 9.915 BY 16.630 ;
+  SIZE 9.915 BY 17.250 ;
   SYMMETRY X Y ;
   PIN VDD
     DIRECTION INOUT ;
     USE POWER ;
     PORT
       LAYER met1 ;
-        RECT 5.415 12.740 5.590 12.935 ;
+        RECT 5.415 13.360 5.590 13.555 ;
     END
   END VDD
   PIN VSS
@@ -20,7 +20,7 @@ MACRO rx_res_fb_pmos
     USE GROUND ;
     PORT
       LAYER met1 ;
-        RECT 4.755 0.000 4.930 0.195 ;
+        RECT 4.755 0.620 4.930 0.815 ;
     END
   END VSS
   PIN IN
@@ -28,7 +28,7 @@ MACRO rx_res_fb_pmos
     USE SIGNAL ;
     PORT
       LAYER met1 ;
-        RECT 0.645 6.325 0.830 6.515 ;
+        RECT 0.645 6.945 0.830 7.135 ;
     END
   END IN
   PIN OUT
@@ -36,8 +36,32 @@ MACRO rx_res_fb_pmos
     USE SIGNAL ;
     PORT
       LAYER met1 ;
-        RECT 9.055 6.355 9.245 6.495 ;
+        RECT 9.055 6.975 9.245 7.115 ;
     END
   END OUT
+  OBS
+    LAYER met1 ;
+      RECT 0.000 0.000 9.915 0.420 ;
+      RECT 0.000 0.420 4.555 1.015 ;
+      RECT 5.130 0.420 9.915 1.015 ;
+      RECT 0.000 1.015 9.915 6.745 ;
+      RECT 0.000 6.745 9.915 6.775 ;
+      RECT 0.000 6.775 0.445 7.315 ;
+      RECT 1.030 6.775 8.855 7.315 ;
+      RECT 9.445 6.775 9.915 7.315 ;
+      RECT 0.000 7.315 9.915 7.335 ;
+      RECT 0.000 7.335 9.915 13.160 ;
+      RECT 0.000 13.160 5.215 13.755 ;
+      RECT 5.790 13.160 9.915 13.755 ;
+      RECT 0.000 13.755 9.915 17.250 ;
+    LAYER met2 ;
+      RECT 0.000 0.000 9.915 17.250 ;
+    LAYER met3 ;
+      RECT 0.000 0.000 9.915 17.250 ;
+    LAYER met4 ;
+      RECT 0.000 0.000 9.915 17.250 ;
+    LAYER met5 ;
+      RECT 0.000 0.000 9.915 17.250 ;
+  END
 END rx_res_fb_pmos
 END LIBRARY
