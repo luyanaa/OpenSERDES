@@ -48,6 +48,12 @@ MACRO rx_res_fb_pmos
       RECT 0.000 0.000 9.915 17.250 ;
     LAYER met5 ;
       RECT 0.000 0.000 9.915 17.250 ;
+    LAYER met1 ;
+      RECT 0.000 14.555 9.915 17.250 ;
+    LAYER met1 ;
+      RECT 1.830 0.000 3.755 14.555 ;
+    LAYER met1 ;
+      RECT 6.590 0.000 8.055 14.555 ;
   END
 END rx_res_fb_pmos
 END LIBRARY
