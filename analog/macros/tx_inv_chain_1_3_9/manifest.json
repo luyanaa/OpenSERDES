@@ -82,10 +82,10 @@
       "format": "gds",
       "status": "available-physical-stdcell",
       "source_path": "Inverter_Based_Tx/Inv_Transmitter.gds",
-      "note": "Top renamed; PR boundary 235/4 added for LibreLane.",
+      "note": "Top renamed; PR boundary 235/4 added for LibreLane. Met5 rails inset inside PR boundary; via-tower landing pads fattened (met2/met3/met4 overlay columns) for top-level DRC.",
       "physical": true,
       "reason": "",
-      "sha256": "44ae2ad114dcaf1eaea052ef619be97f1da05e913a7fd55ee54d1d68104b6ddb"
+      "sha256": "122d2370b40dff8583a3e87c0683785e62e6b141d9757ac0f20beaa3fdbd5df1"
     },
     "canonical_spice": {
       "path": "analog/macros/tx_inv_chain_1_3_9/canonical.spice",
