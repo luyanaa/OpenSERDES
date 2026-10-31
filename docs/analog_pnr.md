@@ -158,13 +158,34 @@ Regeneration progress (drives the counts down monotonically):
 
 Result: magic DRC 285 → 60, KLayout DRC 119 → 12, LVS still 0.
 
-The residual is now a handful of spots: the TX via towers that sit ~200–600 nm
-from the cell edges (interacting with abutting top-level metal), the
-met1/met4 landing pads of `pdn_patch` vs the thin pin stubs, and the
-`_PR` block-via cells' own generated cut geometry (`via2.1a_a`, `m3.4_a`).
-These are the last boundary-crowding sites; clearing them needs either a
-final respacing of the tower columns away from the edges or a small keepout
-adjustment — not connectivity work.
+The residual (magic ~68, klayout ~12) is now **localised to the macro met1
+power-rail band** — every error sits in two x-columns (x≈166 and x≈173 µm)
+on each macro's met1 rail region.  Cell-attributed flattening shows the
+colliding pairs are the **generated power/signal via pads landing at
+28–40 nm notches against the macro's fragmented internal met1 mesh**: the
+pdngen met1↔met4 grid via towers (`via2_3`/`via3_4`/`via4_5`) and detail-
+route `L1M1_PR` signal vias place met1/met2 pads that straddle the gap
+between two same-x macro met1 shapes, leaving a sub-28 nm sliver
+(`met1.2`), an under-width `via2.1a` pad, and `met3/met4 overlap-of-via`
+chain errors.
+
+Approaches tried and ruled out (each verified by a full ~25-min run):
+
+- **Exact-LEF via-tower enclosure** in the macro GDS — standalone clean but
+  placed-context count unchanged; the macro geometry was never the issue.
+- **`PDN_OBSTRUCTIONS`** on li1/met1 over the macro — obstructions do not
+  suppress *generated* followpin/grid vias (they gate the router only), and
+  obstructing met1 trips `PDN-0006` (blocks the rail reaching the pin).
+- **`-macro -default` PDN grid** — a strapless macro grid claims the met1
+  VDD pin it cannot reach → `PDN-0006`.
+- **Aligning the macro origin to the followpin row-rail pitch** (y=81.6) —
+  regressed 68→98; the 6 µm macro spans ~2.2 rows so it always overlaps a
+  row boundary and the move only relocated the cluster.
+
+The real fix is **layout-level**: regenerate each macro's met1 power mesh so
+the rail is a continuous band that a generated via pad either fully lands
+inside or fully clears — eliminating the 28–40 nm partial-overlap notches.
+That is macro-layout rework, not a config/keepout adjustment.
 
 Note on `magic__illegal_overlap`: the ~56 reported overlaps are **false
 positives** — magic flags `obsm2/3/4` (the macro OBS marker layers I added)
