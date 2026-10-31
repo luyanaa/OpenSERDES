@@ -217,15 +217,21 @@ proc _bind_pin {inst pinname netname} {
     foreach mp [[$it getMTerm] getMPins] {
         foreach g [$mp getGeometry] { set player [[$g getTechLayer] getName] }
     }
-    # land the via stack on the pin (met1 pins only); met4 pins land direct.
+    # Land the via stack on the pin (met1 pins only).  Each intermediate
+    # layer gets ONE fat pad (half = 500, min 300nm sq > the 240nm met3
+    # min-area and every via enclosure + margin) so the via's own enclosure
+    # rects merge into a compliant polygon instead of sitting alone.
     if { $player eq "met1" } {
         set pad 500
+        # met1 pad covers the pin AND the bottom via's met1 enclosure
         odb::dbSBox_create $sw [_layer met1] \
             [expr {int(min([$bb xMin],$px-$pad))}] [expr {int(min([$bb yMin],$py-$pad))}] \
             [expr {int(max([$bb xMax],$px+$pad))}] [expr {int(max([$bb yMax],$py+$pad))}] STRIPE
+        # intermediate landing pads (met2, met3) sized to enclose their vias
+        _box $sw met2 [expr {$px-500}] [expr {$py-500}] [expr {$px+500}] [expr {$py+500}]
+        _box $sw met3 [expr {$px-500}] [expr {$py-500}] [expr {$px+500}] [expr {$py+500}]
+        _box $sw met4 [expr {$px-500}] [expr {$py-500}] [expr {$px+500}] [expr {$py+500}]
         foreach {a b} {met1 met2 met2 met3 met3 met4} { _via $sw $a $b $px $py }
-        # met4 pad covering the met3->met4 via's met4 enclosure (+-165)
-        _box $sw met4 [expr {$px-400}] [expr {$py-400}] [expr {$px+400}] [expr {$py+400}]
     }
 
     # Strategy 1: horizontal met4 jog to a same-net met4 strap crossing pin-y.
