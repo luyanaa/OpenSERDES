@@ -144,23 +144,29 @@ functional/connectivity gate passes:
 - FAIL: `klayout_xor` (~25), `magic_drc` (~160–250), `klayout_drc`
   (~80–130), all clustered at the macro via towers.
 
-The residual DRC is **not** an open short or a broken connect — it is the
-macros' dense internal layout.  The KLayout report attributes **~84 of ~118
-errors to `tx_inv_chain_1_3_9` itself** (`m5.1` width, `via.1a_b` enclosure,
-`m1.2`/`m4`/`via4` OFFGRID, `via4.1_b`), with most of the rest to the
-`serdes_analog_link` top cell where the macros' met1/met4 crowd neighbouring
-geometry at 10–40 nm.  Each macro GDS is **DRC-clean standalone** (verified:
-`drc count total` = 0) because the standalone run has no adjacent metal;
-when flattened against the `pdn_patch` landing pads and the powered stdcell
-rows, the macros' min-spacing/min-width internal metal violates the deck.
+Regeneration progress (drives the counts down monotonically):
 
-Iterative GDS patching oscillates (each fix trades errors: 285 → 163 → 156
-→ 158 across runs) because the crowding is pervasive, not a single site.
-The correct fix is a **from-scratch layout regeneration** of
-`tx_inv_chain_1_3_9` and `rx_res_fb_pmos` that re-spaces internal metal to
-keep ≥ 1× spacing from the cell boundary and uses rule-driven via arrays —
-genuine custom-layout work, not coordinate patching.  Connectivity, LVS,
-timing, power-grid, route-DRC and antenna are all clean meanwhile.
+- Snap all macro metal/via shapes to the 5 nm manufacturing grid; rebuild
+  the met5 power rails as clean full-width rects covering via4 by ±310 nm;
+  resize via1 cuts to exactly 150 nm (`via.1a_b`), via2/3/4 to spec.  Both
+  macros now report **0 violations standalone under the foundry
+  `sky130A_mr.drc` deck** (was 51 in TX).
+- Add a generated LEF `OBS` block (in `generate_views.py`) that blocks every
+  non-pin routing layer over each macro, so the detailed router can no
+  longer land signal met2–met5 through the macro interior — this removed
+  the largest top-level `m1.2`/`m4.2` cluster.
+
+Result: magic DRC 285 → 60, KLayout DRC 119 → 12, LVS still 0.
+
+The residual is now a handful of spots: the TX via towers that sit ~200–600 nm
+from the cell edges (interacting with abutting top-level metal), the
+met1/met4 landing pads of `pdn_patch` vs the thin pin stubs, and the
+`_PR` block-via cells' own generated cut geometry (`via2.1a_a`, `m3.4_a`).
+These are the last boundary-crowding sites; clearing them needs either a
+final respacing of the tower columns away from the edges or a small keepout
+adjustment — not connectivity work.  `phy-link-closure` still reports
+**UNVERIFIED** on the three physical DRC gates while every
+functional/connectivity gate passes.
 
 This is a **physical integration signoff of real custom cells** — still not
 a foundry signoff.  Produce a separate closure record for the hard-macro
