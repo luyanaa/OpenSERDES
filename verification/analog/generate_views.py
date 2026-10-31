@@ -185,55 +185,11 @@ def generate(manifest_path: Path, outdir: Path) -> dict[str, Any]:
     pin_layers = {pb["layer"] for pb in pin_boxes.values()}
     obs_layers = [l for l in ("met1", "met2", "met3", "met4", "met5")
                   if l not in pin_layers]
-    obs_rects: list[tuple[str, list[float]]] = [
-        (l, [0.0, 0.0, width, height]) for l in obs_layers]
-    # Partial met1 blockage: the macro's internal met1 mesh (power rails +
-    # interleaved signal stubs) crowds the cell interior, and detail-route /
-    # grid via pads landing inside leave <28 nm notches (met1.2).  Keep met1
-    # open ONLY inside a margin around each met1 pin (so IN/OUT and the met1
-    # power stubs stay reachable) and block the rest of the interior.  A
-    # full-layer met1 OBS would seal the pins (DRT-0073), so we emit a ring
-    # of OBS rects that leaves a window over each met1 pin.
-    if "met1" in pin_layers:
-        m1pins = [pb["rect"] for pb in pin_boxes.values()
-                  if pb["layer"] == "met1"]
-        margin = 1.0  # um of clearance kept open around each met1 pin
-        # build vertical strips covering the cell minus the union of pin
-        # windows' x-spans, then punch the pin windows out vertically too by
-        # only obstructing y-bands outside each pin's window where the strip
-        # overlaps the pin x-span.  Simplest robust scheme: for each pin
-        # window, the open region is its x-span x y-span (plus margin); we
-        # block the four corner bands around the union is complex, so instead
-        # block full-width horizontal bands ABOVE and BELOW the pin-band,
-        # plus per-pin-gap columns inside the pin band.
-        ys = sorted([r[1] - margin for r in m1pins] +
-                    [r[3] + margin for r in m1pins])
-        ys = [max(0.0, ys[0])] + ys[1:-1] + [min(height, ys[-1])]
-        # horizontal bands: below lowest pin window, between consecutive
-        # windows (if disjoint in y), above highest window
-        lo = min(r[1] - margin for r in m1pins)
-        hi = max(r[3] + margin for r in m1pins)
-        if lo > 0.05:
-            obs_rects.append(("met1", [0.0, 0.0, width, lo]))
-        if height - hi > 0.05:
-            obs_rects.append(("met1", [0.0, hi, width, height]))
-        # within the pin y-band, block x-gaps between sorted pin windows
-        lo = max(0.0, lo); hi = min(height, hi)
-        xs = sorted((max(0.0, r[0] - margin), min(width, r[2] + margin))
-                    for r in m1pins)
-        cur = 0.0
-        for xa, xb in xs:
-            if xa - cur > 0.05:
-                obs_rects.append(("met1", [cur, lo, xa, hi]))
-            cur = max(cur, xb)
-        if width - cur > 0.05:
-            obs_rects.append(("met1", [cur, lo, width, hi]))
-    if obs_rects:
+    if obs_layers:
         lines.append("  OBS")
-        for lay, r in obs_rects:
+        for lay in obs_layers:
             lines.append(f"    LAYER {lay} ;")
-            lines.append(
-                f"      RECT {r[0]:.3f} {r[1]:.3f} {r[2]:.3f} {r[3]:.3f} ;")
+            lines.append(f"      RECT 0.000 0.000 {width:.3f} {height:.3f} ;")
         lines.append("  END")
     lines += [f"END {name}", "END LIBRARY", ""]
     lef.write_text("\n".join(lines))

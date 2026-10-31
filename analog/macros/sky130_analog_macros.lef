@@ -46,14 +46,6 @@ MACRO tx_inv_chain_1_3_9
       RECT 0.000 0.000 20.390 6.020 ;
     LAYER met5 ;
       RECT 0.000 0.000 20.390 6.020 ;
-    LAYER met1 ;
-      RECT 0.000 0.000 20.390 0.860 ;
-    LAYER met1 ;
-      RECT 0.000 3.860 20.390 6.020 ;
-    LAYER met1 ;
-      RECT 2.390 0.860 7.390 3.860 ;
-    LAYER met1 ;
-      RECT 9.990 0.860 20.390 3.860 ;
   END
 END tx_inv_chain_1_3_9
 MACRO rx_parallel_inv_macro
@@ -101,12 +93,6 @@ MACRO rx_parallel_inv_macro
       RECT 0.000 0.000 8.190 6.000 ;
     LAYER met5 ;
       RECT 0.000 0.000 8.190 6.000 ;
-    LAYER met1 ;
-      RECT 0.000 0.000 8.190 1.050 ;
-    LAYER met1 ;
-      RECT 0.000 3.900 8.190 6.000 ;
-    LAYER met1 ;
-      RECT 6.390 1.050 8.190 3.900 ;
   END
 END rx_parallel_inv_macro
 MACRO rx_res_fb_pmos
@@ -156,12 +142,6 @@ MACRO rx_res_fb_pmos
       RECT 0.000 0.000 9.915 17.250 ;
     LAYER met5 ;
       RECT 0.000 0.000 9.915 17.250 ;
-    LAYER met1 ;
-      RECT 0.000 14.555 9.915 17.250 ;
-    LAYER met1 ;
-      RECT 1.830 0.000 3.755 14.555 ;
-    LAYER met1 ;
-      RECT 6.590 0.000 8.055 14.555 ;
   END
 END rx_res_fb_pmos
 END LIBRARY

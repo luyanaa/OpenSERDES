@@ -46,14 +46,6 @@ MACRO tx_inv_chain_1_3_9
       RECT 0.000 0.000 20.390 6.020 ;
     LAYER met5 ;
       RECT 0.000 0.000 20.390 6.020 ;
-    LAYER met1 ;
-      RECT 0.000 0.000 20.390 0.860 ;
-    LAYER met1 ;
-      RECT 0.000 3.860 20.390 6.020 ;
-    LAYER met1 ;
-      RECT 2.390 0.860 7.390 3.860 ;
-    LAYER met1 ;
-      RECT 9.990 0.860 20.390 3.860 ;
   END
 END tx_inv_chain_1_3_9
 END LIBRARY
