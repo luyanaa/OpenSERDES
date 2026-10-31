@@ -197,7 +197,7 @@ def generate(manifest_path: Path, outdir: Path) -> dict[str, Any]:
     # decompose (cell_rect - union(pin_windows)) into disjoint OBS rects via
     # a guillotine cut along each pin window's x-span.
     if "met1" in pin_layers:
-        win_margin = 0.30  # um; enough for the access via's met1 pad
+        win_margin = 0.85  # um; must clear the access via's full met1 pad
         wins = sorted(
             (max(0.0, r[0] - win_margin), max(0.0, r[1] - win_margin),
              min(width, r[2] + win_margin), min(height, r[3] + win_margin))
