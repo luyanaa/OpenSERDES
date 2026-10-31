@@ -133,6 +133,29 @@ are connected`, and a same-layer overlap scan reports zero shorts.
 copy of the stock recipe (`build/analog_pnr_hard/pdn_cfg_hard_macros.tcl`)
 and emits `build/analog_pnr_hard/pdn_patch.tcl` next to the YAML.
 
+#### Current hard-macro signoff status (honest)
+
+`make phy-link-closure ANALOG_PNR_RUN=build/analog_pnr_hard/runs/hard_link`
+reports **UNVERIFIED** — the three physical gates fail while every
+functional/connectivity gate passes:
+
+- PASS: netgen LVS (0 errors), STA setup+hold, route DRC, antenna,
+  power-grid violations, IR-drop (~1 mV), XOR-free connectivity.
+- FAIL: `klayout_xor` (~25), `magic_drc` (~160–250), `klayout_drc`
+  (~80–130), all clustered at the macro via towers.
+
+The residual DRC is **not** an open short or a broken connect — it is the
+macros' own stacked-via power towers (`tx_inv_chain_1_3_9` via1–via4 +
+met1–met5 rails, `rx_res_fb_pmos` met1 stubs) whose landing pads are at the
+minimum enclosure.  Each macro GDS is **DRC-clean standalone** (verified:
+`drc count total` = 0), but when magic flattens it at top level against the
+`pdn_patch` geometry the min-size via-landing pads violate
+enclosure/min-area/spacing (via2/via3/via4 enclosure, met2/met3 min-area,
+met5 width).  Iterative additive pad growth oscillates the count (each fix
+introduces new spacing notches) — the towers need a proper relayout with
+rule-driven enclosures (a layout-editor pass or regenerated via arrays),
+which is outstanding custom-layout work, not a connectivity defect.
+
 This is a **physical integration signoff of real custom cells** — still not
 a foundry signoff.  Produce a separate closure record for the hard-macro
 run:
