@@ -179,46 +179,18 @@ def generate(manifest_path: Path, outdir: Path) -> dict[str, Any]:
                   "    END", f"  END {port}"]
     # Routing obstructions: the macros' internal metal crowds their cell
     # boundary, so top-level signal metal routed over the interior lands
-    # within min-spacing and fails DRC.  Block every routing layer over the
-    # whole cell except a small access window around each pin, so the
-    # detailed router keeps its geometry clear of the macro's own shapes.
-    obs_layers = ["met1", "met2", "met3", "met4", "met5"]
-    lines.append("  OBS")
-    W = 0.600  # half-width of the pin access window
-    for lay in obs_layers:
-        pin_windows = [
-            (pb["rect"], lay) for pb in pin_boxes.values()
-            if pb["layer"] == lay
-        ]
-        lines.append(f"    LAYER {lay} ;")
-        # Power pins are fed by the PDN via-stack patch, which lands a fat
-        # pad over the pin rect -- that pad is itself top-level metal, so
-        # the OBS must not seal the pin.  Reserve the full pin rect window.
-        # Everywhere else on this layer is covered by OBS rects.
-        # Carve horizontal strips around each pin window.
-        windows = sorted(pin_windows, key=lambda t: (t[0][1], t[0][0]))
-        # Build row bands: split the cell at each window's y-extent.
-        ycuts = {0.0, height}
-        for rect, _ in windows:
-            ycuts.add(max(0.0, rect[1] - 0.20))
-            ycuts.add(min(height, rect[3] + 0.20))
-        yb = sorted(ycuts)
-        for ya0, ya1 in zip(yb, yb[1:]):
-            # windows whose rect vertically overlaps this band get an x-hole
-            holes = [r for r, _ in windows if r[1] < ya1 and r[3] > ya0]
-            if not holes:
-                lines.append(f"      RECT 0.000 {ya0:.3f} {width:.3f} {ya1:.3f} ;")
-                continue
-            holes.sort(key=lambda r: r[0])
-            x = 0.0
-            for r in holes:
-                hx0 = max(0.0, r[0] - 0.20)
-                if hx0 > x:
-                    lines.append(f"      RECT {x:.3f} {ya0:.3f} {hx0:.3f} {ya1:.3f} ;")
-                x = max(x, min(width, r[2] + 0.20))
-            if x < width:
-                lines.append(f"      RECT {x:.3f} {ya0:.3f} {width:.3f} {ya1:.3f} ;")
-    lines.append("  END")
+    # within min-spacing and fails DRC.  Block every routing layer the macro
+    # does NOT use for a pin across the whole cell, so the detailed router
+    # keeps its geometry clear while the pins stay fully reachable.
+    pin_layers = {pb["layer"] for pb in pin_boxes.values()}
+    obs_layers = [l for l in ("met1", "met2", "met3", "met4", "met5")
+                  if l not in pin_layers]
+    if obs_layers:
+        lines.append("  OBS")
+        for lay in obs_layers:
+            lines.append(f"    LAYER {lay} ;")
+            lines.append(f"      RECT 0.000 0.000 {width:.3f} {height:.3f} ;")
+        lines.append("  END")
     lines += [f"END {name}", "END LIBRARY", ""]
     lef.write_text("\n".join(lines))
     llines = [
