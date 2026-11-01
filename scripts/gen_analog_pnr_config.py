@@ -532,6 +532,11 @@ set_false_path -to [get_ports rx_clk_out]
         "PL_RESIZER_HOLD_SLACK_MARGIN": 0.10,
         "GRT_RESIZER_SETUP_SLACK_MARGIN": 0.0,
         "GRT_RESIZER_HOLD_SLACK_MARGIN": 0.10,
+        # Newer OpenROAD GRT treats residual macro-boundary overflow as fatal
+        # (GRT-0116) where the older run resolved it during detailed routing.
+        # Let it continue; DRT cleans the remaining conflicts.
+        "GRT_ALLOW_CONGESTION": True,
+        "GRT_OVERFLOW_ITERS": 100,
     })
     # OpenROAD treats separate LEF files as one 'abstract' library; use the
     # combined file to avoid dropping the second hard macro.
