@@ -187,6 +187,28 @@ the rail is a continuous band that a generated via pad either fully lands
 inside or fully clears — eliminating the 28–40 nm partial-overlap notches.
 That is macro-layout rework, not a config/keepout adjustment.
 
+**Experiment 2 (in progress, `4b304d8`).**  Net-traced via the PEX `.ext`:
+the TX met1 rail band is VSS (`0,-240;19780,240`) with the OUT stub
+(`7675,350;19005,750`) riding **110 nm above it** across the met4 power-strap
+columns — the via towers land straddling that different-net gap.  First cut
+pulls the OUT stub's bottom edge up to y≥480 in a ±500 nm window under each
+strap column (local x≈9502/10190/10440/13740), opening ≥240 nm of clean VSS
+headroom for the landing pad.  OUT stays connected via its remaining met1 and
+met2 stub; standalone magic DRC stays 0 and no nets merge.  **Placed-context
+DRC is UNVERIFIED** — the next full run measures it.
+
+**Toolchain note (Nov 2026).**  The pinned nix toolchain (`openroad-2026-02-17`,
+librelane py3.13 env) was garbage-collected; restored `librelane 3.0.14` +
+`openroad 26Q3` via `nix profile install`.  The newer build is stricter:
+`read_verilog` rejects `output signed` (strip `\bsigned\b` from the generated
+nl.v between `Yosys.Synthesis` and `OpenROAD.CheckSDCFiles`), and
+`global_route` errors on residual macro-boundary overflow (set
+`GRT_ALLOW_CONGESTION` + `GRT_OVERFLOW_ITERS=100` in
+`gen_analog_pnr_config.py`, commit `606d2b4`).  The newer detailed router also
+converges much more slowly and non-monotonically on the macro boundary
+(starts ~6600 viols, reached 0 once, then thrashes 0–57 in stubborn-tiles) —
+placed-context DRC runs take several hours.
+
 Note on `magic__illegal_overlap`: the ~56 reported overlaps are **false
 positives** — magic flags `obsm2/3/4` (the macro OBS marker layers I added)
 overlapping the macro's own metal2/3/4/vias.  OBS is *meant* to sit over
