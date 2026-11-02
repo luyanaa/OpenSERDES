@@ -233,6 +233,21 @@ which is inv_1→inv_4→inv_16 over `sky130_fd_pr__nfet/pfet`), not a blind GDS
 patch — the two failed attempts showed how easily same-region merges short
 VSS↔OUT.
 
+**Honest baseline under 26Q3 (re-measured 2026-11-02).**  The earlier "68/12"
+figure was taken before the toolchain switch and was never re-measured on the
+tower-rebuilt GDS.  A clean `--from Magic.StreamOut` re-run on the reverted
+`77587b` GDS gives **magic 71 / klayout (see run)** — the notch's 84/20 is
+confirmed a regression of +13 magic.  Breakdown of the 71 (all at the TX macro,
+placed 165.0–185.4 × 80.0–86.02 µm):
+  - two signal-via stacks (x≈166.0 = IN access, x≈173.4–173.6): ~45 errors
+    across via2.1a/met3.4/via3.5/met4.3/met1.2;
+  - one generated `VGND` met4 horizontal strap at y80710 ending flush at the
+    macro bottom edge (x164.7–175.5): 8 met4.2 + edge-adjacent met1.2;
+  - macro's own met5 VDD/VSS rails at its top/bottom edges: 2 met5.1;
+  - the genuine castellation band (OUT sawtooth): ~25 met1.2/met1.1.
+So ~57 are via-stack + castellation (need real regen) and ~10 are
+PDN-strap/macro-rail edge geometry (potentially a floorplan fix, not layout).
+
 **Toolchain note (Nov 2026).**  The pinned nix toolchain (`openroad-2026-02-17`,
 librelane py3.13 env) was garbage-collected; restored `librelane 3.0.14` +
 `openroad 26Q3` via `nix profile install`.  The newer build is stricter:
