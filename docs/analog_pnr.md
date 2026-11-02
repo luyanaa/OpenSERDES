@@ -187,15 +187,34 @@ the rail is a continuous band that a generated via pad either fully lands
 inside or fully clears — eliminating the 28–40 nm partial-overlap notches.
 That is macro-layout rework, not a config/keepout adjustment.
 
-**Experiment 2 (in progress, `4b304d8`).**  Net-traced via the PEX `.ext`:
+**Experiment 2 (measured, reverted `47b0e9c`).**  Net-traced via the PEX `.ext`:
 the TX met1 rail band is VSS (`0,-240;19780,240`) with the OUT stub
 (`7675,350;19005,750`) riding **110 nm above it** across the met4 power-strap
-columns — the via towers land straddling that different-net gap.  First cut
-pulls the OUT stub's bottom edge up to y≥480 in a ±500 nm window under each
-strap column (local x≈9502/10190/10440/13740), opening ≥240 nm of clean VSS
-headroom for the landing pad.  OUT stays connected via its remaining met1 and
-met2 stub; standalone magic DRC stays 0 and no nets merge.  **Placed-context
-DRC is UNVERIFIED** — the next full run measures it.
+columns.  The first cut (`4b304d8`, pull OUT's bottom to y≥480 under each strap
+column) was verified in a full routed run: **magic 84 / klayout 20 — WORSE than
+the 68/12 tower-rebuilt baseline**, so it was reverted (`47b0e9c`).
+
+**Why abstract-GDS edits cannot fix this.**  The colliding "OUT stub" is not a
+single abstract rect: after streamout merges the stdcell internals, the
+effective met1 is a **castellated** band — the `VIA_L1M1_PR`/`inv_1` subcell
+met1 pokes out in a ~1090 nm-period sawtooth (bottom edge alternating
+y≈395↔440, plus a y=350 pin tooth).  Generated via pads landing across a
+tooth→gap step leave sub-28 nm met1 slivers (`met1.1`) and the VSS↔tooth gap
+trips `met1.2`.  Editing the abstract rect (which is already a clean box) does
+not change the subcell-derived sawtooth — proven: a flatten-to-y440 pass left
+the merged bottom profile bit-identical.
+
+The error budget (routed `hard_link` run, on the notched GDS):
+* **TX-INedge (local x<4 µm): ~43** — a met1→met4 via tower + signal via at
+  the macro's left edge, the largest cluster.
+* **TX-OUTband: ~26** — the VSS↔OUT castellation described above.
+* **RX: 8.**
+
+The only fixes that can work are **layout-level**: regenerate the macro so
+OUT's met1 bottom edge is a uniform straight band with ≥140 nm clearance to
+VSS (and likewise for IN / the rx_res_fb met1 power pins), OR move the
+IN/OUT/power pin access off met1 onto met2+ so the router never drops a via
+into the castellated band.  Both are macro rework, not abstract patches.
 
 **Toolchain note (Nov 2026).**  The pinned nix toolchain (`openroad-2026-02-17`,
 librelane py3.13 env) was garbage-collected; restored `librelane 3.0.14` +
