@@ -28,7 +28,7 @@ MACRO tx_inv_chain_1_3_9
     USE SIGNAL ;
     PORT
       LAYER met1 ;
-        RECT 0.190 2.560 1.390 2.860 ;
+        RECT 0.000 1.050 1.690 1.660 ;
     END
   END IN
   PIN OUT
@@ -36,7 +36,7 @@ MACRO tx_inv_chain_1_3_9
     USE SIGNAL ;
     PORT
       LAYER met1 ;
-        RECT 8.390 1.860 8.990 2.260 ;
+        RECT 8.200 0.350 9.050 0.950 ;
     END
   END OUT
   OBS
