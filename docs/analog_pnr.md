@@ -274,6 +274,25 @@ band where three different nets interleave in a ~200 nm channel.  That is a
 full signal-routing redesign of the macro, best done interactively in magic
 with per-step extract+LVS, not blind GDS rewriting.
 
+**LEF↔GDS pin-window mismatch — the likely true root cause.**  The committed
+`abstract.lef` (hand-tuned for DRT-0073 in `9c22f43`/`7d988ef`) declares the
+signal-pin windows ~1.1 µm above the real metal:
+  - IN:  LEF `met1 RECT 0.190 2.560 1.390 2.860`  vs real 68/16 stub
+    `(0,1.05;1.2,1.35)` — **no y overlap**.
+  - OUT: LEF `met1 RECT 8.390 1.860 8.990 2.260`  vs real `(8.2,0.35;8.8,0.75)`.
+The detailed router drops the IN-signal via at the **LEF window** (placed
+local (1750,2790)/(3130,3130) = the y2.8 µm band) where there is NO real IN
+metal, then bridges down through the inter-stage node bands → the x1820–2155
+met1.2/via2.1a cluster.  This is a pin-window bug, not a geometry defect — the
+OUT-band regen didn't help because the errors were never in OUT.
+
+**Fix deployed (`90b2fcd`):** realigned both pin windows onto the real stubs
+(IN `0–1.69 × 1.05–1.66`, OUT `8.2–9.05 × 0.35–0.95`), synced into
+`sky130_analog_macros.lef`.  Requires a full place+route re-run (run-tag
+`hard_link_lef_fix`); the 26Q3 `\bsigned\b` netlist strip was re-applied at
+`06-yosys-synthesis`.  If the count drops materially, the residual is mostly a
+pin-window artifact and P1-1 layout regen may shrink to only the RX macro.
+
 **Toolchain note (Nov 2026).**  The pinned nix toolchain (`openroad-2026-02-17`,
 librelane py3.13 env) was garbage-collected; restored `librelane 3.0.14` +
 `openroad 26Q3` via `nix profile install`.  The newer build is stricter:
