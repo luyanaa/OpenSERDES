@@ -527,6 +527,16 @@ set_false_path -to [get_ports rx_clk_out]
             "PDN_OBSTRUCTIONS": None,
         }),
         "RUN_CTS": True,
+        # Pin CTS to the larger clock buffers.  The PDK default `clkbuf_*`
+        # glob resolves to include clkbuf_1/clkbuf_2/clkbuf_16 sinks, which the
+        # 26Q3 diamond-search legalizer cannot place as clock loads against the
+        # met4 PDN straps (80 instances -> DPL-0036 in CTS).  Restricting to
+        # the clkbuf_2/4/8 list used by the passing `hard_link` run legalizes.
+        "CTS_CLK_BUFFERS": [
+            "sky130_fd_sc_hd__clkbuf_8",
+            "sky130_fd_sc_hd__clkbuf_4",
+            "sky130_fd_sc_hd__clkbuf_2",
+        ],
         "KLAYOUT_XOR_IGNORE_LAYERS": ["235/4"],
         "PL_RESIZER_SETUP_SLACK_MARGIN": 0.0,
         "PL_RESIZER_HOLD_SLACK_MARGIN": 0.10,
