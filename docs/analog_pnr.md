@@ -216,6 +216,23 @@ VSS (and likewise for IN / the rx_res_fb met1 power pins), OR move the
 IN/OUT/power pin access off met1 onto met2+ so the router never drops a via
 into the castellated band.  Both are macro rework, not abstract patches.
 
+**Regeneration spec (P1-1).**  The macro is 13 `sky130_fd_sc_hd__inv_1` cells
+(1+3+9 drive chain) on a 1380 nm pitch + `VIA_L1M1_PR_MR` device taps + two
+`tapvpwrvgnd` end taps.  Each `inv_1` only carries the VDD (`y2480-2960`) and
+VSS (`y-240-240`) met1 rails — **no signal met1**; the OUT/IN/inter-stage
+nodes are formed entirely by the `VIA_L1M1_PR_MR` taps at y≈510 (OUT row),
+y≈850/1190 (inter-stage).  The OUT castellation is those taps' met1 merging
+with the abstract stub.  To regenerate cleanly:
+  - give the OUT node a **solid met1 bus** spanning x7675–19005 at a uniform
+    bottom edge, and tie each `VIA_L1M1_PR_MR` output tap up to it with
+    vertical met1 fingers (all same-net, safe to merge);
+  - keep ≥140 nm clearance from the VSS rail top (y240);
+  - do the same for IN and the `rx_res_fb_pmos` met1 power stubs.
+This must be re-verified in magic (extract → LVS against `canonical.spice`,
+which is inv_1→inv_4→inv_16 over `sky130_fd_pr__nfet/pfet`), not a blind GDS
+patch — the two failed attempts showed how easily same-region merges short
+VSS↔OUT.
+
 **Toolchain note (Nov 2026).**  The pinned nix toolchain (`openroad-2026-02-17`,
 librelane py3.13 env) was garbage-collected; restored `librelane 3.0.14` +
 `openroad 26Q3` via `nix profile install`.  The newer build is stricter:
