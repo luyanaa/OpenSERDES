@@ -248,6 +248,32 @@ placed 165.0–185.4 × 80.0–86.02 µm):
 So ~57 are via-stack + castellation (need real regen) and ~10 are
 PDN-strap/macro-rail edge geometry (potentially a floorplan fix, not layout).
 
+**Regen attempt 1 (OUT band) — clean geometry, no DRC delta.**  Replaced the
+castellated OUT top-cell polygon `7750,350;18930,750` (H-bridge, 12 hull pts,
+merged to a 76-pt comb of y395/440/580/625 teeth) with a solid box
+`x7675–19005, y380–640` that fully swallows all 9 `VIA_L1M1_PR_MR` output taps
++ the M1M2 tap.  Result: merged OUT = single 4-vertex rectangle, standalone
+magic DRC 0, extraction preserves the 13-inverter IN→…→OUT chain (20 merged
+devices both sides of netgen).  **But placed-context DRC stayed exactly 71** —
+proving the errors are NOT in the OUT band.  Reverted.
+
+**Where the errors actually live (error-coord → macro-local map).**
+  - met1.2 cluster at local x1820–2155, y1050–1350 = the **IN stub**
+    `(200,1050;2055,1350)` vs **inter-node-A** `(2155,1075;6070,1305)` gap —
+    the two are DIFFERENT nets (IN feeds inv_1_0 whose output is node-A); the
+    175 nm gap + signal-via pads bridging them is the real collision, not OUT.
+  - met1.2/via2 cluster at local x8060–8720, y210–400 = below the big
+    **inter-node-B** `(3535,735;18490,1305)` (94-pt merged comb) where the
+    `VIA_M1M2_PR` tap at (8510,510) sits near the VSS rail.
+  - errors at y300–307 = the **rx_res_fb_pmos** macro, a separate cell.
+
+So P1-1 must restructure ALL the signal bands (IN stub, node-A, node-B, OUT)
+as clean bands with consistent inter-net clearance — the OUT band was the easy
+one and is already effectively clean; the real work is the input/inter-stage
+band where three different nets interleave in a ~200 nm channel.  That is a
+full signal-routing redesign of the macro, best done interactively in magic
+with per-step extract+LVS, not blind GDS rewriting.
+
 **Toolchain note (Nov 2026).**  The pinned nix toolchain (`openroad-2026-02-17`,
 librelane py3.13 env) was garbage-collected; restored `librelane 3.0.14` +
 `openroad 26Q3` via `nix profile install`.  The newer build is stricter:
