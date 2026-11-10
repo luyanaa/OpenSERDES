@@ -7,6 +7,8 @@
 //   0 / fixed      : fixed-rate oversampling CDR (source-locked or low-ppm)
 //   1 / adaptive   : frequency-tracking oversampling CDR
 //   2 / source_sync: external rx_clk is the bit clock; receiver_sampler only
+//   3 / bang_bang  : 4x Alexander BBPD + 2nd-order digital loop + fractional
+//                    NCO (cdr_bang_bang); tracks +-700 ppm at OS=4
 //
 // ALIGN_MODE:
 //   0: external rx_align input controls the deserializer bit boundary.
@@ -70,8 +72,11 @@ module serdes_rx_digital #(
     output logic signed [ADAPT_FRAC_BITS:0]   rx_freq_trim
 );
 
-    localparam int MODE = (CDR_BYPASS || (CDR_MODE == 2)) ? 2 :
-                          ((CDR_MODE == 1) ? 1 : 0);
+    // CDR_MODE is used directly: 0=fixed, 1=adaptive, 2=source-sync,
+    // 3=bang-bang.  The previous expression only mapped 0/1/2, so a request
+    // for mode 3 silently fell through to the fixed-rate CDR and the
+    // g_bang_bang branch below was dead code.
+    localparam int MODE = CDR_BYPASS ? 2 : CDR_MODE;
 
     logic rx_rst_n_sync;
     logic cdr_data_out;

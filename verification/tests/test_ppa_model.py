@@ -25,6 +25,7 @@ class TestPpaModel(unittest.TestCase):
             "fixed_oversampling": (218, 758),
             "adaptive_oversampling": (847, 1382),
             "source_sync": (120, 656),
+            "bang_bang_oversampling": (1567, 2103),
         }
         for arch, (at32, at256) in measured.items():
             est32 = ppa_model.estimate(arch, 32, 4, 25.0, "rx")["cells"]
@@ -32,6 +33,18 @@ class TestPpaModel(unittest.TestCase):
             # The fit is exact at the two measured points; allow 1% slack.
             self.assertAlmostEqual(est32, at32, delta=max(2.0, at32 * 0.01))
             self.assertAlmostEqual(est256, at256, delta=max(4.0, at256 * 0.01))
+
+    def test_bang_bang_costs_more_area_than_fixed(self) -> None:
+        # The placeholder (150 cells) claimed the 4x bang-bang loop was the
+        # cheapest option.  Measured: 1567 cells at RATIO=32, ~7x the fixed
+        # 4x loop, because of the 24/25-bit signed loop filter.  Its only win
+        # is clock load (DFF x f_clock).  Guard against reintroducing the
+        # claim that 4x sampling is also cheaper in area.
+        fixed = ppa_model.relative_metrics("rx", "fixed_oversampling", 32, 4, 25.0)
+        bb = ppa_model.relative_metrics("rx", "bang_bang_oversampling", 32, 4, 25.0)
+        self.assertGreater(bb["area"], fixed["area"] * 5.0)
+        adaptive8 = ppa_model.relative_metrics("rx", "adaptive_oversampling", 32, 8, 25.0)
+        self.assertLess(bb["power"], adaptive8["power"])
 
     def test_word_streaming_is_not_smaller_than_parallel_mux(self) -> None:
         # The old arch_db claimed area 0.80 for word_streaming.  Synthesis says

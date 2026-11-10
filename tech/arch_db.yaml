@@ -103,7 +103,7 @@ rx:
       ihp-sg13g2:   {max_line_rate_mbps: 50}
       icsprout55:   {max_line_rate_mbps: 200}
     confidence: modeled_yosys_cells
-    note: "4x BBPD + 2nd-order loop + fractional NCO; verified 0/+-700 ppm on tb_cdr_bang_bang. Half the clock load of the 8x adaptive loop."
+    note: "4x BBPD + 2nd-order loop + fractional NCO; verified 0/+-700/+-1000 ppm on tb_cdr_bang_bang and 0/+-700 ppm on the generated endpoint. About half the clock load of the 8x adaptive loop but ~7x its cells (measured 1567 vs 218 at RATIO=32)."
   adaptive_oversampling:
     module: serdes_rx_digital
     cdr_mode: 1

@@ -27,6 +27,7 @@ Measured cells / DFF:
   rx fixed_oversampling OS8   228 / 68  @32      767 / 320  @256
   rx adaptive_oversampling    847 / 115 @32     1382 / 367  @256
   rx source_sync              120 / 50  @32      656 / 302  @256
+  rx bang_bang_oversampling  1567 / 126 @32     2103 / 378  @256
 
 Scope and limits (do not overclaim):
 
@@ -37,6 +38,11 @@ Scope and limits (do not overclaim):
   It is the correct quantity for comparing oversampling factors, and is NOT
   a power measurement. Real power needs SAIF + report_power.
 * rel_latency comes from the documented handshake behaviour, not from STA.
+* bang_bang_oversampling is measured, not modelled.  Its 24/25-bit
+  signed arithmetic (phase accumulator, increment clamp, KP*vote) makes it
+  about 7x the cells of fixed_oversampling at the same RATIO; the earlier
+  placeholder (150 / 34) understated area by an order of magnitude.  Its
+  advantage is clock load (DFF x f_clock), not area.
 * confidence is modeled_yosys_cells -- never measured_post_route.
   A measured ppa_measured.yaml entry always overrides this model.
 """
@@ -49,7 +55,7 @@ CELL_MODEL: dict[str, tuple[float, float, float, float]] = {
     "word_streaming":         (69.6, 7.451, 11.4, 1.018),
     "fixed_oversampling":    (140.8, 2.411, 31.0, 1.124),
     "fixed_oversampling_os2": (140.8, 2.411, 31.0, 1.124),
-    "bang_bang_oversampling": (150.0, 2.42, 34.0, 1.124),
+    "bang_bang_oversampling": (1490.4, 2.393, 90.0, 1.125),
     "adaptive_oversampling": (770.7, 2.384, 79.0, 1.124),
     "source_sync":            (43.4, 2.393, 14.0, 1.124),
 }

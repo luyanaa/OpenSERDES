@@ -102,6 +102,20 @@ $(BUILD)/tb_serializer_pingpong: tb/tb_serializer_pingpong.sv rtl/serializer_pin
 $(BUILD)/tb_cdr_bang_bang: tb/tb_cdr_bang_bang.sv rtl/cdr_sync.sv rtl/cdr_bang_bang.sv | $(BUILD)
 	$(IVERILOG) -g2012 -Wall -o $@ $^
 
+$(BUILD)/tb_cdr_phase_offset: tb/tb_cdr_phase_offset.sv rtl/cdr_sync.sv rtl/cdr_bang_bang.sv | $(BUILD)
+	$(IVERILOG) -g2012 -Wall -o $@ $^
+
+# The endpoint test compiles the package the generator emits, not the hand-
+# written parameters of tb_cdr_bang_bang, so the delivered RTL is the thing
+# under test.
+BANG_BANG_GEN := $(BUILD)/gen/bang_bang_4x
+
+$(BANG_BANG_GEN)/rtl/serdes_rx_digital.sv: spec/bang_bang_4x.yaml scripts/gen_ip.py
+	$(PYTHON) scripts/gen_ip.py --spec spec/bang_bang_4x.yaml --out $(BANG_BANG_GEN) --force --ppa-db $(PPA_DB) $(GEN_FLAGS)
+
+$(BUILD)/tb_rx_endpoint_cdr: tb/tb_rx_endpoint_cdr.sv $(BANG_BANG_GEN)/rtl/serdes_rx_digital.sv | $(BUILD)
+	$(IVERILOG) -g2012 -Wall -I$(BANG_BANG_GEN)/rtl -o $@ tb/tb_rx_endpoint_cdr.sv $(BANG_BANG_GEN)/rtl/*.sv
+
 $(BUILD)/tb_deserializer_half_rate: tb/tb_deserializer_half_rate.sv rtl/deserializer_half_rate.sv | $(BUILD)
 	$(IVERILOG) -g2012 -Wall -o $@ $^
 
@@ -282,6 +296,10 @@ sim: $(SIM_BINS)
 	$(VVP) $(BUILD)/tb_serializer_half_rate
 	$(VVP) $(BUILD)/tb_serializer_pingpong
 	$(VVP) $(BUILD)/tb_cdr_bang_bang
+	$(VVP) $(BUILD)/tb_cdr_phase_offset
+	$(VVP) $(BUILD)/tb_rx_endpoint_cdr
+	$(VVP) $(BUILD)/tb_rx_endpoint_cdr +PPM=700
+	$(VVP) $(BUILD)/tb_rx_endpoint_cdr +PPM=-700
 	$(VVP) $(BUILD)/tb_deserializer_half_rate
 	$(VVP) $(BUILD)/tb_receiver_pair_sampler
 	$(VVP) $(BUILD)/tb_deserializer_lsb

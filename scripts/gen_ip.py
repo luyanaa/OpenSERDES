@@ -42,7 +42,7 @@ DESIGN_FILES = {
     "serdes_64b66b_top": [
         "serializer.sv", "serializer_pingpong.sv", "deserializer_word.sv",
         "deserializer.sv",
-        "cdr_sync.sv", "cdr_oversampling.sv", "cdr_adaptive.sv",
+        "cdr_sync.sv", "cdr_oversampling.sv", "cdr_adaptive.sv", "cdr_bang_bang.sv",
         "comma_align.sv", "pcs_8b10b_comma.sv", "pcs_64b66b_lock.sv",
         "receiver_sampler.sv", "reset_sync.sv",
         "serdes_tx_digital.sv", "serdes_rx_digital.sv", "pcs_64b66b.sv",
@@ -51,7 +51,7 @@ DESIGN_FILES = {
     "serdes_digital_top": [
         "serializer.sv", "serializer_pingpong.sv", "deserializer_word.sv",
         "deserializer.sv",
-        "cdr_sync.sv", "cdr_oversampling.sv", "cdr_adaptive.sv",
+        "cdr_sync.sv", "cdr_oversampling.sv", "cdr_adaptive.sv", "cdr_bang_bang.sv",
         "comma_align.sv", "receiver_sampler.sv", "reset_sync.sv",
         "serdes_tx_digital.sv", "serdes_rx_digital.sv",
         "serdes_digital_top.sv",
@@ -73,12 +73,12 @@ DESIGN_FILES = {
     ],
     "serdes_rx_digital": [
         "deserializer_word.sv", "deserializer.sv", "cdr_sync.sv",
-        "cdr_oversampling.sv", "cdr_adaptive.sv", "comma_align.sv",
+        "cdr_oversampling.sv", "cdr_adaptive.sv", "cdr_bang_bang.sv", "comma_align.sv",
         "receiver_sampler.sv", "reset_sync.sv", "serdes_rx_digital.sv",
     ],
     "serdes_rx_axis_digital": [
         "deserializer_word.sv", "deserializer.sv", "cdr_sync.sv",
-        "cdr_oversampling.sv", "cdr_adaptive.sv", "comma_align.sv",
+        "cdr_oversampling.sv", "cdr_adaptive.sv", "cdr_bang_bang.sv", "comma_align.sv",
         "receiver_sampler.sv", "reset_sync.sv", "serdes_rx_digital.sv",
         "axis_rx_adapter.sv", "axis_crc_checker.sv", "crc_frame.sv",
         "serdes_rx_axis_digital.sv",
@@ -90,7 +90,7 @@ DESIGN_FILES = {
         "axis_crc_inserter.sv", "axis_crc_checker.sv", "crc_frame.sv",
         "serdes_tx_axis_digital.sv", "axis_rx_adapter.sv",
         "deserializer_word.sv", "deserializer.sv", "cdr_sync.sv",
-        "cdr_oversampling.sv", "cdr_adaptive.sv", "comma_align.sv",
+        "cdr_oversampling.sv", "cdr_adaptive.sv", "cdr_bang_bang.sv", "comma_align.sv",
         "receiver_sampler.sv", "reset_sync.sv", "serdes_rx_digital.sv",
         "serdes_rx_axis_digital.sv", "serdes_soc_wrapper.sv",
     ],
@@ -100,7 +100,7 @@ DESIGN_FILES = {
         "axis_tx_adapter.sv", "serializer_stream.sv", "axis_rx_adapter.sv",
         "axis_crc_inserter.sv", "axis_crc_checker.sv", "crc_frame.sv",
         "deserializer_word.sv", "deserializer.sv", "cdr_sync.sv",
-        "cdr_oversampling.sv", "cdr_adaptive.sv", "comma_align.sv",
+        "cdr_oversampling.sv", "cdr_adaptive.sv", "cdr_bang_bang.sv", "comma_align.sv",
         "receiver_sampler.sv", "reset_sync.sv", "serdes_rx_digital.sv",
         "serdes_soc_cdc_wrapper.sv",
     ],
@@ -1872,6 +1872,20 @@ def main() -> int:
                 % (rec["current"]["arch"], rec["current"]["oversample"],
                    1.0 / rec["alternative_clock_load_ratio"],
                    rec["alternative"]["arch"], rec["requirement"]))
+        if plan["rx_arch"].get("name") == "bang_bang_oversampling":
+            try:
+                bb = ppa_model.estimate("bang_bang_oversampling", cfg["ratio"],
+                                        cfg["oversample"], cfg["line_rate"], "rx")
+                fx = ppa_model.estimate("fixed_oversampling", cfg["ratio"],
+                                        cfg["oversample"], cfg["line_rate"], "rx")
+                cfg["warnings"].append(
+                    "area: bang_bang_oversampling needs %.0f cells vs %.0f for "
+                    "fixed_oversampling at RATIO=%d (%.1fx measured Yosys generic "
+                    "gates); its advantage is clock load, not area"
+                    % (bb["cells"], fx["cells"], cfg["ratio"],
+                       bb["cells"] / fx["cells"]))
+            except KeyError:
+                pass
     except SpecError as exc:
         print(f"spec error: {exc}", file=sys.stderr)
         return 2

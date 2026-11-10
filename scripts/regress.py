@@ -18,6 +18,19 @@ YOSYS = shutil.which("yosys")
 
 # (name, top, rtl, params)
 # params are iverilog -P overrides on the testbench top module.
+# Runtime plusargs (vvp +KEY=VALUE).  This Icarus build has no runtime -P, so
+# frequency offsets must be plusargs; passing them as -P compiles but silently
+# keeps the default.
+PLUSARGS = {
+    "cdr_bang_bang_0ppm": {"PPM": 0.0},
+    "cdr_bang_bang_p700": {"PPM": 700.0},
+    "cdr_bang_bang_n700": {"PPM": -700.0},
+    "cdr_bang_bang_p1000": {"PPM": 1000.0},
+    "cdr_bang_bang_n1000": {"PPM": -1000.0},
+    "cdr_bang_bang_longrun": {"PPM": -700.0, "PATTERN": 1},
+    "cdr_bang_bang_bursty": {"PPM": 700.0, "PATTERN": 2},
+    "cdr_bang_bang_sparse": {"PPM": -700.0, "PATTERN": 3},
+}
 CASES = [
     ("serializer_8x4_lsb", "tb_serializer", ["rtl/serializer.sv"],
      {"DATA_WIDTH": 8, "WORDS": 4, "LSB_FIRST": 1, "CAPTURE_MODE": 0}),
@@ -62,11 +75,23 @@ CASES = [
 
     ("stream_8x4", "tb_serializer_stream", ["rtl/serializer_stream.sv"], {}),
     ("cdr_bang_bang_0ppm", "tb_cdr_bang_bang",
-     ["rtl/cdr_sync.sv", "rtl/cdr_bang_bang.sv"], {"OS_PARAM": 4, "PPM": 0.0}),
+     ["rtl/cdr_sync.sv", "rtl/cdr_bang_bang.sv"], {"OS_PARAM": 4}),
     ("cdr_bang_bang_p700", "tb_cdr_bang_bang",
-     ["rtl/cdr_sync.sv", "rtl/cdr_bang_bang.sv"], {"OS_PARAM": 4, "PPM": 700.0}),
+     ["rtl/cdr_sync.sv", "rtl/cdr_bang_bang.sv"], {"OS_PARAM": 4}),
     ("cdr_bang_bang_n700", "tb_cdr_bang_bang",
-     ["rtl/cdr_sync.sv", "rtl/cdr_bang_bang.sv"], {"OS_PARAM": 4, "PPM": -700.0}),
+     ["rtl/cdr_sync.sv", "rtl/cdr_bang_bang.sv"], {"OS_PARAM": 4}),
+    ("cdr_bang_bang_p1000", "tb_cdr_bang_bang",
+     ["rtl/cdr_sync.sv", "rtl/cdr_bang_bang.sv"], {"OS_PARAM": 4}),
+    ("cdr_bang_bang_n1000", "tb_cdr_bang_bang",
+     ["rtl/cdr_sync.sv", "rtl/cdr_bang_bang.sv"], {"OS_PARAM": 4}),
+    ("cdr_bang_bang_longrun", "tb_cdr_bang_bang",
+     ["rtl/cdr_sync.sv", "rtl/cdr_bang_bang.sv"], {"OS_PARAM": 4}),
+    ("cdr_bang_bang_bursty", "tb_cdr_bang_bang",
+     ["rtl/cdr_sync.sv", "rtl/cdr_bang_bang.sv"], {"OS_PARAM": 4}),
+    ("cdr_bang_bang_sparse", "tb_cdr_bang_bang",
+     ["rtl/cdr_sync.sv", "rtl/cdr_bang_bang.sv"], {"OS_PARAM": 4}),
+    ("cdr_phase_offset_0_3", "tb_cdr_phase_offset",
+     ["rtl/cdr_sync.sv", "rtl/cdr_bang_bang.sv"], {}),
     ("serializer_pingpong_8x4_lsb", "tb_serializer_pingpong",
      ["rtl/serializer_pingpong.sv"], {"DATA_WIDTH": 8, "WORDS": 4, "LSB_FIRST": 1}),
     ("serializer_pingpong_8x4_msb", "tb_serializer_pingpong",
@@ -140,10 +165,13 @@ CASES = [
 ]
 
 
-def run_case(name: str, top: str, sources: list[str], params: dict) -> tuple[bool, str]:
+def run_case(name: str, top: str, sources: list[str], params: dict,
+             plusargs: dict | None = None, incdirs: list[str] | None = None) -> tuple[bool, str]:
     BUILD.mkdir(parents=True, exist_ok=True)
     exe = BUILD / name
     cmd = [IVERILOG, "-g2012", "-Wall", "-o", str(exe)]
+    for d in incdirs or []:
+        cmd.append(f"-I{d}")
     for key, value in params.items():
         if isinstance(value, float):
             cmd.append(f"-P{top}.{key}={value}")
@@ -155,7 +183,10 @@ def run_case(name: str, top: str, sources: list[str], params: dict) -> tuple[boo
     proc = subprocess.run(cmd, cwd=ROOT, text=True, capture_output=True, timeout=180)
     if proc.returncode != 0:
         return False, f"compile failed\n{proc.stdout}\n{proc.stderr}"
-    run = subprocess.run([VVP, str(exe)], cwd=ROOT, text=True, capture_output=True, timeout=300)
+    args = [VVP, str(exe)]
+    for key, value in (plusargs or {}).items():
+        args.append(f"+{key}={value}")
+    run = subprocess.run(args, cwd=ROOT, text=True, capture_output=True, timeout=300)
     out = run.stdout + run.stderr
     ok = run.returncode == 0 and "PASS" in out
     return ok, out.strip().splitlines()[-1] if out.strip() else "(no output)"
@@ -451,6 +482,54 @@ def run_signoff_checks() -> tuple[int, int]:
     return total, failed
 
 
+def run_rx_endpoint_checks() -> tuple[int, int]:
+    """Generate the bang-bang RX package and exercise the delivered endpoint.
+
+    tb_cdr_bang_bang instantiates cdr_bang_bang with hand-written parameters.
+    This check compiles the package gen_ip.py actually emits - including its
+    rtl/params.svh - and runs serdes_rx_digital at 0/+-700 ppm, so the tested
+    parameter set is the delivered one.  It also asserts that cdr_bang_bang.sv
+    is present in the package filelist (it was missing from every RX design
+    before the file-list fix).
+    """
+    total = 1
+    out = BUILD / "rx_endpoint"
+    cmd = [sys.executable, "scripts/gen_ip.py", "--spec", "spec/bang_bang_4x.yaml",
+           "--out", str(out), "--force"]
+    proc = subprocess.run(cmd, cwd=ROOT, text=True, capture_output=True, timeout=300)
+    if proc.returncode != 0:
+        tail = (proc.stderr or proc.stdout).strip().splitlines()
+        print(f"FAIL rx_endpoint_generate: {tail[-1] if tail else 'no output'}")
+        return total, 1
+    rtl_dir = out / "rtl"
+    if not (rtl_dir / "cdr_bang_bang.sv").exists():
+        print("FAIL rx_endpoint_generate: cdr_bang_bang.sv missing from the package")
+        return total, 1
+    print("PASS rx_endpoint_generate")
+    rtl = sorted(str(p) for p in rtl_dir.glob("*.sv"))
+    failed = 0
+    for ppm, pattern in ((0.0, 0), (700.0, 0), (-700.0, 0), (700.0, 3)):
+        total += 1
+        name = f"rx_endpoint_cdr_{int(ppm)}ppm_p{pattern}"
+        exe = BUILD / name
+        cmd = [IVERILOG, "-g2012", "-Wall", f"-I{rtl_dir}", "-o", str(exe),
+               "tb/tb_rx_endpoint_cdr.sv", *rtl]
+        proc = subprocess.run(cmd, cwd=ROOT, text=True, capture_output=True, timeout=180)
+        if proc.returncode != 0:
+            print(f"FAIL {name}: compile failed")
+            failed += 1
+            continue
+        run = subprocess.run([VVP, str(exe), f"+PPM={ppm}", f"+PATTERN={pattern}"], cwd=ROOT, text=True,
+                             capture_output=True, timeout=300)
+        text = run.stdout + run.stderr
+        ok = run.returncode == 0 and "PASS" in text
+        last = text.strip().splitlines()[-1] if text.strip() else "(no output)"
+        print(f"{'PASS' if ok else 'FAIL'} {name}: {last}")
+        if not ok:
+            failed += 1
+    return total, failed
+
+
 def main() -> int:
     if not IVERILOG or not VVP:
         print("iverilog/vvp not found", file=sys.stderr)
@@ -458,16 +537,18 @@ def main() -> int:
     failures = 0
     for name, top, sources, params in CASES:
         try:
-            ok, detail = run_case(name, top, sources, params)
+            ok, detail = run_case(name, top, sources, params,
+                                  plusargs=PLUSARGS.get(name))
         except subprocess.TimeoutExpired:
             ok, detail = False, "timeout"
         print(f"{'PASS' if ok else 'FAIL'} {name}: {detail}")
         if not ok:
             failures += 1
     gen_total, gen_failed = run_generator_checks()
+    ep_total, ep_failed = run_rx_endpoint_checks()
     signoff_total, signoff_failed = run_signoff_checks()
-    total = len(CASES) + gen_total + signoff_total
-    failures += gen_failed + signoff_failed
+    total = len(CASES) + gen_total + ep_total + signoff_total
+    failures += gen_failed + ep_failed + signoff_failed
     print(f"\n{total - failures}/{total} regression cases passed")
     return 1 if failures else 0
 

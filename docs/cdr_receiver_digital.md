@@ -258,11 +258,12 @@ A genuine 2x CDR therefore needs a different signal path, not a lower
    samples plus the previous UI's boundary (a new `cdr_bang_bang` module, not
    a parameter of the current counter).
 
-Until one of those exists, the low-power path is **source_sync (OS=1)** or the
-restricted **fixed OS=2** mode (`rx.allow_os2: true`), both already supported.
-The generator's `bang_bang` / `pi_cdr` options therefore stay fail-closed.
-Do not lower `adaptive_oversampling.min_oversample` below 8 without a new
-detector and a passing `tb_cdr_adaptive` at OS=4.
+Until one of those exists for 2x, the low-power path is **source_sync (OS=1)**
+or the restricted **fixed OS=2** mode (`rx.allow_os2: true`), both already
+supported.  `pi_cdr` stays fail-closed.  The `bang_bang_oversampling`
+architecture described in section 7 is a real detector, but it runs at OS=4 and
+does not make 2x work.  Do not lower `adaptive_oversampling.min_oversample`
+below 8 without a new detector and a passing `tb_cdr_adaptive` at OS=4.
 
 The testbench is now parameterised (`-P tb_cdr_adaptive.OS_PARAM=<n>`) so the
 OS=4 failure can be reproduced.
@@ -273,43 +274,94 @@ OS=4 failure can be reproduced.
 4x the line rate (half the clock load of the 8x adaptive loop) and is wired
 into `serdes_rx_digital` as `CDR_MODE=3`.
 
-Architecture:
-- **Alexander BBPD** on (previous data, edge, data) feeds a signed vote
-  v[n] in {-1, 0, +1}.
-- **Digital loop filter**: frequency integral `f += KI*v`, proportional phase
-  kick `phi -= KP*v` (both with the correct sign: an "early" vote delays the
-  sampling instant), plus a slow leak on `f` that removes the PD bias at
-  zero ppm.
-- **Fractional NCO**: a 20-bit fractional phase accumulator advances by
-  `1 + f` clock periods per clock and wraps once per UI.  A UI is 4 clocks
-  nominally and 3/5 when the NCO is off-nominal, so the recovered bit rate
-  follows the TX continuously.
-- **Sampling**: the data sample is captured when the NCO crosses the eye
-  centre (shifted by `N mod OVERSAMPLE` to compensate the cdr_sync delay);
-  the edge sample when it crosses the delayed UI boundary.  Exactly one
-  `sample_strobe` is emitted per UI, so a 3-cycle UI cannot skip the centre
-  and a 5-cycle UI cannot duplicate a bit.
+### 7.1 Architecture
 
-Verified by `tb/tb_cdr_bang_bang.sv` (5000 bits, OS=4):
+- **Alexander BBPD**, evaluated on registers only: with a data transition,
+  `e == d_prev` means the edge sample still carries the old bit (early, +1),
+  otherwise late (-1).  An early vote must delay, so `f -= KI*v` and the
+  proportional term also slows the NCO.
+- **Digital loop filter**, both paths registered:
+  - integral: `freq_q += KI*v` once per transition, held until the next one;
+  - proportional: a one-clock increment offset `kick_q = KP*v`, which over a
+    single clock is a phase step of `KP` clock periods.
+  Registering the filter also removes the combinational loop
+  `vote -> kick -> phase_next -> center_hit -> vote` that a fully
+  combinational form creates.
+- **Monotonic fractional NCO**: a 20-bit accumulator advances by
+  `1 + f - kick` clock periods per clock, clamped to `[0.25, 1.25]`, and
+  wraps once per UI (`ONE = OVERSAMPLE` clock periods).  The accumulator
+  never moves backwards.  Subtracting the proportional term from the post-wrap
+  phase is unsafe: when the wrap residue is smaller than `KP`, the phase lands
+  just below the UI boundary and the next clock wraps a second time, producing
+  a runt UI, a forced edge and a duplicate strobe.
+- **Event placement**: the edge threshold is `OVERSAMPLE/2` clock periods and
+  the centre threshold is `OVERSAMPLE/2 + phase_offset` (mod `ONE`), i.e.
+  `phase_offset` clock periods.  A wrapping clock always starts from
+  `phase_q > ONE - 1.25` periods, so the edge threshold can never be crossed
+  in the same clock as a wrap: exactly one edge event per UI for every
+  `phase_offset`.  A centre threshold of 0 coincides with the wrap and is
+  handled by an explicit "next UI" crossing term, so the per-UI done flags of
+  the ending UI cannot suppress it (that suppression dropped a centre event and
+  made the edge latch a stale bit).
+- **`phase_offset`** moves only the data sample, never the UI boundary.
+  `0` is the eye centre, `OVERSAMPLE/2` is the bit boundary (unusable by
+  construction), and the values in between walk the sample across the eye.
+- **Leak**: one LSB on the integral path per `LEAK_UI_BITS` UIs that carried
+  no transition (default 12, i.e. 4096 UIs; negative disables).  It is a
+  number of UIs, so it does not depend on transition density.  The earlier
+  per-non-transition-sample leak removed about 0.5 LSB per UI at PRBS density -
+  the same order as the KI=1 update - so it erased the integral path and the
+  loop ran on the proportional term alone (`freq_trim` stayed at 0 even at
+  +700 ppm).  With the per-UI leak the integral settles at the expected value:
+  about -950 LSB at +1000 ppm (1 LSB = 2^-20 clock period per clock).
 
-| ppm | result |
-|---:|---|
-| 0 | PASS |
-| +100 | PASS |
-| +300 | PASS |
-| +700 | PASS |
-| -100 | PASS |
-| -300 | PASS |
-| -700 | PASS |
+### 7.2 Verification
 
-The generator exposes this as `rx.architecture: bang_bang_oversampling`
-(`CDR_MODE=3`, `OVERSAMPLE=4`); it must be selected explicitly so it does not
-silently replace the default fixed loop.  `spec/bang_bang_4x.yaml` is the
-reference; it is in `make sim` / `regress` and the generated package is
-compile/synth checked.
+`tb/tb_cdr_bang_bang.sv` instantiates `cdr_bang_bang` with the same
+parameter values the generator leaves on the endpoint (`KI=1`,
+`KP_SHIFT=5`, `LEAK_UI_BITS=12`, `LOCK_STALE_BITS=16`) and takes the
+frequency offset as a **runtime plusarg** (`+PPM=700`).  This Icarus build
+has no runtime `-P`; the older sweep passed `-P tb.PPM=...` to `vvp`, which
+rejected it, so every entry actually ran at 0 ppm.  The cases now run:
 
-Limits (do not overclaim): the loop is a digital BBPD + NCO, not a jitter-
-filtering PLL; 4x sampling has less jitter margin than 8x; `freq_trim` carries
-the loop state, not a calibrated ppm; and the sky130 mixed-signal baseline in
-this repo uses an open-loop phase search, so none of this constitutes a
-physical link-level CDR signoff.
+| offset | 5000 bits | 20000 bits |
+|---|---|---|
+| 0, +-100, +-300, +-700 ppm | PASS (PRBS, 256-bit run, bursty, 6% density) | PASS |
+| +-1000 ppm | PASS | PASS |
+
+The low-density case masks two PRBS bits in every 16 line bits, so the loop
+sees long stretches with no vote; it is the check that the leak is a per-UI
+constant and not a transition-density-dependent bias.
+
+`tb/tb_cdr_phase_offset.sv` drives four instances with `phase_offset` 0..3
+from the same stream and checks one strobe per UI (gap within `OS +- 1`) plus
+bit recovery, across several TX clock-to-data skews.  Offsets 0, 1 and 3
+recover every bit at 5000 bits; offset 2 is the boundary and is reported, not
+failed.  This is the regression for the modular thresholds (`edge_e = 0` at
+one offset, `center_e = 0` at another).
+
+`tb/tb_rx_endpoint_cdr.sv` closes the remaining gap between the standalone
+bench and the delivered RTL: it includes the generated package's
+`rtl/params.svh` and instantiates `serdes_rx_digital` with exactly those
+parameters, then runs 0/+700/-700 ppm through `rx_serial_data` /
+`rx_serial_valid`.  It prints the internal `KI`, `KP_SHIFT`,
+`LEAK_UI_BITS` and `LOCK_STALE_BITS` of the instantiated loop.
+
+Two packaging defects were found and fixed while adding this test:
+
+- `serdes_rx_digital` computed `MODE` as 0/1/2 only, so `CDR_MODE=3` fell
+  through to the fixed-rate CDR and the `g_bang_bang` branch was dead code;
+- `cdr_bang_bang.sv` was missing from the generated filelist of every RX
+  design except `serdes_8b10b_top`, so the emitted package could not compile
+  the endpoint it advertised.
+
+### 7.3 Limits (do not overclaim)
+
+The loop is a digital BBPD + NCO, not a jitter-filtering PLL.  4x sampling has
+less jitter margin than 8x.  `freq_trim` carries loop state in NCO LSBs, not a
+calibrated ppm.  The area/power numbers for `bang_bang_oversampling` are
+still model inputs (`scripts/ppa_model.py`), not measurements: the entry has
+not been re-measured with Yosys/OpenROAD at 8x4 and 32x8, and a 4x clock being
+half of 8x does not by itself imply half the dynamic power.  The sky130
+mixed-signal baseline in this repo is an open-loop phase search, so none of
+this constitutes a physical link-level CDR signoff.
