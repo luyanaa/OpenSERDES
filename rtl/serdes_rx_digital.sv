@@ -138,6 +138,28 @@ module serdes_rx_digital #(
                 .lock_stale(cdr_lock_stale),
                 .freq_trim(cdr_freq_trim)
             );
+        end else if (MODE == 3) begin : g_bang_bang
+            // 4x BBPD + 2nd-order digital loop filter + fractional NCO.
+            cdr_bang_bang #(
+                .OVERSAMPLE(OVERSAMPLE),
+                .SYNC_STAGES(SYNC_STAGES),
+                .LOCK_STALE_BITS(LOCK_STALE_BITS),
+                .PHASE_CTRL_W(PHASE_CTRL_W),
+                .FRAC_BITS(ADAPT_FRAC_BITS)
+            ) u_cdr (
+                .clk(rx_clk),
+                .rst_n(rx_rst_n_sync),
+                .enable(rx_enable),
+                .flush(rx_flush),
+                .data_in(rx_serial_in),
+                .phase_offset(phase_offset),
+                .data_out(cdr_data_out),
+                .sample_strobe(cdr_sample_strobe),
+                .clk_out(cdr_clk_out),
+                .lock(cdr_lock),
+                .lock_stale(cdr_lock_stale),
+                .freq_trim(cdr_freq_trim)
+            );
         end else begin : g_fixed
             cdr_oversampling #(
                 .OVERSAMPLE(OVERSAMPLE),

@@ -1,0 +1,31 @@
+# 4x BBPD + 2nd-order loop + fractional NCO (CDR_MODE=3).
+# Verified 0/+-700 ppm by tb_cdr_bang_bang; RX clock is half the 8x adaptive.
+name: bang_bang_4x_8x4
+target: rx
+link:
+  payload_width: 8
+  words: 4
+  line_rate_mbps: 25
+  coding: raw
+  bit_order: lsb_first
+tx:
+  architecture: parallel_mux
+rx:
+  architecture: bang_bang_oversampling
+  oversample: 4
+  align: external
+  clocking: independent
+  ppm: 700
+  sync_len: 8
+tech:
+  tx: sky130
+  rx: sky130
+interface:
+  preset: minimal
+  data: valid_ready
+  control: native
+  cdc: none
+  enable_mode: static
+constraints:
+  uncertainty_setup_ns: 0.100
+  uncertainty_hold_ns: 0.050

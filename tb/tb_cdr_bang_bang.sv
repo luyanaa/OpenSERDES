@@ -1,70 +1,32 @@
 `timescale 1ns/1ps
-
-// 2x bang-bang CDR test with a deliberate TX/RX frequency offset.
-//
-// STATUS: this test currently FAILS (see rtl/cdr_bang_bang.sv).  It is kept as
-// the acceptance test for the prototype and is intentionally NOT in make sim /
-// scripts/regress.py.
-//
-// The data source runs at BIT_PERIOD = 20 ns * (1 + PPM/1e6) (2 samples/UI at a
-// 10 ns RX clock), while the CDR clock is exactly 100 MHz.  After lock the test
-// collects N_CHECK recovered bits, finds the startup offset, and requires every
-// bit to match.  At 700 ppm this spans well over one UI, so a fixed-phase 2x
-// sampler would slip.
+// 4x bang-bang CDR test with a deliberate TX/RX frequency offset.
+// The data source runs at BIT_PERIOD = OS*10ns*(1+PPM/1e6) while the CDR clock
+// is exactly 100 MHz.  After lock the test collects N_CHECK recovered bits,
+// finds the start offset, and requires every bit to match.
 module tb_cdr_bang_bang #(
     parameter real PPM      = 0.0,
     parameter int  N_CHECK  = 5000,
-    parameter int  OS_PARAM = 4,
-    parameter int  PH_OFF   = 0
+    parameter int  OS_PARAM = 4
 );
-
     localparam real BIT_PERIOD = (OS_PARAM * 10.0) * (1.0 + PPM / 1000000.0);
-    localparam int  N_BITS     = N_CHECK + 256;
+    localparam int  N_BITS     = N_CHECK + 512;
 
-    logic clk;
-    logic rst_n;
-    logic enable;
-    logic data_in;
-    logic data_out;
-    logic sample_strobe;
-    logic clk_out;
-    logic lock;
-    logic lock_stale;
+    logic clk, rst_n, enable, data_in;
+    logic data_out, sample_strobe, clk_out, lock, lock_stale;
     logic signed [12:0] freq_trim;
-
     logic [N_BITS-1:0]  tx_bits;
     logic [N_CHECK-1:0] rx_bits;
-
-    int errors;
-    int samples;
-    int offset;
-    int best_errors;
-    int errs;
-    int lock_wait;
-    int sel_changes;
-    logic [1:0] last_sel;
+    int errors, samples, offset, best_errors, errs, lock_wait;
 
     cdr_bang_bang #(
-        .OVERSAMPLE(OS_PARAM),
-        .SYNC_STAGES(3),
-        .ACQ_WINDOW(64),
-        .LOCK_WINDOWS(2),
-        .LOCK_STALE_BITS(256),
-        .PHASE_CTRL_W(2),
-        .FRAC_BITS(12)
+        .OVERSAMPLE(OS_PARAM), .SYNC_STAGES(3), .NCO_FRAC(20),
+        .KI(2), .KP_SHIFT(3), .LOCK_EDGES(16), .LOCK_STALE_BITS(256),
+        .PHASE_CTRL_W(2), .FRAC_BITS(12)
     ) dut (
-        .clk(clk),
-        .rst_n(rst_n),
-        .enable(enable),
-        .flush(1'b0),
-        .data_in(data_in),
-        .phase_offset(PH_OFF[1:0]),
-        .data_out(data_out),
-        .sample_strobe(sample_strobe),
-        .clk_out(clk_out),
-        .lock(lock),
-        .lock_stale(lock_stale),
-        .freq_trim(freq_trim)
+        .clk(clk), .rst_n(rst_n), .enable(enable), .flush(1'b0),
+        .data_in(data_in), .phase_offset(2'd0), .data_out(data_out),
+        .sample_strobe(sample_strobe), .clk_out(clk_out), .lock(lock),
+        .lock_stale(lock_stale), .freq_trim(freq_trim)
     );
 
     always #5 clk = ~clk;
@@ -90,22 +52,13 @@ module tb_cdr_bang_bang #(
 
     initial begin
         samples = 0;
-        sel_changes = 0;
-        last_sel = 2'd3;
         wait (rst_n);
         wait (lock);
-        $display("INFO: bang_bang locked OS=%0d sel=%0d", OS_PARAM, dut.sel_q);
-        last_sel = dut.sel_q;
-        repeat (512) @(posedge clk);
+        $display("INFO: bang_bang locked OS=%0d freq_trim=%0d", OS_PARAM, freq_trim);
+        repeat (64) @(posedge clk);
         while (samples < N_CHECK) begin
             @(posedge clk);
             #1;
-            if (dut.sel_q !== last_sel) begin
-                sel_changes++;
-                if (sel_changes <= 20)
-                    $display("INFO: sel %0d -> %0d at bit %0d", last_sel, dut.sel_q, samples);
-                last_sel = dut.sel_q;
-            end
             if (sample_strobe) begin
                 rx_bits[samples] = data_out;
                 samples++;
@@ -114,78 +67,39 @@ module tb_cdr_bang_bang #(
     end
 
     initial begin
-        clk       = 1'b0;
-        rst_n     = 1'b0;
-        enable    = 1'b0;
-        errors    = 0;
-        lock_wait = 0;
-
-        repeat (3) @(posedge clk);
-        rst_n = 1'b1;
-        repeat (2) @(posedge clk);
-        enable = 1'b1;
-
-        while (!lock && lock_wait < 5000) begin
-            @(posedge clk);
-            #1;
-            lock_wait++;
+        clk = 1'b0; rst_n = 1'b0; enable = 1'b0;
+        errors = 0; lock_wait = 0;
+        repeat (3) @(posedge clk); rst_n = 1'b1;
+        repeat (2) @(posedge clk); enable = 1'b1;
+        while (!lock && lock_wait < 20000) begin
+            @(posedge clk); #1; lock_wait++;
         end
         if (!lock) begin
-            $display("FAIL: tb_cdr_bang_bang did not lock (PPM=%0.1f)", PPM);
-            $fatal(1);
+            $display("FAIL: no lock PPM=%0.1f", PPM); $fatal(1);
         end
-
         wait (samples == N_CHECK);
         #1;
-
-        best_errors = N_CHECK + 1;
-        offset      = 0;
-        // The first collected bit can be well past 64 UIs because lock needs
-        // several acquisition windows; search the whole valid offset range.
+        best_errors = N_CHECK + 1; offset = 0;
         for (int off = 0; off + 64 <= N_BITS; off++) begin
             errs = 0;
-            for (int k = 0; k < 64; k++) begin
-                if (rx_bits[k] !== tx_bits[off + k])
-                    errs++;
-            end
-            if (errs < best_errors) begin
-                best_errors = errs;
-                offset      = off;
-            end
+            for (int k = 0; k < 64; k++)
+                if (rx_bits[k] !== tx_bits[off + k]) errs++;
+            if (errs < best_errors) begin best_errors = errs; offset = off; end
         end
-
-        begin
-            int first_bad;
-            first_bad = -1;
-            for (int k = 0; k < N_CHECK; k++) begin
-                if (rx_bits[k] !== tx_bits[offset + k] && first_bad < 0)
-                    first_bad = k;
-            end
-            $display("INFO: first_bad=%0d of %0d", first_bad, N_CHECK);
-        end
-        for (int k = 0; k < N_CHECK; k++) begin
-            if (rx_bits[k] !== tx_bits[offset + k]) begin
-                $display("ERROR: bang_bang bit %0d got %0b expected %0b",
-                         k, rx_bits[k], tx_bits[offset + k]);
-                errors++;
-            end
-        end
-
+        for (int k = 0; k < N_CHECK; k++)
+            if (rx_bits[k] !== tx_bits[offset + k]) errors++;
         if (lock_stale) begin
-            $display("ERROR: bang_bang CDR asserted lock_stale");
-            errors++;
+            $display("ERROR: lock_stale asserted"); errors++;
         end
-
         if (errors != 0) begin
-            for (int k = 0; k < 16; k++)
-                $display("  cmp %0d rx=%0b tx=%0b", k, rx_bits[k], tx_bits[offset + k]);
-            $display("FAIL: tb_cdr_bang_bang PPM=%0.1f errors=%0d offset=%0d best=%0d freq_trim=%0d sel_changes=%0d",
-                     PPM, errors, offset, best_errors, freq_trim, sel_changes);
+            for (int k = 0; k < 64; k++)
+                $display("  cmp %0d rx=%0b tx=%0b", k, rx_bits[k], tx_bits[offset+k]);
+            $display("FAIL: tb_cdr_bang_bang PPM=%0.1f errors=%0d offset=%0d best=%0d freq_trim=%0d",
+                     PPM, errors, offset, best_errors, freq_trim);
             $fatal(1);
         end
-        $display("PASS: tb_cdr_bang_bang PPM=%0.1f bits=%0d offset=%0d freq_trim=%0d lock_wait=%0d",
-                 PPM, N_CHECK, offset, freq_trim, lock_wait);
+        $display("PASS: tb_cdr_bang_bang PPM=%0.1f bits=%0d offset=%0d freq_trim=%0d",
+                 PPM, N_CHECK, offset, freq_trim);
         $finish;
     end
-
 endmodule

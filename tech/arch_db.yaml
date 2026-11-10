@@ -90,6 +90,20 @@ rx:
       icsprout55:   {max_line_rate_mbps: 200}
     confidence: modeled_yosys_cells
     note: "Restricted 2 samples/UI: ~0.5x the clock load of OS=4 but no jitter margin. Requires rx.allow_os2: true; not a general-purpose CDR."
+  bang_bang_oversampling:
+    module: serdes_rx_digital
+    cdr_mode: 3
+    min_oversample: 4
+    max_oversample: 4
+    max_line_rate_mbps: 200
+    latency_factor: 1.00
+    tech_overrides:
+      sky130:       {max_line_rate_mbps: 50}
+      gf180mcuD:    {max_line_rate_mbps: 25}
+      ihp-sg13g2:   {max_line_rate_mbps: 50}
+      icsprout55:   {max_line_rate_mbps: 200}
+    confidence: modeled_yosys_cells
+    note: "4x BBPD + 2nd-order loop + fractional NCO; verified 0/+-700 ppm on tb_cdr_bang_bang. Half the clock load of the 8x adaptive loop."
   adaptive_oversampling:
     module: serdes_rx_digital
     cdr_mode: 1

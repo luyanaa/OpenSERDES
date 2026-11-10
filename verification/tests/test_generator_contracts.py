@@ -113,12 +113,15 @@ class TestGeneratorContracts(unittest.TestCase):
         self.assertEqual(code, 2)
         self.assertIn("single_edge", text)
 
-    def test_unverified_bang_bang_recovery_is_fail_closed(self) -> None:
+    def test_bang_bang_requires_matching_architecture(self) -> None:
+        # bang_bang is integrated only as CDR_MODE=3 with
+        # rx.architecture: bang_bang_oversampling; requesting it on the default
+        # fixed loop must fail closed.
         spec = _base_spec()
         spec["rx"]["clock_recovery"] = "bang_bang"
         code, text = self._run(spec)
         self.assertEqual(code, 2)
-        self.assertIn("not integrated", text)
+        self.assertIn("bang_bang_oversampling", text)
 
     def test_training_requires_phase_actuator(self) -> None:
         # phase_threshold training is only integrated when the RX has a real

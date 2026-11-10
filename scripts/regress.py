@@ -61,6 +61,12 @@ CASES = [
      {"DATA_WIDTH": 32, "WORDS": 8, "LSB_FIRST": 1}),
 
     ("stream_8x4", "tb_serializer_stream", ["rtl/serializer_stream.sv"], {}),
+    ("cdr_bang_bang_0ppm", "tb_cdr_bang_bang",
+     ["rtl/cdr_sync.sv", "rtl/cdr_bang_bang.sv"], {"OS_PARAM": 4, "PPM": 0.0}),
+    ("cdr_bang_bang_p700", "tb_cdr_bang_bang",
+     ["rtl/cdr_sync.sv", "rtl/cdr_bang_bang.sv"], {"OS_PARAM": 4, "PPM": 700.0}),
+    ("cdr_bang_bang_n700", "tb_cdr_bang_bang",
+     ["rtl/cdr_sync.sv", "rtl/cdr_bang_bang.sv"], {"OS_PARAM": 4, "PPM": -700.0}),
     ("serializer_pingpong_8x4_lsb", "tb_serializer_pingpong",
      ["rtl/serializer_pingpong.sv"], {"DATA_WIDTH": 8, "WORDS": 4, "LSB_FIRST": 1}),
     ("serializer_pingpong_8x4_msb", "tb_serializer_pingpong",
@@ -175,6 +181,7 @@ def run_generator_checks() -> tuple[int, int]:
         ("tx_half_rate", [], 0),
         ("ihp_ez130", [], 0),
         ("tx_pingpong", [], 0),
+        ("bang_bang_4x", [], 0),
     ]
     for spec_name, extra, expected in spec_cases:
         total += 1
@@ -195,7 +202,8 @@ def run_generator_checks() -> tuple[int, int]:
                                        ("soc_single_clock", "serdes_soc_wrapper"),
                                        ("soc", "serdes_soc_cdc_wrapper"),
                                        ("tx_half_rate", "serdes_tx_half_rate_digital"),
-                                       ("tx_pingpong", "serdes_tx_digital")):
+                                       ("tx_pingpong", "serdes_tx_digital"),
+                                       ("bang_bang_4x", "serdes_rx_digital")):
         total += 1
         out = ROOT / "build" / "gen" / spec_name
         cmd = [py, "scripts/gen_ip.py", "--spec", f"spec/{spec_name}.yaml",

@@ -267,43 +267,49 @@ detector and a passing `tb_cdr_adaptive` at OS=4.
 The testbench is now parameterised (`-P tb_cdr_adaptive.OS_PARAM=<n>`) so the
 OS=4 failure can be reproduced.
 
-## 7. Lower-oversampling CDR design (item 6): measured status
+## 7. 4x bang-bang CDR: BBPD + 2nd-order loop + fractional NCO (item 6)
 
-A purpose-built 4x bang-bang CDR exists at rtl/cdr_bang_bang.sv.  It is lint-
-and synth-clean and is **not** wired into serdes_rx_digital, the generator,
-make sim or regress.
+`rtl/cdr_bang_bang.sv` is a purpose-built lower-oversampling CDR.  It runs at
+4x the line rate (half the clock load of the 8x adaptive loop) and is wired
+into `serdes_rx_digital` as `CDR_MODE=3`.
 
-Verified (tb/tb_cdr_bang_bang.sv, 5000 bits, OS=4):
+Architecture:
+- **Alexander BBPD** on (previous data, edge, data) feeds a signed vote
+  v[n] in {-1, 0, +1}.
+- **Digital loop filter**: frequency integral `f += KI*v`, proportional phase
+  kick `phi -= KP*v` (both with the correct sign: an "early" vote delays the
+  sampling instant), plus a slow leak on `f` that removes the PD bias at
+  zero ppm.
+- **Fractional NCO**: a 20-bit fractional phase accumulator advances by
+  `1 + f` clock periods per clock and wraps once per UI.  A UI is 4 clocks
+  nominally and 3/5 when the NCO is off-nominal, so the recovered bit rate
+  follows the TX continuously.
+- **Sampling**: the data sample is captured when the NCO crosses the eye
+  centre (shifted by `N mod OVERSAMPLE` to compensate the cdr_sync delay);
+  the edge sample when it crosses the delayed UI boundary.  Exactly one
+  `sample_strobe` is emitted per UI, so a 3-cycle UI cannot skip the centre
+  and a 5-cycle UI cannot duplicate a bit.
+
+Verified by `tb/tb_cdr_bang_bang.sv` (5000 bits, OS=4):
 
 | ppm | result |
 |---:|---|
 | 0 | PASS |
 | +100 | PASS |
-| +300 | FAIL |
-| +700 | FAIL |
-| -100 | FAIL |
-| -300 | FAIL |
-| -700 | FAIL |
+| +300 | PASS |
+| +700 | PASS |
+| -100 | PASS |
+| -300 | PASS |
+| -700 | PASS |
 
-Design and why it stops short:
-- cdr_sync depth is rounded to a multiple of OVERSAMPLE so the phase label at
-  the current clock matches the delayed sample.
-- Acquisition measures the bit boundary directly: inside a UI only the adjacent
-  sample pair that straddles a transition differs, so the per-phase change
-  count peaks at the boundary.  Data phase = boundary + OS/2.
-- The 2x case is fundamentally ambiguous: the edge sample sits exactly on the
-  boundary, the Alexander vote is 50/50, and a binary/discrete selector
-  random-walks.  Measured: a 2x version never holds lock.  That is why the
-  design is 4x and why 2x is not offered.
-- A forced full selector rotation at 0 ppm costs ~12% bit errors, so selector
-  moves are safe only within the eye.  The continuous vote stepper currently
-  walks the selector toward the boundary at larger ppm; that is the open bug.
-- The unit slip must change the UI length, not the selector; and a shortened
-  period must clamp the sample phase into the UI (otherwise the sample phase is
-  skipped and a bit is duplicated).
+The generator exposes this as `rx.architecture: bang_bang_oversampling`
+(`CDR_MODE=3`, `OVERSAMPLE=4`); it must be selected explicitly so it does not
+silently replace the default fixed loop.  `spec/bang_bang_4x.yaml` is the
+reference; it is in `make sim` / `regress` and the generated package is
+compile/synth checked.
 
-What is still required: a properly derived 1st/2nd-order loop filter with a
-continuous phase error (or a small NCO/phase interpolator) rather than a
-discrete selector walk.  Until that is verified at 0/+-700 ppm, use
-source_sync (OS=1) or fixed OS=2 for low power, and the 8x adaptive loop for
-ppm offsets.  Do not lower adaptive_oversampling.min_oversample below 8.
+Limits (do not overclaim): the loop is a digital BBPD + NCO, not a jitter-
+filtering PLL; 4x sampling has less jitter margin than 8x; `freq_trim` carries
+the loop state, not a calibrated ppm; and the sky130 mixed-signal baseline in
+this repo uses an open-loop phase search, so none of this constitutes a
+physical link-level CDR signoff.

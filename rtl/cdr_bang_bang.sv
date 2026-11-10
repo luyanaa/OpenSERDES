@@ -1,29 +1,26 @@
 `timescale 1ns/1ps
-// 4x oversampling bang-bang CDR prototype (continuous-phase vote loop).
+// 4x bang-bang CDR: Alexander BBPD + 2nd-order digital loop filter +
+// fractional NCO.  The recovered bit rate is set by the NCO, not by a fixed
+// divide-by-4, so it can track ppm continuously.
 //
-// STATUS 2026-11-10: PROTOTYPE.  Bit-exact at 0 ppm and +100 ppm over
-// 5000 bits; it does NOT yet track +/-300 or +/-700 ppm (the vote stepper
-// walks the selector to a boundary).  Not wired into serdes_rx_digital,
-// the generator, make sim or regress.  Do not use for a link claim.
-// 2 samples/UI is fundamentally ambiguous (edge sample on the boundary),
-// which is why this design is 4x, not 2x.
-//
-// Sampling: cdr_sync (delay a multiple of OS) -> 4 phases per UI.  sel_q is the
-// DATA phase, the EDGE phase is sel_q + OS/2 (the bit boundary when centred).
-// A data instant compares d_prev / edge / d (Alexander).  The vote drives a
-// hysteresis phase stepper: |vote_acc| >= STEP_VOTES moves sel by one sample
-// (1/OS UI).  That is the phase (proportional) path.  The same stepper keeps
-// stepping while the boundary drifts, which tracks frequency.  The output
-// word cadence is fixed at one strobe per UI, so a phase step never slips a
-// bit.  Acquisition uses a direct boundary measurement (max per-phase change
-// count) to initialise sel.
+// Loop (per data sample):
+//   v[n]   = +1 (early) / -1 (late) / 0 (no transition)
+//   f[n+1] = sat(f[n] + KI*v[n])          // frequency integral
+//   phi[n] = phi[n] + (1<<FR) + f[n]      // NCO, wraps once per UI
+//   phi   += KP*v[n] at the data sample   // proportional phase kick
+// A UI is 4 clock periods nominally and 3/5 when the NCO is off-nominal, so
+// the average recovered rate follows the TX.  Data is captured when the NCO
+// crosses the eye centre; the edge sample when it wraps.  Exactly one strobe
+// is emitted per UI, so a 3-cycle UI cannot skip the centre and a 5-cycle UI
+// cannot duplicate a bit.
 module cdr_bang_bang #(
     parameter int OVERSAMPLE      = 4,
     parameter int SYNC_STAGES     = 3,
-    parameter int ACQ_WINDOW      = 64,
-    parameter int LOCK_WINDOWS    = 2,
+    parameter int NCO_FRAC        = 20,
+    parameter int KI              = 1,
+    parameter int KP_SHIFT        = 5,
+    parameter int LOCK_EDGES      = 16,
     parameter int LOCK_STALE_BITS = 256,
-    parameter int STEP_VOTES      = 6,
     parameter bit CLK_OUT_ENABLE  = 1'b1,
     parameter int PHASE_CTRL_W    = 2,
     parameter int FRAC_BITS       = 12
@@ -44,163 +41,160 @@ module cdr_bang_bang #(
     localparam int OS      = (OVERSAMPLE < 4) ? 4 : OVERSAMPLE;
     localparam int PH_W    = $clog2(OS);
     localparam int HALF    = OS / 2;
-    localparam int N_BASE  = (SYNC_STAGES < 3) ? 3 : SYNC_STAGES;
-    localparam int N       = ((N_BASE + OS - 1) / OS) * OS;
-    localparam int CNT_W   = 8;
-    localparam int VOTE_W  = 6;
-    localparam int WIN_W   = (ACQ_WINDOW <= 1) ? 1 : $clog2(ACQ_WINDOW + 1);
-    localparam int LWIN_W  = (LOCK_WINDOWS <= 1) ? 1 : $clog2(LOCK_WINDOWS + 1);
+    localparam int N       = (SYNC_STAGES < 3) ? 3 : SYNC_STAGES;
+    localparam int FR      = NCO_FRAC;
+    localparam int PW      = FR + PH_W + 3;
+    localparam int FW      = FR + 4;
+    localparam logic [PW-1:0] ONE    = PW'(OS << FR);
+    localparam logic [PW-1:0] CENTER = PW'((OS << FR) >>> 1);
+    localparam logic [PW-1:0] CLKINC = PW'(1 << FR);
+    // cdr_sync delays the sample by N clocks, so rotate the NCO phase by
+    // N mod OS to keep the eye-centre crossing aligned with the delayed
+    // sample stream.
+    localparam logic [PW-1:0] PH0 = PW'(((OS - (N % OS)) % OS) * (1 << FR));
+    localparam logic signed [FW-1:0] KP = FW'(1 << (FR - KP_SHIFT));
+    localparam logic signed [FW-1:0] KI_S = FW'(KI);
+    localparam logic signed [FW-1:0] FMAX = FW'(1 << (FR - 2));
+    localparam logic signed [FW-1:0] FMIN = -FW'(1 << (FR - 2));
+    localparam int LOCK_W  = (LOCK_EDGES <= 1) ? 1 : $clog2(LOCK_EDGES + 1);
     localparam int STALE_W = (LOCK_STALE_BITS <= 1) ? 1 : $clog2(LOCK_STALE_BITS + 1);
-
-    localparam logic [PH_W-1:0] HALF_C  = PH_W'(HALF);
-    localparam logic [PH_W-1:0] OS_M1   = PH_W'(OS-1);
-    localparam logic [WIN_W-1:0] WIN_M1 = WIN_W'(ACQ_WINDOW - 1);
-    localparam logic [LWIN_W-1:0] LWIN_C = LWIN_W'(LOCK_WINDOWS);
+    localparam logic [LOCK_W-1:0]  LOCK_MAX  = LOCK_W'(LOCK_EDGES);
     localparam logic [STALE_W-1:0] STALE_MAX = STALE_W'(LOCK_STALE_BITS);
-    localparam logic signed [VOTE_W-1:0] STEP_V = VOTE_W'(STEP_VOTES);
 
     logic [N-1:0]             samples;
-    logic [PH_W-1:0]          ph_q;
-    logic [PH_W-1:0]          sel_q;
-    logic [PH_W-1:0]          edge_ph;
+    logic                     s;
+    logic [PW-1:0]            phase_q;
+    logic signed [FW-1:0]     freq_q;
+    logic signed [FW-1:0]     inc_v;
+    logic signed [FW-1:0]     freq_next;
+    logic [PW-1:0]            phase_next;
+    logic [PW-1:0]            phase_w;
+    logic [PW-1:0]            phase_adj;
+    logic signed [PW:0]       phase_s;
+    logic signed [FW-1:0]     kp_kick;
+    logic signed [FW-1:0]     ki_kick;
+    logic [PW-1:0]            center_e;
+    logic [PW-1:0]            edge_e;
+    logic [PW-1:0]            off_e;
+    logic                     edge_hit;
+    logic                     wrap;
+    logic                     center_hit;
+    logic                     trans;
+    logic signed [1:0]        vote;
+    logic                     d_q;
     logic                     d_prev_q;
     logic                     e_q;
-    logic                     d_q;
     logic                     d_out_q;
-    logic                     d_next;
     logic                     strobe_q;
     logic                     clk_hi_q;
-    logic signed [VOTE_W-1:0] vote_q;
-    logic                     vote_up;
-    logic                     vote_dn;
-    logic [OS-1:0][CNT_W-1:0] cnt_q;
-    logic [CNT_W-1:0]         max_v;
-    logic [PH_W-1:0]          max_i;
-    logic [WIN_W-1:0]         win_q;
-    logic [LWIN_W-1:0]        lock_win_q;
+    logic [LOCK_W-1:0]        edge_cnt_q;
     logic [STALE_W-1:0]       stale_cnt_q;
     logic                     lock_q;
     logic                     stale_q;
-    logic                     s;
-    logic                     s_d1;
-    logic                     diff;
-    logic                     trans;
-    logic                     data_now;
-    logic                     edge_now;
-    logic                     ui_end;
 
     cdr_sync #(.STAGES(N)) u_sync (
         .clk(clk), .rst_n(rst_n), .async_in(data_in), .samples(samples));
 
-    assign s       = samples[N-1];
-    assign diff    = s ^ s_d1;
-    assign ui_end  = (ph_q == OS_M1);
-    assign edge_ph = sel_q ^ HALF_C;
-    assign data_now = (ph_q == sel_q);
-    assign edge_now = (ph_q == edge_ph);
-    assign trans   = data_now && (s != d_prev_q);
-    assign vote_up = trans && (e_q == d_prev_q);
-    assign vote_dn = trans && (e_q != d_prev_q);
-    assign d_next  = data_now ? s : d_q;
+    assign s = samples[N-1];
 
-    assign data_out      = d_out_q;
-    assign sample_strobe = strobe_q;
-    assign clk_out       = CLK_OUT_ENABLE ? clk_hi_q : 1'b0;
-    assign lock          = lock_q;
-    assign lock_stale    = stale_q;
-    assign freq_trim     = $signed({{(FRAC_BITS+1-PH_W){1'b0}}, sel_q})
-                         - $signed({{(FRAC_BITS+1-PH_W){1'b0}}, HALF_C});
-
+    // NCO increment = one clock period plus the frequency correction.  Clamp
+    // the correction so the increment stays positive.
     always_comb begin
-        max_v = '0;
-        max_i = '0;
-        for (int i = 0; i < OS; i++) begin
-            if (cnt_q[i] > max_v) begin
-                max_v = cnt_q[i];
-                max_i = i[PH_W-1:0];
-            end
-        end
+        inc_v = (FW'(CLKINC) + freq_q);
+        if (inc_v < FW'(CLKINC >>> 2))
+            inc_v = FW'(CLKINC >>> 2);
+        phase_next = phase_q + PW'(inc_v);
+        wrap       = (phase_next >= ONE);
+        phase_w    = wrap ? (phase_next - ONE) : phase_next;
+        // Eye-centre crossing, shifted by the external phase request.
+        // The sync sample is N clocks old, so both crossings are shifted by
+        // N mod OS clock periods; the strobe fires at the delayed UI boundary.
+        off_e      = (PW'((N % OS) * (1 << FR)) + PW'(phase_offset) * CLKINC) & (ONE - 1'b1);
+        center_e   = (off_e + CENTER) & (ONE - 1'b1);
+        edge_e     = off_e;
+        center_hit = (phase_q < center_e) && (phase_next >= center_e) && !wrap;
+        edge_hit   = (phase_q < edge_e)   && (phase_next >= edge_e)   && !wrap;
+        // Wrap-safe proportional phase kick: subtracting KP can underflow.
+        phase_s = $signed({1'b0, phase_w}) - kp_kick;
+        if (phase_s < 0)
+            phase_s = phase_s + $signed({1'b0, ONE});
+        else if (phase_s >= $signed({1'b0, ONE}))
+            phase_s = phase_s - $signed({1'b0, ONE});
+        phase_adj = phase_s[PW-1:0];
+    end
+
+    assign trans    = center_hit && (s != d_prev_q);
+    assign data_out = d_out_q;
+    assign sample_strobe = strobe_q;
+    assign clk_out  = CLK_OUT_ENABLE ? clk_hi_q : 1'b0;
+    assign lock     = lock_q;
+    assign lock_stale = stale_q;
+    assign freq_trim  = freq_q[FRAC_BITS:0];
+
+    // Alexander PD: with a transition, e == d_prev means the edge sample is
+    // still the old bit, i.e. the clock is early (+1).
+    always_comb begin
+        vote = 2'sd0;
+        if (trans) vote = (e_q == d_prev_q) ? 2'sd1 : -2'sd1;
+        ki_kick   = KI_S * vote;
+        kp_kick   = KP * vote;
+        freq_next = freq_q - ki_kick;
+        if (freq_next > FMAX) freq_next = FMAX;
+        else if (freq_next < FMIN) freq_next = FMIN;
     end
 
     always_ff @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
-            ph_q <= '0; sel_q <= HALF_C; d_prev_q <= 1'b0; e_q <= 1'b0;
-            d_q <= 1'b0; d_out_q <= 1'b0; strobe_q <= '0; clk_hi_q <= 1'b0;
-            vote_q <= '0; cnt_q <= '0; win_q <= '0; lock_win_q <= '0;
-            stale_cnt_q <= '0; lock_q <= 1'b0; stale_q <= 1'b0; s_d1 <= 1'b0;
+            phase_q <= '0; freq_q <= '0; d_q <= 1'b0; d_prev_q <= 1'b0;
+            e_q <= 1'b0; d_out_q <= 1'b0; strobe_q <= 1'b0; clk_hi_q <= 1'b0;
+            edge_cnt_q <= '0; stale_cnt_q <= '0; lock_q <= 1'b0; stale_q <= 1'b0;
         end else if (flush) begin
-            ph_q <= '0; sel_q <= HALF_C; d_prev_q <= 1'b0; e_q <= 1'b0;
-            d_q <= 1'b0; d_out_q <= 1'b0; strobe_q <= '0; clk_hi_q <= 1'b0;
-            vote_q <= '0; cnt_q <= '0; win_q <= '0; lock_win_q <= '0;
-            stale_cnt_q <= '0; lock_q <= 1'b0; stale_q <= 1'b0; s_d1 <= 1'b0;
+            phase_q <= '0; freq_q <= '0; d_q <= 1'b0; d_prev_q <= 1'b0;
+            e_q <= 1'b0; d_out_q <= 1'b0; strobe_q <= 1'b0; clk_hi_q <= 1'b0;
+            edge_cnt_q <= '0; stale_cnt_q <= '0; lock_q <= 1'b0; stale_q <= 1'b0;
         end else if (enable) begin
-            s_d1 <= s;
-            d_q  <= d_next;
-            if (ui_end) begin
-                d_out_q  <= d_next;
-                strobe_q <= 1'b1;
-            end else begin
-                strobe_q <= 1'b0;
-            end
-            if (edge_now)
-                e_q <= s;
-            if (data_now)
+            // NCO update (with proportional kick on a data sample).
+            if (center_hit)
+                phase_q <= phase_adj;
+            else
+                phase_q <= phase_w;
+
+            strobe_q <= 1'b0;
+            if (center_hit) begin
+                d_q      <= s;
                 d_prev_q <= s;
-
-            // Alexander vote with leak toward zero.
-            if (trans) begin
-                if (vote_q != {VOTE_W{1'b1}})
-                    vote_q <= vote_q + (vote_up ? 1'b1 : -1'b1);
-            end else if (data_now) begin
-                if (vote_q > 0)      vote_q <= vote_q - 1'b1;
-                else if (vote_q < 0) vote_q <= vote_q + 1'b1;
-            end
-
-            // Boundary measurement for acquisition.
-            if (diff) begin
-                if (cnt_q[ph_q] != {CNT_W{1'b1}})
-                    cnt_q[ph_q] <= cnt_q[ph_q] + 1'b1;
-                stale_cnt_q <= '0;
-                stale_q     <= 1'b0;
-            end else if (ui_end) begin
-                if (stale_cnt_q != STALE_MAX)
-                    stale_cnt_q <= stale_cnt_q + 1'b1;
-                if ((stale_cnt_q + 1'b1) >= STALE_MAX)
-                    stale_q <= 1'b1;
-            end
-
-            if (ui_end) begin
-                ph_q <= '0;
-                if (win_q == WIN_M1) begin
-                    win_q <= '0;
-                    if (max_v != '0) begin
-                        if (!lock_q)
-                            sel_q <= max_i + HALF_C + phase_offset[PH_W-1:0];
-                        if (lock_win_q != LWIN_C)
-                            lock_win_q <= lock_win_q + 1'b1;
-                    end
-                    cnt_q <= '0;
-                end else begin
-                    win_q <= win_q + 1'b1;
+                // Leaky integral: removes the PD bias at zero ppm, while a
+                // persistent ppm bias still drives the state away from zero.
+                if (trans)
+                    freq_q <= freq_next;
+                else if (freq_q > 0)
+                    freq_q <= freq_q - 1'b1;
+                else if (freq_q < 0)
+                    freq_q <= freq_q + 1'b1;
+                if (trans) begin
+                    if (edge_cnt_q != LOCK_MAX)
+                        edge_cnt_q <= edge_cnt_q + 1'b1;
+                    stale_cnt_q <= '0;
+                    stale_q     <= 1'b0;
                 end
-            end else begin
-                ph_q <= ph_q + 1'b1;
+            end
+            if (edge_hit) begin
+                e_q      <= s;
+                d_out_q  <= d_q;
+                strobe_q <= 1'b1;
+                if (!trans) begin
+                    if (stale_cnt_q != STALE_MAX)
+                        stale_cnt_q <= stale_cnt_q + 1'b1;
+                    if ((stale_cnt_q + 1'b1) >= STALE_MAX)
+                        stale_q <= 1'b1;
+                end
             end
 
-            // Continuous phase stepper (after lock).
-            if (ui_end && lock_q && (vote_q >= STEP_V)) begin
-                sel_q  <= sel_q - 1'b1;
-                vote_q <= '0;
-            end else if (ui_end && lock_q && (vote_q <= -STEP_V)) begin
-                sel_q  <= sel_q + 1'b1;
-                vote_q <= '0;
-            end
-
-            if (!lock_q && (lock_win_q >= LWIN_C))
+            if (!lock_q && (edge_cnt_q >= LOCK_MAX))
                 lock_q <= 1'b1;
 
             if (CLK_OUT_ENABLE)
-                clk_hi_q <= (ph_q == HALF_C) ? 1'b1 : (ui_end ? 1'b0 : clk_hi_q);
+                clk_hi_q <= wrap ? 1'b0 : ((center_hit) ? 1'b1 : clk_hi_q);
             else
                 clk_hi_q <= 1'b0;
         end else begin

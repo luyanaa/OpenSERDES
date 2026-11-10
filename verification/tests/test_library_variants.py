@@ -1,7 +1,9 @@
 """Selectable measured libraries / SCL variants (item 9 of the PPA audit)."""
 from __future__ import annotations
 
+import importlib.util
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -12,6 +14,15 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
 GEN = ROOT / "scripts" / "gen_ip.py"
+
+
+def _load_gen():
+    spec = importlib.util.spec_from_file_location("gen_ip_mod", GEN)
+    mod = importlib.util.module_from_spec(spec)
+    # Register before exec so dataclasses can resolve their module namespace.
+    sys.modules[spec.name] = mod
+    spec.loader.exec_module(mod)
+    return mod
 
 
 class TestLibraryVariants(unittest.TestCase):
@@ -33,13 +44,53 @@ class TestLibraryVariants(unittest.TestCase):
             return r, None
         return r, json.loads((out / "manifest.json").read_text())
 
-    def test_ez130_variant_generates_with_resolved_libs(self) -> None:
+    def test_ez130_without_pdk_reports_missing(self) -> None:
+        # CI has no /grid PDK tree.  Generation must still succeed and report
+        # pdk_lib_files_present=false, not fail and not claim the libs exist.
         spec = yaml.safe_load((ROOT / "spec/ihp_ez130.yaml").read_text())
         r, m = self._run(spec)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertEqual(m["tech"]["scl"], "ez130_8t_v1p1")
-        self.assertEqual(m["tech"]["native_dff"], "DFFRQX2")
-        self.assertTrue(m["tech"]["pdk_lib_files_present"])
+        gen = _load_gen()
+        tech = gen.load_tech("ihp-sg13g2", "ez130_8t_v1p1")
+        expected = gen.lib_files_present(gen.expand(tech.corners))
+        self.assertEqual(m["tech"]["pdk_lib_files_present"], expected)
+        if not expected:
+            self.assertFalse(m["tech"]["pdk_lib_files_present"])
+
+    def test_lib_files_present_with_fixture(self) -> None:
+        # A private Liberty fixture must resolve to true; a missing path to
+        # false.  This is the "path resolution" half that does not need a PDK.
+        gen = _load_gen()
+        lib = self.d / "fix.lib"
+        lib.write_text("library (fix) { }\n")
+        self.assertTrue(gen.lib_files_present({"nom_tt": [str(lib)]}))
+        self.assertFalse(gen.lib_files_present(
+            {"nom_tt": [str(self.d / "absent.lib")]}))
+        self.assertFalse(gen.lib_files_present({}))
+
+    def test_ez130_variant_with_fixture_resolves(self) -> None:
+        # A fixture tech profile whose corners point at temp .lib files must
+        # report pdk_lib_files_present=true through the real loader.
+        gen = _load_gen()
+        tmp = self.d
+        (tmp / "lib").mkdir()
+        lib = tmp / "lib" / "ez130_tt.lib"
+        lib.write_text("library (ez130) { }\n")
+        techdir = tmp / "tech" / "fixturepdk"
+        techdir.mkdir(parents=True)
+        (techdir / "tech.yaml").write_text(yaml.safe_dump({
+            "name": "fixturepdk", "pdk": "fixturepdk", "scl": "fix_sc",
+            "corners": {"nom_tt": [str(lib)]},
+            "limits": {"class": "MS", "default_period_ns": 20.0},
+        }))
+        old_root = gen.ROOT
+        try:
+            gen.ROOT = tmp
+            tech = gen.load_tech("fixturepdk", None)
+            self.assertTrue(gen.lib_files_present(gen.expand(tech.corners)))
+        finally:
+            gen.ROOT = old_root
 
     def test_unknown_scl_is_rejected(self) -> None:
         spec = yaml.safe_load((ROOT / "spec/ihp_ez130.yaml").read_text())

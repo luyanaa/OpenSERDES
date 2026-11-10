@@ -49,6 +49,7 @@ CELL_MODEL: dict[str, tuple[float, float, float, float]] = {
     "word_streaming":         (69.6, 7.451, 11.4, 1.018),
     "fixed_oversampling":    (140.8, 2.411, 31.0, 1.124),
     "fixed_oversampling_os2": (140.8, 2.411, 31.0, 1.124),
+    "bang_bang_oversampling": (150.0, 2.42, 34.0, 1.124),
     "adaptive_oversampling": (770.7, 2.384, 79.0, 1.124),
     "source_sync":            (43.4, 2.393, 14.0, 1.124),
 }

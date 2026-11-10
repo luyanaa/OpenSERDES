@@ -32,7 +32,7 @@ DESIGN_FILES = {
     "serdes_8b10b_top": [
         "serializer.sv", "serializer_pingpong.sv", "deserializer_word.sv",
         "deserializer.sv",
-        "cdr_sync.sv", "cdr_oversampling.sv", "cdr_adaptive.sv",
+        "cdr_sync.sv", "cdr_oversampling.sv", "cdr_adaptive.sv", "cdr_bang_bang.sv",
         "comma_align.sv", "receiver_sampler.sv", "reset_sync.sv",
         "serdes_tx_digital.sv", "serdes_rx_digital.sv",
         "pcs_8b10b_tx.sv", "pcs_8b10b_rx.sv", "pcs_8b10b_comma.sv",
@@ -150,7 +150,8 @@ CAPABILITY_INTEGRATED = {
     "training": {"none": True, "phase_threshold": True},
     "clock_source": {"source_sync": True, "independent": True},
     "clock_recovery": {"none": True, "source_sync": True,
-                       "fixed_oversampling": True, "adaptive_oversampling": True},
+                       "fixed_oversampling": True, "adaptive_oversampling": True,
+                       "bang_bang": True},
     "sampler": {"single_edge": True},
     "tx_driver": {"rtl": True},
     "rx_frontend": {"rtl": True},
@@ -297,6 +298,13 @@ def load_ppa(path: str | None) -> dict[tuple[str, str, str, str], dict[str, Any]
     return entries
 
 
+def lib_files_present(corners: dict[str, list[str]]) -> bool:
+    # True only when every expanded Liberty path exists.  Separate helper
+    # so the fail-closed reporting can be unit-tested without a PDK.
+    files = [Path(x) for libs in corners.values() for x in libs]
+    return bool(files) and all(x.is_file() for x in files)
+
+
 def pareto(candidates: list[tuple[str, dict[str, Any]]]) -> list[str]:
     frontier = []
     for name, cand in candidates:
@@ -378,6 +386,12 @@ def select_arch(kind: str, requested: str | None, target: str, ratio: int,
         elif "metrics_source" not in eff:
             eff["metrics_source"] = ("measured_ppa_db" if ppa_entry
                                      else "tech_override")
+        # bang_bang_oversampling is a specialised CDR; require an explicit
+        # rx.architecture so it does not silently replace the default fixed
+        # loop (which would also bypass measured-PPA gates on that arch).
+        if name == "bang_bang_oversampling" and not requested:
+            reasons.append(f"{name}: requires explicit rx.architecture")
+            continue
         if requested and name != requested:
             continue
         if target == "link" and not eff.get("supports_link", True):
@@ -643,6 +657,7 @@ def validate(spec: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
         fail("rx.architecture source_sync requires rx.clocking: source_sync")
 
     recovery_default = ("source_sync" if clocking == "source_sync" else
+                        "bang_bang" if rx_arch_name == "bang_bang_oversampling" else
                         "adaptive_oversampling" if rx_arch_name == "adaptive_oversampling"
                         else "fixed_oversampling")
     clock_recovery = str(rx.get("clock_recovery", recovery_default)).lower()
@@ -650,8 +665,11 @@ def validate(spec: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
                               "adaptive_oversampling", "bang_bang", "pi_cdr"):
         fail("rx.clock_recovery must be none, source_sync, fixed_oversampling, "
              "adaptive_oversampling, bang_bang or pi_cdr")
-    if clock_recovery in ("bang_bang", "pi_cdr"):
-        fail(f"rx.clock_recovery={clock_recovery!r} is not integrated or verified")
+    if clock_recovery == "pi_cdr":
+        fail("rx.clock_recovery='pi_cdr' is not integrated or verified")
+    if clock_recovery == "bang_bang" and rx_arch_name != "bang_bang_oversampling":
+        fail("rx.clock_recovery='bang_bang' requires "
+             "rx.architecture: bang_bang_oversampling (4x BBPD + NCO)")
     if clock_recovery != recovery_default:
         fail("rx.clock_recovery conflicts with rx.clocking/rx.architecture")
     if clock_source != clocking:
@@ -1913,7 +1931,7 @@ def main() -> int:
     tech = cfg["tech"]
     corners = expand({k: list(v) for k, v in tech.corners.items()})
     lib_files = [Path(p) for libs in corners.values() for p in libs]
-    pdk_lib_files_present = all(p.is_file() for p in lib_files)
+    pdk_lib_files_present = lib_files_present(corners)
     pdk_paths_resolved = (not unresolved(corners)) and pdk_lib_files_present
     if not unresolved(corners) and not pdk_lib_files_present:
         cfg["warnings"].append(

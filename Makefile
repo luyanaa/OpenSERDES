@@ -99,6 +99,9 @@ $(BUILD)/tb_serializer_half_rate: tb/tb_serializer_half_rate.sv rtl/serializer_s
 $(BUILD)/tb_serializer_pingpong: tb/tb_serializer_pingpong.sv rtl/serializer_pingpong.sv | $(BUILD)
 	$(IVERILOG) -g2012 -Wall -o $@ $^
 
+$(BUILD)/tb_cdr_bang_bang: tb/tb_cdr_bang_bang.sv rtl/cdr_sync.sv rtl/cdr_bang_bang.sv | $(BUILD)
+	$(IVERILOG) -g2012 -Wall -o $@ $^
+
 $(BUILD)/tb_deserializer_half_rate: tb/tb_deserializer_half_rate.sv rtl/deserializer_half_rate.sv | $(BUILD)
 	$(IVERILOG) -g2012 -Wall -o $@ $^
 
@@ -246,7 +249,7 @@ $(BUILD)/tb_serdes_bist_word: tb/tb_serdes_bist_word.sv rtl/prbs_word_gen.sv rtl
 SIM_BINS := $(BUILD)/tb_serializer_lsb $(BUILD)/tb_serializer_msb \
             $(BUILD)/tb_serializer_capture $(BUILD)/tb_serializer_stream \
             $(BUILD)/tb_serializer_hier_2to1 $(BUILD)/tb_serializer_half_rate \
-            $(BUILD)/tb_serializer_pingpong \
+            $(BUILD)/tb_serializer_pingpong $(BUILD)/tb_cdr_bang_bang \
             $(BUILD)/tb_deserializer_half_rate $(BUILD)/tb_receiver_pair_sampler \
             $(BUILD)/tb_deserializer_lsb $(BUILD)/tb_deserializer_msb \
             $(BUILD)/tb_serdes_loopback_lsb $(BUILD)/tb_serdes_loopback_msb \
@@ -278,6 +281,7 @@ sim: $(SIM_BINS)
 	$(VVP) $(BUILD)/tb_serializer_hier_2to1
 	$(VVP) $(BUILD)/tb_serializer_half_rate
 	$(VVP) $(BUILD)/tb_serializer_pingpong
+	$(VVP) $(BUILD)/tb_cdr_bang_bang
 	$(VVP) $(BUILD)/tb_deserializer_half_rate
 	$(VVP) $(BUILD)/tb_receiver_pair_sampler
 	$(VVP) $(BUILD)/tb_deserializer_lsb
