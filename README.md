@@ -257,7 +257,7 @@ cdr_adaptive #(
 | DeSer `INT_PAR_IN` 没有正确传递 | 每个 word 单寄存器组，`par_data` 直连，无影子锁存 |
 | CDR 只有门级网表、22 位 SCAN_IN 语义未文档化 | fixed/adaptive/source-sync 三种可综合模式；明确 `sample_strobe/lock/lock_stale/freq_trim` 契约；`comma_align` 帧同步 |
 | 原 Serializer 只有 13 个 DFF（输入寄存器被删），DeSer 更多 | 抽象后 Serializer 266 FF、DeSer 266 FF、Top 550 FF；单时钟 + `enable`，必须走 CTS；见 `docs/clocking.md` |
-| 无 testbench | 自检 TB 见 `Makefile` 的 `SIM_BINS` 与 `tb/`（serializer LSB/MSB/capture/stream、deserializer LSB/MSB、loopback LSB/MSB、32×8、link scoreboard、channel、fixed/adaptive CDR、frame sync、CDR bypass、compat legacy/port-order、APB CSR、async FIFO、AXIS TX/RX adapter + endpoint、PRBS7/15/31、pad BIST7/15/31、word BIST、单/多时钟 SoC wrapper） |
+| 无 testbench | 自检 TB 见 `Makefile` 的 `SIM_BINS` 与 `tb/`（serializer LSB/MSB/capture/stream、deserializer LSB/MSB、loopback LSB/MSB、32×8、link scoreboard、channel、fixed/adaptive CDR、4x bang-bang CDR、phase_offset 0..3 扫描、生成端点 bang-bang、frame sync、CDR bypass、compat legacy/port-order、APB CSR、async FIFO、AXIS TX/RX adapter + endpoint、PRBS7/15/31、pad BIST7/15/31、word BIST、单/多时钟 SoC wrapper） |
 
 ## 4. 验证
 
