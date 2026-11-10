@@ -14,7 +14,9 @@ module tb_cdr_bang_bang #(
     parameter int  PAT_DEF  = 0,  // 0=PRBS, 1=PRBS+long run+PRBS, 2=bursty
     parameter int  KI_DEF      = 1,
     parameter int  KP_SHIFT_DEF = 5,
-    parameter int  LEAK_DEF     = 12   // UIs per LSB, <0 disables
+    parameter int  LEAK_DEF     = 12,  // 2^12 consecutive quiet UIs, <0 disables
+    parameter real PPM2_DEF     = 0.0,
+    parameter int  STEP_AT_DEF  = 0    // 0 = no frequency step
 );
     real ppm;
     int  pattern;
@@ -26,6 +28,10 @@ module tb_cdr_bang_bang #(
     logic [N_CHECK+512-1:0] tx_bits;
     logic [N_CHECK-1:0]     rx_bits;
     int errors, samples, offset, best_errors, errs, lock_wait;
+    real ppm2;
+    int step_at;
+    real period1, period2;
+    int run_bits, best_run, first_err;
     int ph_hist [0:N_CHECK-1];
     int fq_hist [0:N_CHECK-1];
     int s_hist  [0:N_CHECK-1];
@@ -35,7 +41,7 @@ module tb_cdr_bang_bang #(
     // LOCK_STALE_BITS=16, LEAK_UI_BITS=12).  tb_rx_endpoint_cdr additionally
     // proves this by instantiating the generated endpoint itself.
     cdr_bang_bang #(
-        .OVERSAMPLE(OS_PARAM), .SYNC_STAGES(3), .NCO_FRAC(20),
+        .OVERSAMPLE(OS_PARAM), .SYNC_STAGES(3),
         .KI(KI_DEF), .KP_SHIFT(KP_SHIFT_DEF), .LEAK_UI_BITS(LEAK_DEF), .LOCK_EDGES(16),
         .LOCK_STALE_BITS(16), .PHASE_CTRL_W(2), .FRAC_BITS(12)
     ) dut (
@@ -52,7 +58,13 @@ module tb_cdr_bang_bang #(
         pattern = PAT_DEF;
         void'($value$plusargs("PPM=%f", ppm));
         void'($value$plusargs("PATTERN=%d", pattern));
-        bit_period = (OS_PARAM * 10.0) * (1.0 + ppm / 1000000.0);
+        ppm2    = PPM2_DEF;
+        step_at = STEP_AT_DEF;
+        void'($value$plusargs("PPM2=%f", ppm2));
+        void'($value$plusargs("STEP_AT=%d", step_at));
+        period1 = (OS_PARAM * 10.0) * (1.0 + ppm  / 1000000.0);
+        period2 = (OS_PARAM * 10.0) * (1.0 + ppm2 / 1000000.0);
+        bit_period = period1;
     endtask
 
     initial begin
@@ -83,7 +95,7 @@ module tb_cdr_bang_bang #(
         #3.7;
         for (int i = 0; i < N_CHECK+512; i++) begin
             data_in = tx_bits[i];
-            #(bit_period);
+            #((step_at > 0 && i >= step_at) ? period2 : period1);
         end
     end
 
@@ -128,8 +140,19 @@ module tb_cdr_bang_bang #(
                 if (rx_bits[k] !== tx_bits[off + k]) errs++;
             if (errs < best_errors) begin best_errors = errs; offset = off; end
         end
-        for (int k = 0; k < N_CHECK; k++)
-            if (rx_bits[k] !== tx_bits[offset + k]) errors++;
+        run_bits = 0; best_run = 0; first_err = -1;
+        for (int k = 0; k < N_CHECK; k++) begin
+            if (rx_bits[k] !== tx_bits[offset + k]) begin
+                if (first_err < 0) first_err = k;
+                run_bits = 0;
+                errors++;
+            end else begin
+                run_bits++;
+                if (run_bits > best_run) best_run = run_bits;
+            end
+        end
+        $display("INFO: acquisition lock_wait=%0d clocks, longest error-free run=%0d bits, first error at %0d",
+                 lock_wait, best_run, first_err);
         if (lock_stale) begin
             $display("ERROR: lock_stale asserted");
             errors++;

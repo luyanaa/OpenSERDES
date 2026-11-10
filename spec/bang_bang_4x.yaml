@@ -1,7 +1,8 @@
 # 4x BBPD + 2nd-order loop + fractional NCO (CDR_MODE=3).
-# Verified 0/+-700/+-1000 ppm by tb_cdr_bang_bang (5000 and 20000 bits,
-# PRBS / long-run / bursty), phase_offset 0..3 by tb_cdr_phase_offset, and the
-# emitted endpoint by tb_rx_endpoint_cdr at 0/+-700 ppm.
+# Verified 0/+-700/+-1000 ppm by tb_cdr_bang_bang (5000 and 20000 bits, and
+# 100k bits at 6% transition density; PRBS / long-run / bursty / low density),
+# phase_offset 0..3 by tb_cdr_phase_offset, the leak period by tb_cdr_leak,
+# and the emitted endpoint by tb_rx_endpoint_cdr at 0/+-700 ppm.
 name: bang_bang_4x_8x4
 target: rx
 link:

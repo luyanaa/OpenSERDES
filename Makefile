@@ -105,6 +105,9 @@ $(BUILD)/tb_cdr_bang_bang: tb/tb_cdr_bang_bang.sv rtl/cdr_sync.sv rtl/cdr_bang_b
 $(BUILD)/tb_cdr_phase_offset: tb/tb_cdr_phase_offset.sv rtl/cdr_sync.sv rtl/cdr_bang_bang.sv | $(BUILD)
 	$(IVERILOG) -g2012 -Wall -o $@ $^
 
+$(BUILD)/tb_cdr_leak: tb/tb_cdr_leak.sv rtl/cdr_sync.sv rtl/cdr_bang_bang.sv | $(BUILD)
+	$(IVERILOG) -g2012 -Wall -o $@ $^
+
 # The endpoint test compiles the package the generator emits, not the hand-
 # written parameters of tb_cdr_bang_bang, so the delivered RTL is the thing
 # under test.
@@ -264,6 +267,8 @@ SIM_BINS := $(BUILD)/tb_serializer_lsb $(BUILD)/tb_serializer_msb \
             $(BUILD)/tb_serializer_capture $(BUILD)/tb_serializer_stream \
             $(BUILD)/tb_serializer_hier_2to1 $(BUILD)/tb_serializer_half_rate \
             $(BUILD)/tb_serializer_pingpong $(BUILD)/tb_cdr_bang_bang \
+            $(BUILD)/tb_cdr_phase_offset $(BUILD)/tb_cdr_leak \
+            $(BUILD)/tb_rx_endpoint_cdr \
             $(BUILD)/tb_deserializer_half_rate $(BUILD)/tb_receiver_pair_sampler \
             $(BUILD)/tb_deserializer_lsb $(BUILD)/tb_deserializer_msb \
             $(BUILD)/tb_serdes_loopback_lsb $(BUILD)/tb_serdes_loopback_msb \
@@ -297,6 +302,7 @@ sim: $(SIM_BINS)
 	$(VVP) $(BUILD)/tb_serializer_pingpong
 	$(VVP) $(BUILD)/tb_cdr_bang_bang
 	$(VVP) $(BUILD)/tb_cdr_phase_offset
+	$(VVP) $(BUILD)/tb_cdr_leak
 	$(VVP) $(BUILD)/tb_rx_endpoint_cdr
 	$(VVP) $(BUILD)/tb_rx_endpoint_cdr +PPM=700
 	$(VVP) $(BUILD)/tb_rx_endpoint_cdr +PPM=-700

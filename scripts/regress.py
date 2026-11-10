@@ -30,6 +30,9 @@ PLUSARGS = {
     "cdr_bang_bang_longrun": {"PPM": -700.0, "PATTERN": 1},
     "cdr_bang_bang_bursty": {"PPM": 700.0, "PATTERN": 2},
     "cdr_bang_bang_sparse": {"PPM": -700.0, "PATTERN": 3},
+    "cdr_bang_bang_lowdensity_700": {"PPM": 700.0, "PATTERN": 3},
+    "cdr_step_0_to_700": {"PPM": 0.0, "PPM2": 700.0, "STEP_AT": 4000},
+    "cdr_step_700_to_m700": {"PPM": 700.0, "PPM2": -700.0, "STEP_AT": 8000},
 }
 CASES = [
     ("serializer_8x4_lsb", "tb_serializer", ["rtl/serializer.sv"],
@@ -92,6 +95,18 @@ CASES = [
      ["rtl/cdr_sync.sv", "rtl/cdr_bang_bang.sv"], {"OS_PARAM": 4}),
     ("cdr_phase_offset_0_3", "tb_cdr_phase_offset",
      ["rtl/cdr_sync.sv", "rtl/cdr_bang_bang.sv"], {}),
+    ("cdr_leak_period", "tb_cdr_leak",
+     ["rtl/cdr_sync.sv", "rtl/cdr_bang_bang.sv"], {"LEAK_UI_BITS": 3}),
+
+    ("cdr_bang_bang_lowdensity_700", "tb_cdr_bang_bang",
+     ["rtl/cdr_sync.sv", "rtl/cdr_bang_bang.sv"],
+     {"OS_PARAM": 4, "N_CHECK": 20000}),
+    ("cdr_step_0_to_700", "tb_cdr_bang_bang",
+     ["rtl/cdr_sync.sv", "rtl/cdr_bang_bang.sv"],
+     {"OS_PARAM": 4, "N_CHECK": 20000}),
+    ("cdr_step_700_to_m700", "tb_cdr_bang_bang",
+     ["rtl/cdr_sync.sv", "rtl/cdr_bang_bang.sv"],
+     {"OS_PARAM": 4, "N_CHECK": 20000}),
     ("serializer_pingpong_8x4_lsb", "tb_serializer_pingpong",
      ["rtl/serializer_pingpong.sv"], {"DATA_WIDTH": 8, "WORDS": 4, "LSB_FIRST": 1}),
     ("serializer_pingpong_8x4_msb", "tb_serializer_pingpong",

@@ -306,14 +306,28 @@ into `serdes_rx_digital` as `CDR_MODE=3`.
 - **`phase_offset`** moves only the data sample, never the UI boundary.
   `0` is the eye centre, `OVERSAMPLE/2` is the bit boundary (unusable by
   construction), and the values in between walk the sample across the eye.
-- **Leak**: one LSB on the integral path per `LEAK_UI_BITS` UIs that carried
-  no transition (default 12, i.e. 4096 UIs; negative disables).  It is a
-  number of UIs, so it does not depend on transition density.  The earlier
-  per-non-transition-sample leak removed about 0.5 LSB per UI at PRBS density -
-  the same order as the KI=1 update - so it erased the integral path and the
-  loop ran on the proportional term alone (`freq_trim` stayed at 0 even at
-  +700 ppm).  With the per-UI leak the integral settles at the expected value:
-  about -950 LSB at +1000 ppm (1 LSB = 2^-20 clock period per clock).
+- **Leak**: one LSB on the integral path per **2^`LEAK_UI_BITS` consecutive
+  UIs** that carried no transition (default 12, i.e. 4096 UIs; `0` leaks every UI,
+  a negative value disables it).  The counter is `LEAK_UI_BITS` wide and is cleared
+  by a transition, so the period is set by the parameter and not by the
+  transition density.  Two earlier defects are worth recording: a
+  per-non-transition-sample leak removed about 0.5 LSB per UI at PRBS
+  density - the same order as the KI=1 update - so it erased the integral
+  path and the loop ran on the proportional term alone (`freq_trim` stayed at 0
+  even at +700 ppm); and a raw-count comparison made `LEAK_UI_BITS=12` mean 13
+  UIs instead of 4096.  `tb/tb_cdr_leak.sv` seeds `freq_q` directly, holds the
+  line constant and asserts the measured interval for `LEAK_UI_BITS` in
+  {-1, 0, 1, 3, 4, 12}, which is the regression that keeps the RTL, the
+  parameter name and the documentation in agreement.
+
+- **Acquisition rate is bounded by the vote rate**: the integral only moves
+  when the PD votes, so the pull-in time for a frequency offset is roughly
+  `|f_offset| / (KI x transition_density)` UIs.  At PRBS density (~50%) the loop
+  reaches +/-1000 ppm well inside 5000 bits; at the 6% density of pattern 3
+  it needs of the order of 10^4 bits, because only a few hundred votes have
+  been taken.  That is a property of a vote-driven integrator, not a leak
+  artefact, and it is the reason a low-density link cannot claim a fast
+  frequency-pull-in number.
 
 ### 7.2 Verification
 
@@ -324,16 +338,36 @@ frequency offset as a **runtime plusarg** (`+PPM=700`).  This Icarus build
 has no runtime `-P`; the older sweep passed `-P tb.PPM=...` to `vvp`, which
 rejected it, so every entry actually ran at 0 ppm.  The cases now run:
 
-| offset | 5000 bits | 20000 bits |
-|---|---|---|
-| 0, +-100, +-300, +-700 ppm | PASS (PRBS, 256-bit run, bursty, 6% density) | PASS |
-| +-1000 ppm | PASS | PASS |
+| offset / density | 5000 bits | 20000 bits | 100 000 bits |
+|---|---|---|---|
+| 0, +-100, +-300, +-700, +-1000 ppm (PRBS, 256-bit run, bursty) | PASS | PASS | - |
+| +-1000 ppm at 6% transition density | PASS | PASS | PASS |
 
-The low-density case masks two PRBS bits in every 16 line bits, so the loop
-sees long stretches with no vote; it is the check that the leak is a per-UI
-constant and not a transition-density-dependent bias.
+The low-density pattern masks two PRBS bits in every 16 line bits (~6%
+transition density) and is the check that the leak is a per-UI constant rather
+than a transition-density-dependent bias.  It also pins down the acquisition
+boundary, because the integral only moves when the PD votes, so pull-in time
+scales as `|f_offset| / (KI x density)`.
 
-`tb/tb_cdr_phase_offset.sv` drives four instances with `phase_offset` 0..3
+With `NCO_FRAC=20` (0.95 ppm per LSB) that boundary was real: +-1000 ppm at 6%
+density slipped at bit 654 and 2371 of 20000 bits were wrong, because the
+integral needed ~1000 votes to move 734 LSB.  Lowering `NCO_FRAC` to 16 makes
+one LSB 15 ppm, so the same vote count moves the estimate ~16x further in ppm
+and the loop acquires inside the same bit budget.  With `NCO_FRAC=16` the 6%
+density case runs 100 000 bits at +-1000 ppm with **zero** errors, and
+`freq_trim` settles at -65 (the -65 LSB expected for 1000 ppm at 16 fractional
+bits).  The price is a coarser frequency resolution, which shows up as a
+static error of at most half an LSB, i.e. 7.6 ppm, or 0.05 UI of phase drift
+per 10^4 UIs.
+
+Frequency steps (a mid-stream change of the TX rate) are tracked without a
+single bit error over 20000 bits: 0 -> +700 ppm at bit 4000, +700 -> -700 ppm
+at bit 8000 and 0 -> +1000 ppm at bit 2000.  The testbench reports
+`lock_wait` (clocks from enable to lock), the longest error-free run and the
+first error position, so a framing regression shows up as a shrinking run
+rather than as a pass/fail only.
+
+tb/tb_cdr_phase_offset.sv` drives four instances with `phase_offset` 0..3
 from the same stream and checks one strobe per UI (gap within `OS +- 1`) plus
 bit recovery, across several TX clock-to-data skews.  Offsets 0, 1 and 3
 recover every bit at 5000 bits; offset 2 is the boundary and is reported, not
@@ -354,6 +388,28 @@ Two packaging defects were found and fixed while adding this test:
 - `cdr_bang_bang.sv` was missing from the generated filelist of every RX
   design except `serdes_8b10b_top`, so the emitted package could not compile
   the endpoint it advertised.
+
+### 7.4 NCO width (measured, not assumed)
+
+The fractional width of the NCO sets the frequency resolution of the integral
+path, and it is pure arithmetic cost in the 24/25-bit signed loop.  Yosys
+generic-gate counts on `cdr_bang_bang` alone:
+
+| NCO_FRAC | cells | DFF | 1 LSB |
+|---:|---:|---:|---:|
+| 20 | 1489 | 86 | 0.95 ppm |
+| 18 | 1389 | 82 | 3.8 ppm |
+| 16 | 1285 | 78 | 15 ppm |
+| 14 | 1191 | 74 | 61 ppm |
+| 12 | 1076 | 70 | 244 ppm |
+
+16 is the choice: the residual after integral quantisation is at most half an
+LSB (7.6 ppm), which is 0.05 UI of drift per 10^4 UIs, and it saves 204 cells
+(14%) against 20.  14 would drift 0.2 UI per 10^4 UIs, too much for a long
+run.  `KP` is expressed relative to `NCO_FRAC` (`1 << (FR - KP_SHIFT)`),
+so the proportional gain is unchanged by this choice.
+
+
 
 ### 7.3 Limits (do not overclaim)
 

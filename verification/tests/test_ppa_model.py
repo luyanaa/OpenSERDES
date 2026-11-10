@@ -25,7 +25,7 @@ class TestPpaModel(unittest.TestCase):
             "fixed_oversampling": (218, 758),
             "adaptive_oversampling": (847, 1382),
             "source_sync": (120, 656),
-            "bang_bang_oversampling": (1567, 2103),
+            "bang_bang_oversampling": (1411, 1956),
         }
         for arch, (at32, at256) in measured.items():
             est32 = ppa_model.estimate(arch, 32, 4, 25.0, "rx")["cells"]

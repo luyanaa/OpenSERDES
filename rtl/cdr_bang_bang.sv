@@ -32,10 +32,22 @@
 module cdr_bang_bang #(
     parameter int OVERSAMPLE      = 4,
     parameter int SYNC_STAGES     = 3,
-    parameter int NCO_FRAC        = 20,
+    // Fractional bits of the NCO: the frequency resolution of the integral
+    // path, 1 LSB = 2^-NCO_FRAC clock periods per clock (244 ppm at 20, 15 ppm
+    // at 16).  20 is over-provisioned - it costs about 200 extra Yosys cells in
+    // the 24/25-bit signed loop arithmetic for a resolution the PD can never
+    // use.  16 keeps the quantisation drift below 0.05 UI per 10^4 UIs; 14
+    // does not (0.2 UI).  Yosys on this module: 1489 cells at 20, 1285 at 16,
+    // 1191 at 14.
+    parameter int NCO_FRAC        = 16,
+
     parameter int KI              = 1,
     parameter int KP_SHIFT        = 5,
-    parameter int LEAK_UI_BITS    = 12,   // <0 disables the leak
+    // Leak on the integral path: one LSB per 2^LEAK_UI_BITS *consecutive*
+    // UIs that carried no transition.  The counter is cleared by a
+    // transition, so this is a vote-drought timer, not absolute time.
+    // LEAK_UI_BITS = 0 leaks every UI; a negative value disables the leak.
+    parameter int LEAK_UI_BITS    = 12,
     parameter int LOCK_EDGES      = 16,
     parameter int LOCK_STALE_BITS = 16,
     parameter bit CLK_OUT_ENABLE  = 1'b1,
@@ -70,11 +82,15 @@ module cdr_bang_bang #(
     localparam logic signed [FW-1:0] FMIN = -FW'(1 << (FR - 2));
     localparam int LOCK_W  = (LOCK_EDGES <= 1) ? 1 : $clog2(LOCK_EDGES + 1);
     localparam int STALE_W = (LOCK_STALE_BITS <= 1) ? 1 : $clog2(LOCK_STALE_BITS + 1);
-    localparam bit LEAK_ON = (LEAK_UI_BITS >= 0);
-    localparam int LEAK_W  = (LEAK_UI_BITS <= 0) ? 1 : $clog2(LEAK_UI_BITS + 1);
+    localparam bit LEAK_ON        = (LEAK_UI_BITS >= 0);
+    localparam bit LEAK_EVERY_UI  = (LEAK_UI_BITS == 0);
+    // The counter is LEAK_UI_BITS wide, so it counts 0..2^LEAK_UI_BITS-1 and
+    // fires on the 2^LEAK_UI_BITS-th consecutive quiet UI.  Using a raw
+    // count comparison here made LEAK_UI_BITS=12 mean 13 UIs, not 4096.
+    localparam int LEAK_W  = (LEAK_UI_BITS < 1) ? 1 : LEAK_UI_BITS;
     localparam logic [LOCK_W-1:0]  LOCK_MAX  = LOCK_W'(LOCK_EDGES);
     localparam logic [STALE_W-1:0] STALE_MAX = STALE_W'(LOCK_STALE_BITS);
-    localparam logic [LEAK_W-1:0]  LEAK_MAX  = LEAK_W'(LEAK_UI_BITS);
+    localparam logic [LEAK_W-1:0]  LEAK_MAX  = {LEAK_W{1'b1}};
 
     logic [N-1:0]             samples;
     logic                     s;
@@ -196,7 +212,12 @@ module cdr_bang_bang #(
     assign clk_out       = CLK_OUT_ENABLE ? clk_hi_q : 1'b0;
     assign lock          = lock_q;
     assign lock_stale    = stale_q;
+    // Observation port only: FRAC_BITS+1 bits of a 2^NCO_FRAC-range value, so
+    // it saturates (silently wraps) for |freq_q| >= 2^FRAC_BITS, i.e. beyond
+    // 2^12 x 2^-NCO_FRAC clock periods per clock.  It is a loop-state probe in
+    // NCO LSBs, not a calibrated ppm readout.
     assign freq_trim     = freq_q[FRAC_BITS:0];
+
 
     always_ff @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
@@ -249,9 +270,9 @@ module cdr_bang_bang #(
             end
 
             if (wrap) begin
-                // Slow leak on the integral path, once per UI that carried no
-                // transition.  LEAK_UI_BITS is a number of UIs per LSB, so it
-                // is independent of the transition density; the old
+                // Slow leak on the integral path: one LSB per 2^LEAK_UI_BITS
+                // consecutive UIs with no transition, so the rate is set by
+                // the parameter and not by the transition density; the old
                 // per-sample leak removed one LSB on every non-transition sample,
                 // which for PRBS is ~0.5 LSB per UI -
                 // the same order as the KI=1 update, so it erased the
@@ -261,7 +282,7 @@ module cdr_bang_bang #(
                     trans_ui_q <= 1'b0;
                     leak_cnt_q <= '0;
                 end else if (LEAK_ON) begin
-                    if (leak_cnt_q == LEAK_MAX) begin
+                    if (LEAK_EVERY_UI || leak_cnt_q == LEAK_MAX) begin
                         leak_cnt_q <= '0;
                         if (freq_q > 0)      freq_q <= freq_q - 1'b1;
                         else if (freq_q < 0) freq_q <= freq_q + 1'b1;

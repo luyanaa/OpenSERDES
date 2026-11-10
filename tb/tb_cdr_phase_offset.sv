@@ -28,7 +28,7 @@ module tb_cdr_phase_offset #(
     generate
         for (gi = 0; gi < 4; gi = gi + 1) begin : g_dut
             cdr_bang_bang #(
-                .OVERSAMPLE(OS_PARAM), .SYNC_STAGES(3), .NCO_FRAC(20),
+                .OVERSAMPLE(OS_PARAM), .SYNC_STAGES(3),
                 .KI(1), .KP_SHIFT(5), .LEAK_UI_BITS(12), .LOCK_EDGES(16),
                 .LOCK_STALE_BITS(16), .PHASE_CTRL_W(2), .FRAC_BITS(12)
             ) u (

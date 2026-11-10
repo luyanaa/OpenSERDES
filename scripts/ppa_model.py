@@ -27,7 +27,7 @@ Measured cells / DFF:
   rx fixed_oversampling OS8   228 / 68  @32      767 / 320  @256
   rx adaptive_oversampling    847 / 115 @32     1382 / 367  @256
   rx source_sync              120 / 50  @32      656 / 302  @256
-  rx bang_bang_oversampling  1567 / 126 @32     2103 / 378  @256
+  rx bang_bang_oversampling  1411 / 126 @32     1956 / 378  @256
 
 Scope and limits (do not overclaim):
 
@@ -55,7 +55,7 @@ CELL_MODEL: dict[str, tuple[float, float, float, float]] = {
     "word_streaming":         (69.6, 7.451, 11.4, 1.018),
     "fixed_oversampling":    (140.8, 2.411, 31.0, 1.124),
     "fixed_oversampling_os2": (140.8, 2.411, 31.0, 1.124),
-    "bang_bang_oversampling": (1490.4, 2.393, 90.0, 1.125),
+    "bang_bang_oversampling": (1333.1, 2.433, 90.0, 1.125),
     "adaptive_oversampling": (770.7, 2.384, 79.0, 1.124),
     "source_sync":            (43.4, 2.393, 14.0, 1.124),
 }
