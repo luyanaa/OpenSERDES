@@ -257,12 +257,12 @@ cdr_adaptive #(
 | DeSer `INT_PAR_IN` 没有正确传递 | 每个 word 单寄存器组，`par_data` 直连，无影子锁存 |
 | CDR 只有门级网表、22 位 SCAN_IN 语义未文档化 | fixed/adaptive/source-sync 三种可综合模式；明确 `sample_strobe/lock/lock_stale/freq_trim` 契约；`comma_align` 帧同步 |
 | 原 Serializer 只有 13 个 DFF（输入寄存器被删），DeSer 更多 | 抽象后 Serializer 266 FF、DeSer 266 FF、Top 550 FF；单时钟 + `enable`，必须走 CTS；见 `docs/clocking.md` |
-| 无 testbench | 32 个自检 TB（serializer LSB/MSB/capture/stream、deserializer LSB/MSB、loopback LSB/MSB、32×8、link scoreboard、channel、fixed/adaptive CDR、frame sync、CDR bypass、compat legacy/port-order、APB CSR、async FIFO、AXIS TX/RX adapter + endpoint、PRBS7/15/31、pad BIST7/15/31、word BIST、单/多时钟 SoC wrapper） |
+| 无 testbench | 自检 TB 见 `Makefile` 的 `SIM_BINS` 与 `tb/`（serializer LSB/MSB/capture/stream、deserializer LSB/MSB、loopback LSB/MSB、32×8、link scoreboard、channel、fixed/adaptive CDR、frame sync、CDR bypass、compat legacy/port-order、APB CSR、async FIFO、AXIS TX/RX adapter + endpoint、PRBS7/15/31、pad BIST7/15/31、word BIST、单/多时钟 SoC wrapper） |
 
 ## 4. 验证
 
 ```bash
-make sim      # iverilog：32 个自检 TB
+make sim      # iverilog：全部自检 TB（清单见 Makefile SIM_BINS）
 make regress  # 参数矩阵 + link/scoreboard + generator 包检查
 make lint     # Verilator -Wall（0 warning）
 make synth    # Yosys 通用门级检查（先经 sv2v v0.0.12 转成 Verilog）
@@ -289,7 +289,7 @@ make ppa-import PPA_CSV=measured.csv PPA_OUT=tech/ppa_measured.yaml
 - `tb_compat_legacy` / `tb_compat_port_order`：named 和 positional legacy 兼容：PASS
 - Verilator lint：0 warning
 - Yosys synth：仅通用门/DFF，无 latch、无 memory
-- `scripts/regress.py`：63/63，含参数矩阵、link scoreboard、APB/FIFO、AXIS endpoint、PRBS/BIST、单/多时钟 SoC wrapper、generator package、signoff collector 和 measured-PPA gate
+- `scripts/regress.py`：回归矩阵（case 数由脚本动态统计，本次运行 72/72），含参数矩阵、link scoreboard、APB/FIFO、AXIS endpoint、PRBS/BIST、单/多时钟 SoC wrapper、generator package、signoff collector 和 measured-PPA gate
 
 SI/BER 验证框架（`verification/`，纯 Python + 可选 iverilog）：
 
@@ -366,10 +366,11 @@ limits:
 - fixed/adaptive/source-sync 三种 CDR。
 - word-streaming serializer 架构。
 - spec-driven package generator、三级 SDC、qualification gate。
+- 8b/10b、64b/66b 编码层 package（`serdes_8b10b_top` / `serdes_64b66b_top`，generator 的 `coding:` 选择）、scrambler（`pcs_64b66b`）、CRC 原语（`crc_frame` / `axis_crc_*`，CRC-16/32 已验证）。**边界**：编码层 package 不是完整 PCS——8b10b 的 `enc_ctrl` 恒为 0、不产生 K 码/comma，64b66b 无完整 IEEE control-field / lane distribution；CRC 尚未接入生成包的 frame 路径。限制记录在 `manifest.capabilities.coding.limitations` 与 `docs/digital_training_crc.md`。
 
 仍未实现 / 不在本目录承诺：
 
-- 8b10b/64b66b、scrambler、CRC、FEC。
+- FEC、完整 PCS（8b/10b K 码生成、64b/66b control/lane distribution 与完整 gearbox）、CRC 的生成包 frame 接入。
 - 单时钟 `serdes_soc_wrapper`、多时钟 `serdes_soc_cdc_wrapper`、pad BIST 和 word/数据通路 BIST 已实现并测试；APB 控制的注入/环回/快照已集成。仍缺 calibration、non-source-sync SoC CDR 集成，以及 CDC wrapper 的 word BIST（当前只在单时钟 wrapper 中）。
 - Scan/DFT、clock gating、BIST/calibration、DFT signoff。
 - 模拟 TX/RX 的 Verilog-A/RNM wrapper、PEX、SI/PI、jitter/BER、silicon correlation。

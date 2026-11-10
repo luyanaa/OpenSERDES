@@ -19,7 +19,17 @@ limits:
   # docs/prepnr_sta.md.  Endpoint blocks are faster than the full OS=2 link.
   max_endpoint_line_rate_mbps: 100
   max_link_line_rate_mbps: 50
+  max_sample_clock_mhz: 200   # 5 ns RX; 400 MHz is not realistic at 130 nm (prepnr_sta.md 3.5)
   note: "Endpoint 100 Mb/s, OS=2 full link 50 Mb/s; not post-route signoff."
+# Integrated clock gate used by Yosys SYNTH_CLOCKGATE_* when the spec sets
+# optimization.clock_gating: true.  Pins verified in the sky130 TT liberty:
+# cell sky130_fd_sc_hd__dlclkp_1 has CLK / GATE / GCLK.
+clock_gate:
+  icg_cell: sky130_fd_sc_hd__dlclkp_1
+  enable_pin: GATE
+  clk_pin: CLK
+  gated_clk_pin: GCLK
+  min_width: 8
 cts:
   target_skew_ps: 50
   max_slew_ns: 0.5

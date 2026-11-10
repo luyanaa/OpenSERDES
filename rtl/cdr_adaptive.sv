@@ -18,7 +18,15 @@
 //     100 ppm with FRAC_BITS=12.  Jitter tolerance and gate-level equivalence
 //     remain open items.
 //
-// OVERSAMPLE must be >= 4.  OVERSAMPLE == 2 is not supported in adaptive mode.
+// OVERSAMPLE is empirically >= 8.  The header used to say ">= 4", but OS=4
+// does not lock: PHASE_OS_S = OVERSAMPLE + 2 makes phase_err asymmetric for
+// OVERSAMPLE < 8 (phase_q wraps at OVERSAMPLE-1 while phase_err subtracts
+// OVERSAMPLE+2), so the loop has no negative branch.  OS=2 additionally cannot
+// place SAMPLE_BASE inside the period.  Measured 2026-11-10: OS=8 passes at
+// 0/+700/-700 ppm; OS=4 fails with ~45% bit errors at 0 ppm for every
+// SAMPLE_BASE offset and deadband/gain trial.  A lower-oversampling CDR needs
+// a different detector (phase interpolator / DDR / 3-way error), not a
+// parameter change.  See docs/cdr_receiver_digital.md.
 // -----------------------------------------------------------------------------
 module cdr_adaptive #(
     parameter int OVERSAMPLE       = 8,
@@ -30,7 +38,10 @@ module cdr_adaptive #(
     parameter int LOCK_STALE_BITS  = 32,
     parameter int PHASE_DEADBAND   = 1,
     parameter int LOOP_SETTLE_BITS = 32,
-    parameter int PHASE_CTRL_W     = (OVERSAMPLE <= 1) ? 1 : $clog2(OVERSAMPLE)
+    parameter int PHASE_CTRL_W     = (OVERSAMPLE <= 1) ? 1 : $clog2(OVERSAMPLE),
+    // Monitor clock divider (not a functional clock); disable to save the
+    // OS-rate toggle flop.  CLK_OUT_ENABLE=0 ties clk_out low.
+    parameter bit CLK_OUT_ENABLE   = 1'b1
 ) (
     input  logic clk,
     input  logic rst_n,
@@ -169,7 +180,7 @@ module cdr_adaptive #(
 
     assign data_out      = data_out_q;
     assign sample_strobe = sample_strobe_q;
-    assign clk_out       = clk_out_q;
+    assign clk_out       = CLK_OUT_ENABLE ? clk_out_q : 1'b0;
     assign lock          = lock_q;
     assign lock_stale    = lock_stale_q;
     assign freq_trim     = freq_trim_q;
@@ -287,10 +298,14 @@ module cdr_adaptive #(
                 lock_q <= (edge_cnt_q >= LOCK_MAX);
             end
 
-            if (phase_q == clk_high_phase)
-                clk_out_q <= 1'b1;
-            else if (bit_period_end)
+            if (CLK_OUT_ENABLE) begin
+                if (phase_q == clk_high_phase)
+                    clk_out_q <= 1'b1;
+                else if (bit_period_end)
+                    clk_out_q <= 1'b0;
+            end else begin
                 clk_out_q <= 1'b0;
+            end
         end else begin
             sample_strobe_q <= 1'b0;
         end

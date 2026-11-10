@@ -1,0 +1,37 @@
+# Demonstrates that optimization weights/budgets now change the selected
+# architecture (item 4). At 32x8 parallel_mux is excluded by max_ratio_bits=128,
+# so word_group_capture (small) and word_streaming (3.4x cells but marginally
+# lower clock load) are both candidates for target: tx.
+name: power_tradeoff_32x8
+target: tx
+link:
+  payload_width: 32
+  words: 8
+  line_rate_mbps: 25
+  coding: raw
+  bit_order: lsb_first
+tx:
+  architecture: auto
+rx:
+  architecture: fixed_oversampling
+  oversample: 4
+  align: external
+  clocking: independent
+  ppm: 0
+tech:
+  tx: sky130
+  rx: sky130
+interface:
+  preset: minimal
+  data: valid_ready
+  control: native
+  cdc: none
+  enable_mode: static
+constraints:
+  uncertainty_setup_ns: 0.100
+  uncertainty_hold_ns: 0.050
+optimization:
+  objectives: [area, power, latency]
+  weights: {area: 1.0, power: 3.0, latency: 1.0}
+  budgets: {area: 1.2, power: 1.5}
+  aggregation: minmax

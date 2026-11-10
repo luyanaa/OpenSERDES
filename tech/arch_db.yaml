@@ -1,9 +1,24 @@
 # Architecture candidates for the spec-driven generator.
 #
-# Metrics are RELATIVE and deliberately conservative.  They are placeholders
-# for the Pareto search; replace them with measured post-route area/power from
-# the qualification database as data becomes available.  confidence records
-# whether a candidate has been measured in this repository.
+# IMPORTANT: the per-candidate relative area/power/latency triples that used to
+# live here were hand-written guesses.  Synthesis showed they were wrong (e.g.
+# word_streaming was labelled area 0.80 but is ~2.8x the cells of parallel_mux;
+# adaptive_oversampling was labelled area 1.25 but is ~3.9x fixed_oversampling).
+#
+# Metrics are now COMPUTED by scripts/ppa_model.py from a linear cell-count /
+# clock-load model fitted to Yosys generic-gate measurements at RATIO=32 and
+# RATIO=256.  They are RATIO- and OVERSAMPLE-dependent, so a single scalar per
+# candidate cannot represent them.  See scripts/ppa_model.py for the raw data,
+# the derivation and the (significant) limitations.
+#
+# Precedence in scripts/gen_ip.py select_arch():
+#   1. a measured entry from --ppa-db / tech/ppa_measured.yaml  (best)
+#   2. an explicit tech_overrides.<pdk>.metrics mapping        (explicit)
+#   3. the ppa_model computed metrics                          (default)
+#
+# confidence is modeled_yosys_cells: generic-gate ranking, NOT PDK area, NOT
+# measured power, NOT signoff PPA.  latency_factor is documented handshake
+# behaviour, not an STA result.
 tx:
   parallel_mux:
     module: serdes_tx_digital
@@ -11,98 +26,93 @@ tx:
     supports_link: true
     max_ratio_bits: 128
     max_line_rate_mbps: 200
+    latency_factor: 1.00
     tech_overrides:
       sky130:       {max_line_rate_mbps: 50}
       gf180mcuD:    {max_line_rate_mbps: 25}
       ihp-sg13g2:   {max_line_rate_mbps: 50}
       icsprout55:   {max_line_rate_mbps: 100}
-    metrics:
-      area: 1.00
-      power: 1.00
-      latency: 1.00
-    confidence: measured_pre_pnr
-    note: "Single-cycle 256-bit input bank; highest load-enable fanout."
+    confidence: modeled_yosys_cells
+    note: "Single-cycle capture; model: 109 cells @8x4, 582 @32x8. Highest load-enable fanout."
   word_group_capture:
     module: serdes_tx_digital
     capture_mode: 1
     supports_link: true
     max_ratio_bits: 4096
     max_line_rate_mbps: 200
+    latency_factor: 1.25
     tech_overrides:
       sky130:       {max_line_rate_mbps: 100}
       gf180mcuD:    {max_line_rate_mbps: 50}
       ihp-sg13g2:   {max_line_rate_mbps: 100}
       icsprout55:   {max_line_rate_mbps: 200}
-    metrics:
-      area: 1.05
-      power: 0.95
-      latency: 1.25
-    confidence: measured_pre_pnr
-    note: "One word per cycle; external bus must stay stable for WORDS cycles."
+    confidence: modeled_yosys_cells
+    note: "One word per cycle; external bus must stay stable for WORDS cycles. Model: 142 @8x4, 626 @32x8."
   word_streaming:
     module: serdes_tx_stream_digital
     capture_mode: 0
     supports_link: false
     max_ratio_bits: 4096
     max_line_rate_mbps: 150
+    latency_factor: 1.25
     tech_overrides:
       sky130:       {max_line_rate_mbps: 100}
       gf180mcuD:    {max_line_rate_mbps: 50}
       ihp-sg13g2:   {max_line_rate_mbps: 100}
       icsprout55:   {max_line_rate_mbps: 150}
-    metrics:
-      area: 0.80
-      power: 0.85
-      latency: 1.25
-    confidence: estimated
-    note: "Narrow valid/ready input; endpoint-only in this release."
-
+    confidence: modeled_yosys_cells
+    note: "Narrow valid/ready input; endpoint-only. LARGEST cell count (308 @8x4, 1977 @32x8): indexed word write synthesises a WORDS x DATA_WIDTH decoder."
 rx:
   fixed_oversampling:
     module: serdes_rx_digital
     cdr_mode: 0
     min_oversample: 4
     max_line_rate_mbps: 200
+    latency_factor: 1.00
     tech_overrides:
       sky130:       {max_line_rate_mbps: 50}
       gf180mcuD:    {max_line_rate_mbps: 25}
       ihp-sg13g2:   {max_line_rate_mbps: 50}
       icsprout55:   {max_line_rate_mbps: 200}
-    metrics:
-      area: 1.00
-      power: 1.00
-      latency: 1.00
-    confidence: measured_pre_pnr
-    note: "Fixed phase; requires frequency-locked/source-synchronous clocks."
+    confidence: modeled_yosys_cells
+    note: "Fixed phase; requires frequency-locked/source-synchronous clocks. Reference for RX normalisation (OS=4). Model: 218 @8x4, 758 @32x8."
+  fixed_oversampling_os2:
+    module: serdes_rx_digital
+    cdr_mode: 0
+    min_oversample: 2
+    max_oversample: 2
+    max_line_rate_mbps: 200
+    latency_factor: 1.00
+    tech_overrides:
+      sky130:       {max_line_rate_mbps: 50}
+      gf180mcuD:    {max_line_rate_mbps: 25}
+      ihp-sg13g2:   {max_line_rate_mbps: 50}
+      icsprout55:   {max_line_rate_mbps: 200}
+    confidence: modeled_yosys_cells
+    note: "Restricted 2 samples/UI: ~0.5x the clock load of OS=4 but no jitter margin. Requires rx.allow_os2: true; not a general-purpose CDR."
   adaptive_oversampling:
     module: serdes_rx_digital
     cdr_mode: 1
     min_oversample: 8
     max_line_rate_mbps: 100
+    latency_factor: 1.10
     tech_overrides:
       sky130:       {max_line_rate_mbps: 25}
       gf180mcuD:    {max_line_rate_mbps: 12.5}
       ihp-sg13g2:   {max_line_rate_mbps: 50}
       icsprout55:   {max_line_rate_mbps: 100}
-    metrics:
-      area: 1.25
-      power: 1.20
-      latency: 1.10
-    confidence: rtl_validated
-    note: "First-order frequency tracking; use OS>=8 for ppm margin."
+    confidence: modeled_yosys_cells
+    note: "First-order frequency tracking; OS>=8. Highest area AND clock load: 847 @8x4, 1382 @32x8, ~3.4x the clock power of OS=4 fixed."
   source_sync:
     module: serdes_rx_digital
     cdr_mode: 2
     min_oversample: 1
     max_line_rate_mbps: 200
+    latency_factor: 0.75
     tech_overrides:
       sky130:       {max_line_rate_mbps: 100}
       gf180mcuD:    {max_line_rate_mbps: 50}
       ihp-sg13g2:   {max_line_rate_mbps: 100}
       icsprout55:   {max_line_rate_mbps: 200}
-    metrics:
-      area: 0.70
-      power: 0.80
-      latency: 0.75
-    confidence: measured_pre_pnr
-    note: "External forwarded bit clock; no CDR frequency acquisition."
+    confidence: modeled_yosys_cells
+    note: "External forwarded bit clock; no CDR acquisition. Lowest area and ~0.19x the clock load of OS=4 fixed."

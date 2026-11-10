@@ -3,6 +3,22 @@ pdk_root: ${PDK_ROOT}
 pdk: ihp-sg13g2
 scl: sg13g2_stdcell
 default_corner: nom_typ_1p20V_25C
+scl_variants:
+  # ETH Zurich 8-track library measured +2.1 ns faster than sg13g2_stdcell on
+  # the serializer (docs/library_selection.md).  Liberty + LEF present in
+  # /grid/ihp130/ez130_8t_v1p1; DFFRQX2 is the active-low-reset DFF (pin RB).
+  ez130_8t_v1p1:
+    vt: RVT
+    native_dff: DFFRQX2
+    track_height: 8
+    cell_height_um: 3.36
+    corners:
+      nom_typ_1p20V_25C:
+        - /grid/ihp130/ez130_8t_v1p1/lib/ez130_8t_tt_1p20v_25c.lib
+      nom_slow_1p08V_125C:
+        - /grid/ihp130/ez130_8t_v1p1/lib/ez130_8t_ss_1p08v_125c.lib
+      nom_fast_1p32V_m40C:
+        - /grid/ihp130/ez130_8t_v1p1/lib/ez130_8t_ff_1p32v_m40c.lib
 corners:
   nom_typ_1p20V_25C:
     - ${PDK_LIB_ROOT}/ihp-sg13g2/libs.ref/sg13g2_stdcell/lib/sg13g2_stdcell_typ_1p20V_25C.lib
@@ -20,6 +36,7 @@ limits:
   serial_mbps: 50
   max_endpoint_line_rate_mbps: 100
   max_link_line_rate_mbps: 50
+  max_sample_clock_mhz: 200   # 5 ns RX closes at +1.78 ns (prepnr_sta.md 3.5)
 cts:
   target_skew_ps: 50
   max_slew_ns: 0.5

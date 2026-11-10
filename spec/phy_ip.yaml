@@ -1,10 +1,13 @@
-name: phy_ip_32x8_100m
+# 50 Mb/s x OVERSAMPLE 8 = 400 MHz RX, the measured icsprout55 sample-clock
+# limit.  The earlier 100 Mb/s / 800 MHz config was rejected by the
+# max_sample_clock_mhz gate introduced in item 2; it was not a closable spec.
+name: phy_ip_32x8_50m
 target: link
 
 link:
   payload_width: 32
   words: 8
-  line_rate_mbps: 100
+  line_rate_mbps: 50
   coding: raw
   bit_order: lsb_first
 
@@ -32,7 +35,7 @@ tech:
 interface:
   preset: phy_ip
   enable_mode: dynamic
-  user_clock_mhz: 100
+  user_clock_mhz: 50
 
 constraints:
   uncertainty_setup_ns: 0.050

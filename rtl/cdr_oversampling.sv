@@ -44,7 +44,11 @@ module cdr_oversampling #(
     parameter int SYNC_STAGES     = 3,
     parameter int LOCK_THRESH     = 8,
     parameter int LOCK_STALE_BITS = 16,
-    parameter int PHASE_CTRL_W    = (OVERSAMPLE <= 1) ? 1 : $clog2(OVERSAMPLE)
+    parameter int PHASE_CTRL_W    = (OVERSAMPLE <= 1) ? 1 : $clog2(OVERSAMPLE),
+    // Monitor clock divider.  It is not a functional clock (use sample_strobe)
+    // and is false-pathed in the SDC, so it can be disabled to save the
+    // OS-rate toggle flop.  CLK_OUT_ENABLE=0 ties clk_out low.
+    parameter bit CLK_OUT_ENABLE  = 1'b1
 ) (
     input  logic clk,
     input  logic rst_n,
@@ -120,7 +124,7 @@ module cdr_oversampling #(
 
     assign data_out      = data_out_q;
     assign sample_strobe = sample_strobe_q;
-    assign clk_out       = clk_out_q;
+    assign clk_out       = CLK_OUT_ENABLE ? clk_out_q : 1'b0;
     assign lock          = lock_q;
     assign lock_stale    = lock_stale_q;
 
@@ -176,10 +180,14 @@ module cdr_oversampling #(
 
             // Divided monitor clock.  Not a functional clock; use
             // sample_strobe to capture data_out.
-            if (phase_q == HALF_MINUS_1_C)
-                clk_out_q <= 1'b1;
-            else if (bit_period_end)
+            if (CLK_OUT_ENABLE) begin
+                if (phase_q == HALF_MINUS_1_C)
+                    clk_out_q <= 1'b1;
+                else if (bit_period_end)
+                    clk_out_q <= 1'b0;
+            end else begin
                 clk_out_q <= 1'b0;
+            end
         end else begin
             sample_strobe_q <= 1'b0;
         end

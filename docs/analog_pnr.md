@@ -293,11 +293,69 @@ OUT-band regen didn't help because the errors were never in OUT.
 `06-yosys-synthesis`.  If the count drops materially, the residual is mostly a
 pin-window artifact and P1-1 layout regen may shrink to only the RX macro.
 
+**Re-run state (verified 2026-11-10, HEAD `ca416e4`).**  The `hard_link_lef_fix`
+run never reached a signable result, so the LEF pin-window fix is **still
+unverified**:
+
+- `build/analog_pnr_hard/runs/hard_link_lef_fix` advanced to step
+  `48-openroad-detailedrouting` and stopped there.  Steps 47 and 48 have
+  `state_in.json` but no `state_out.json`; there is no `final/` directory
+  and no `final/metrics.json`.  `flow.log` ends inside TritonRoute with
+  `DRT-0418 Term u_rx_frontend/OUT has no pins on routing grid`; `error.log`
+  still carries the earlier `DPL-0036` from a prior placement attempt (later
+  steps were skipped, so that error is historical, not the current blocker).
+- Consequently no `phy-link-closure` record can be produced for
+  `hard_link_lef_fix` -- it is an interrupted run, not a DRC result.  Do not
+  quote its partial counts.
+- The last *completed* hard-macro run is `build/analog_pnr_hard/runs/hard_link`.
+  Regenerating its closure record from the run's own artifacts gives
+  **UNVERIFIED**: `klayout_xor=27`, `magic_drc=60`, `klayout_drc=12`; LVS,
+  STA, route DRC, antenna, power grid and IR-drop all pass
+  (`build/verify/phy_link_closure_hard/phy_link_closure.json`).
+- The soft-stdcell run `build/analog_pnr_sky130/runs/analog_link_signoff`
+  regenerates as **SIGNOFF_ELIGIBLE**
+  (`build/verify/phy_link_closure/phy_link_closure.json`).  It is a physical
+  integration signoff of standard-cell inverters, not the custom-cell link.
+- Standalone Magic DRC on the two legacy macro GDS is clean in this checkout
+  (`make analog-drc`, 0 errors each), confirming the residual is at the
+  macro/top integration boundary, not inside the macro GDS.
+
+**The interrupted run is not resumable as-is.**  `build/analog_pnr_hard/librelane.yaml`
+and `runs/hard_link_lef_fix/resolved.json` bind 34–35 paths to the old
+`/opt/OpenSERDES` checkout (e.g. `analog/macros/sky130_analog_macros.lef`),
+which no longer exists there, and steps 47/48 have no `state_out.json`.
+A `--from 47-openroad-detailedrouting` resume therefore cannot work.  The
+config must be regenerated against the current checkout first (verified
+2026-11-10: produces `/grid/OpenSERDES/...` paths, 0 stale `/opt` paths, and
+keeps `CTS_CLK_BUFFERS`), then a **fresh full run** is required:
+
+```
+export PATH=$HOME/.nix-profile/bin:$PATH
+python3 scripts/gen_analog_pnr_config.py \
+  --package out/sky130-soc --out build/analog_pnr_hard_grid \
+  --pdk-root <sky130-version-root>
+librelane --manual-pdk --pdk-root "$PDK_ROOT" \
+  --run-tag hard_link_lef_fix_grid build/analog_pnr_hard_grid/librelane.yaml
+make phy-link-closure \
+  ANALOG_PNR_RUN=build/analog_pnr_hard_grid/runs/hard_link_lef_fix_grid \
+  PHY_LINK_OUT=build/verify/phy_link_closure_hard_lef_fix
+```
+
+Expect a multi-hour run: the 26Q3 detailed router converges non-monotonically
+on the macro boundary, and the fresh run cannot reuse the interrupted run's
+state.  Until a run reaches `final/`, the hard-macro DRC remains
+**UNVERIFIED** and `90b2fcd` is unproven.
+
 **Toolchain note (Nov 2026).**  The pinned nix toolchain (`openroad-2026-02-17`,
 librelane py3.13 env) was garbage-collected; restored `librelane 3.0.14` +
 `openroad 26Q3` via `nix profile install`.  The newer build is stricter:
-`read_verilog` rejects `output signed` (strip `\bsigned\b` from the generated
-nl.v between `Yosys.Synthesis` and `OpenROAD.CheckSDCFiles`), and
+`read_verilog` rejects `output signed`.  The old workaround was a manual
+`\bsigned\b` strip on `06-yosys-synthesis/serdes_analog_link.nl.v`, which is
+not reproducible and made every fresh run fail at
+`OpenROAD.CheckSDCFiles`.  Fixed at source on 2026-11-10:
+`analog/rtl/serdes_analog_link.sv` now declares `rx_freq_trim` as an
+unsigned bit vector (it is a pure pass-through of the CDR loop state, so the
+bits are unchanged); no manual netlist edit is needed.  Also
 `global_route` errors on residual macro-boundary overflow (set
 `GRT_ALLOW_CONGESTION` + `GRT_OVERFLOW_ITERS=100` in
 `gen_analog_pnr_config.py`, commit `606d2b4`).  The newer detailed router also

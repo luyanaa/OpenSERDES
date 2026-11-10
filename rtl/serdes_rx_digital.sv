@@ -42,6 +42,9 @@ module serdes_rx_digital #(
     parameter logic [SYNC_LEN-1:0] SYNC_PATTERN = 'hBC,
     parameter int ADAPT_FRAC_BITS = 12,
     parameter int ADAPT_LOOP_GAIN = 8,
+    /* verilator lint_off UNUSEDPARAM */
+    parameter bit CLK_OUT_ENABLE = 1'b1,
+    /* verilator lint_on UNUSEDPARAM */
     parameter int PHASE_CTRL_W = (OVERSAMPLE <= 1) ? 1 : $clog2(OVERSAMPLE)
 ) (
     input  logic                              rx_clk,

@@ -1,0 +1,38 @@
+# Low-clock reference config (item 5). rx.clocking: auto resolves to
+# source_sync because clock_power_priority is set and ppm == 0, so the RX clock
+# is 1x the line rate instead of 4x/8x. Requires an external forwarded clock.
+name: low_power_soc_8x4
+target: link
+link:
+  payload_width: 8
+  words: 4
+  line_rate_mbps: 100
+  coding: raw
+  bit_order: lsb_first
+tx:
+  architecture: word_streaming
+rx:
+  architecture: auto
+  oversample: auto
+  align: comma_per_frame
+  clocking: auto
+  ppm: 0
+  sync_pattern: 0xBC
+  sync_len: 8
+tech:
+  tx: {name: icsprout55, scl: ics55_LLSC_H7CL}
+  rx: {name: icsprout55, scl: ics55_LLSC_H7CL}
+interface:
+  preset: soc
+  data: axi4_stream
+  control: apb
+  cdc: async_fifo
+  enable_mode: dynamic
+  user_clock_mhz: 100
+constraints:
+  uncertainty_setup_ns: 0.050
+  uncertainty_hold_ns: 0.020
+optimization:
+  objectives: [area, power, latency]
+  weights: {area: 1.0, power: 3.0, latency: 1.0}
+  clock_power_priority: true

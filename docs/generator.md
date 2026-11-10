@@ -31,7 +31,7 @@ link:
   payload_width: 32
   words: 8
   line_rate_mbps: 100   # serial line rate (wire rate)
-  coding: raw           # only raw is implemented; others fail closed
+  coding: raw           # raw | 8b10b | 64b66b (width/align gated)
   bit_order: lsb_first
 tx:
   architecture: auto    # parallel_mux | word_group_capture | word_streaming
@@ -60,10 +60,16 @@ optimization:
 
 Rules:
 
-- `link.coding` is currently limited to `raw` in a generated link package.
-  8b/10b and 64b/66b encoder/decoder primitives exist as standalone RTL, but
-  are not yet integrated into the PCS data path, so these values still fail
-  closed.
+- `link.coding` accepts `raw`, `8b10b` and `64b66b`.  Coded links generate
+  `serdes_8b10b_top` / `serdes_64b66b_top` (10-bit / 66-bit line words) and are
+  width/align gated: 8b10b needs `payload_width: 8` and `align: external`
+  or `comma_8b10b`; 64b66b needs `payload_width: 64` and `align: external`
+  or `block_lock`.  They are **coding-layer packages, not complete PCS links**:
+  8b10b ties `enc_ctrl` to 0 (no K-codes / comma emitted) and 64b66b lacks
+  full IEEE control-field / lane-distribution semantics.  The exact limitations
+  are recorded in `manifest.capabilities.coding.limitations` and the generated
+  README.  `coding: none` and `interface.data: raw` are not real modes and are
+  rejected.
 - Comma alignment requires `rx.sync_len == link.payload_width`; a comma is a
   full word, not a byte embedded in a wider word.
 - `interface.cdc: auto` is not inferred from equal clock numbers.  For a `soc`
@@ -78,16 +84,37 @@ Rules:
   rx.ppm is non-zero.
 - source_sync uses OVERSAMPLE=1 and CDR_BYPASS=1.
 - `clock_source`, `clock_recovery` and `sampler_architecture` are independent
-  spec axes.  `clock_source` and `clock_recovery` must agree with
-  `rx.clocking`/the selected RX architecture.  Only `single_edge` sampling is
-  integrated; DDR/multiphase/interleaved fail closed until physical phase
-  clocks and a verified sampler backend exist.
+  spec axes, but the vocabulary is deliberately larger than the integrated
+  backend.  **Accepted today**: `clock_source` = `independent` / `source_sync`
+  (must equal `rx.clocking`); `clock_recovery` = `source_sync` /
+  `fixed_oversampling` / `adaptive_oversampling` (must match the RX
+  architecture; `none` only for `target: tx`); `sampler_architecture` =
+  `single_edge`.  **Rejected (fail closed)**: `external_reference`, `ring_pll`,
+  `adpll`, `dll`, `bang_bang`, `pi_cdr`, `ddr`, `multiphase`,
+  `interleaved` -- these need physical phase clocks / verified sampler or PLL
+  backends that do not exist yet.  Listing them in `CAPABILITY_CHOICES` is a
+  roadmap, not a claim of support.
 - The manifest records `clocking.sample_clock_mhz = line_rate_mbps ×
   OVERSAMPLE`; this is an RTL clock requirement, not proof that the target
   standard-cell flow closes at that frequency.
 - The line-rate gate uses max_link_line_rate_mbps for target link and
   max_endpoint_line_rate_mbps for target tx/rx.  --relax-limits is for
   explicit experiments, not signoff.
+- A second, independent gate bounds the **RX sample clock**:
+  `sample_clock_mhz = line_rate_mbps x OVERSAMPLE` must not exceed
+  `limits.max_sample_clock_mhz` for `target: link`/`rx` with oversampling.
+  The four profiles declare 200 / 50 / 200 / 400 MHz (sky130 / gf180mcuD /
+  ihp-sg13g2 / icsprout55), taken from the pre-PnR results in
+  `docs/prepnr_sta.md` -- e.g. 400 MHz on 130 nm is not realistic for this
+  RTL, while 2.5 ns (400 MHz) is demonstrated on icsprout55 H7CL.  Both the
+  measured clock and its limit are recorded in `manifest.clocking`.
+  `--relax-limits` downgrades this to a warning.  Note that
+  `spec/phy_ip.yaml` was corrected from 100 Mb/s / OS=8 (800 MHz, unclosable)
+  to 50 Mb/s / OS=8 (400 MHz) when this gate was added.
+- `constraints` also accepts `io_delay_ns` (0.200), `output_load_pf` (0.010),
+  `sync_stages` (3), `lock_thresh` (8), `lock_stale_bits` (16) and
+  `fifo_depth` (16, must be a power of two).  These used to be hard-coded;
+  defaults are unchanged.
 - `capabilities` is an optional mapping.  A requested standalone or
   unimplemented block is rejected; use the explicit `none` bypass.  See
   `docs/digital_training_crc.md`.
@@ -108,12 +135,22 @@ rate, and optionally metrics) before filtering and scoring.  The generator:
 1. applies the PDK override for the selected tech;
 2. filters by target, RATIO, line rate, oversample and clocking;
 3. computes the Pareto frontier over area/power/latency;
-4. selects the lowest weighted score for the requested objectives.
+4. restricts selection to the frontier, then picks the lowest weighted score
+   for the requested objectives (unless `tx/rx.architecture` was explicit).
 
-The metrics are relative and partly estimated.  They are capability gates, not
-signoff PPA.  Replace them with measured post-route data as the qualification
-database fills in.  The selected candidate, its tech override and confidence are
-recorded in manifest.json.
+Metrics are no longer hand-written scalars in `arch_db.yaml`.
+`scripts/ppa_model.py` computes RATIO- and OVERSAMPLE-dependent area and
+clock-load metrics from a linear cell-count model fitted to Yosys
+generic-gate measurements at 8x4 and 32x8; see [`ppa_model.md`](ppa_model.md).
+Precedence is measured `ppa_measured.yaml` > explicit
+`tech_overrides.<pdk>.metrics` > the model.  These are capability-gate
+estimates, **not** PDK area, measured power or signoff PPA.  The selected
+candidate's `metrics`, `metrics_source`, `ppa_model.estimate`,
+`confidence: modeled_yosys_cells` and
+`confidence_scope: capability_gate_estimate_not_signoff` are recorded in
+manifest.json, together with a top-level `manifest.ppa_model` block.
+`tech.pdk_paths_resolved` also requires the expanded Liberty files to exist;
+`tech.pdk_lib_files_present` records that check separately.
 
 ### Measured PPA database
 
@@ -126,7 +163,21 @@ make ppa-import PPA_CSV=measured.csv PPA_OUT=tech/ppa_measured.yaml
 CSV columns:
 
 ```text
-tech,scl,kind,arch,max_line_rate_mbps,rel_area,rel_power,rel_latency,confidence,source,area_um2,power_mw
+tech,scl,kind,arch,max_line_rate_mbps,rel_area,rel_power,rel_latency,confidence,source,area_um2,power_mw,provenance_report,provenance_sha256,corner,period_ns,git_commit,tool
+```
+
+A `measured_post_route` / `measured_pre_pnr` claim must carry a
+`collect_power.py` evidence record, its sha256, a corner and a period; the
+importer verifies all four and rejects the row otherwise.  `--allow-unproven`
+downgrades such a row to `unverified_claim` instead.  `gen_ip.py` repeats the
+check when loading a `ppa_db`, so a hand-written YAML cannot claim measured
+PPA.  See [`power_flow.md`](power_flow.md).
+
+```bash
+make ppa-power-import POWER_RUN=<librelane-run-dir> \
+  PPA_TECH=sky130 PPA_SCL=sky130_fd_sc_hd \
+  PPA_KIND=rx PPA_ARCH=source_sync PPA_RATE=100 \
+  PPA_CSV=build/ppa/power.csv PPA_OUT=tech/ppa_measured.yaml
 ```
 
 `rel_*` are normalized within one tech/period/signoff setup.  `area_um2` and
@@ -135,6 +186,48 @@ score.  `scripts/gen_ip.py --ppa-db <path>` applies the entries before
 capability filtering; `manifest.json` records `ppa_source`, `confidence` and
 absolute values.  A measured entry with a lower line-rate gate will reject a
 spec that the relative database would have allowed.
+
+### Optimization controls
+
+```yaml
+optimization:
+  objectives: [area, power, latency]
+  weights: {area: 1.0, power: 3.0, latency: 1.0}
+  budgets: {area: 1.2, power: 1.5}
+  aggregation: weighted_sum   # weighted_sum | minmax | lexicographic
+```
+
+- `weights` must use keys from `objectives`, be >= 0, and give at least one
+  objective a positive weight.  Unlike the old equal-weight code, weights now
+  actually change the winner.
+- `budgets` are **hard filters** on the normalised metrics.  A candidate over
+  budget is removed before scoring; the rejected names and reasons are recorded
+  in `manifest.architecture.<side>.selection.budget_rejections`.
+- `aggregation`: `weighted_sum` (default), `minmax` (minimise the worst
+  weighted metric), or `lexicographic` (compare metrics in descending weight
+  order).  The chosen score, weights, budgets and aggregation are all recorded
+  in `manifest.architecture.<side>.selection`; `manifest.optimization` repeats
+  the spec-level settings.
+- **Pareto note:** for any monotone score (all weights >= 0), a dominated
+  candidate can never win, so the frontier filter is informational rather than
+  decisive.  Budgets and weights are the effective levers.  This is stated in
+  `selection.note` so the frontier is not overclaimed.
+- `rx.clocking: auto` resolves to `source_sync` when
+  `optimization.clock_power_priority: true` and `rx.ppm == 0` (an external
+  forwarded clock is required); otherwise it stays `independent`.
+  `rx.oversample: auto` then resolves to 2 when `allow_os2: true`, else 4 (or
+  8 when ppm != 0).  `spec/low_power.yaml` is the reference config and drops
+  the RX clock from 4x to 1x.
+- Whenever the selected RX still uses oversampling, the manifest records
+  `clocking.recommendation`: the lowest-clock alternative, its
+  `alternative_clock_load_ratio` from `ppa_model.py`, and the requirement
+  (forwarded clock, or `allow_os2`).  It is advisory only -- the generator
+  never silently changes clocking.
+- `spec/power_tradeoff.yaml` demonstrates a two-candidate frontier at 32x8
+  (`word_group_capture` vs `word_streaming`) with a budget that rejects the
+  larger one.  A restricted `fixed_oversampling_os2` RX candidate is reachable
+  with `rx.oversample: 2` + `rx.allow_os2: true` and has ~0.5x the clock load
+  of OS=4.
 
 Current candidates:
 
@@ -168,8 +261,10 @@ source through the serializer and checks the RX AXIS frames; its counters are
 at registers 13/14.  `phy_ip` remains a scaffold until
 calibration/DFT integration exists.  `target: tx`/`rx` with
 `interface.data: axi4_stream` generates a real endpoint package.  The presets
-fail fast unless --allow-incomplete is passed, and the generated package
-explicitly records the missing blocks.  The generated manifest starts with
+fail fast unless --allow-incomplete is passed.  A scaffold package now records
+`manifest.missing_blocks` + `features_missing`, emits a warning, and adds a
+"Missing blocks" section to its README.  `make gen` exposes extra flags via
+`GEN_FLAGS` (e.g. `make gen ... GEN_FLAGS=--allow-incomplete`).  The generated manifest starts with
 `link_capability.evidence_level = NONE` and
 `rtl_link_smoke_pass = false`; `make verify-link VERIFY_PACKAGE=<out>` runs the
 bound SI/BER gate and only then records a validated rate, profile hash and the
@@ -188,7 +283,7 @@ verification_config   manifest: CDR mode, OS, align/frame, clock periods, source
   constraints/
     pre_pnr.sdc         async reset excluded; pre-CTS
     post_cts.sdc        propagated clock; reset recovery enabled
-    signoff.sdc         signoff template; reset recovery enabled
+    signoff.sdc         propagated clock + tech design-rule limits; reset recovery enabled
   pnr/librelane.yaml    LibreLane configuration
   pnr/README.md         clock/CTS caveats
   manifest.json         spec hash, git commit, params, architecture, qualification
@@ -211,13 +306,20 @@ The generator emits three SDC files instead of one:
 
 - pre_pnr: reset recovery/removal excluded; used for PnR and early timing.
 - post_cts: set_propagated_clock; reset recovery/removal enabled.
-- signoff: post-CTS plus signoff template; reset recovery/removal enabled.
+- signoff: post-CTS plus `set_max_fanout` / `set_max_transition` /
+  `set_max_capacitance` from `tech/<pdk>/tech.yaml` (cts:).  It is still a
+  template: OCV derates, derated corners and extracted parasitics are explicitly
+  NOT emitted and must be supplied by the PDK signoff flow.  The emitted file
+  says so.
 
 Static enables may be false-pathed.  Dynamic enables must not be; set
 interface.enable_mode: dynamic for a real streaming/backpressure interface.
 
-## 7. Current limitation
+## 7. PnR clock declaration
 
-For target link the PnR config still has a scalar CLOCK_PORT (tx_clk).  The SDC
-creates both tx_clk and rx_clk.  Confirm that the CTS step adds rx_clk to its
-clock set; this is recorded in pnr/README.md and manifest.json.
+`CLOCK_PORT` is emitted as a list of every clock in the design (for
+`target: link`, `[tx_clk, rx_clk]`; for the SoC CDC wrapper all five clocks).
+LibreLane's CTS step uses that list as `CLOCK_NET`, so no manual "add rx_clk to
+the clock set" step remains.  `CLOCK_PERIOD` stays a scalar for the primary
+clock; the per-clock periods are defined by the supplied SDC files.  This is
+recorded in `pnr/README.md` and `manifest.clocking.note`.

@@ -91,7 +91,7 @@
       "status": "gds-pin-shapes",
       "kind": "met1-signal-met4-power",
       "note": "Rectangles extracted from GDS met1.pin (68/16) near canonical labels; not label-only.",
-      "sha256": "e7263df1ece560793726e2eccb99abd8e1f79535f280435530c8ec21d9f4f2fe"
+      "sha256": "53b5486b74f672735496e1e05dd02dbc62dad2c434150860e7aa0960a99f7cbf"
     },
     "liberty": {
       "path": "analog/macros/rx_parallel_inv_macro/macro.lib",

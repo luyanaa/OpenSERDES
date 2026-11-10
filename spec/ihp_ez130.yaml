@@ -1,0 +1,33 @@
+# Uses the measured ETH Zurich 8-track IHP library (item 9).  Per-endpoint
+# libraries are supported by generating target: tx and target: rx separately;
+# a single target: link netlist must use one scl.
+name: ihp_ez130_8x4
+target: tx
+link:
+  payload_width: 8
+  words: 4
+  line_rate_mbps: 100
+  coding: raw
+  bit_order: lsb_first
+tx:
+  architecture: word_group_capture
+rx:
+  architecture: fixed_oversampling
+  oversample: 4
+  align: external
+  clocking: independent
+  ppm: 0
+tech:
+  tx: {name: ihp-sg13g2, scl: ez130_8t_v1p1}
+  rx: {name: ihp-sg13g2, scl: ez130_8t_v1p1}
+interface:
+  preset: minimal
+  data: valid_ready
+  control: native
+  cdc: none
+  enable_mode: static
+constraints:
+  uncertainty_setup_ns: 0.100
+  uncertainty_hold_ns: 0.050
+optimization:
+  objectives: [area, power, latency]

@@ -42,6 +42,22 @@ The generated PEX files are ignored build artifacts.  They contain no model
 library; `magic_pex_compare.py` adds the PDK ngspice library
 (`sky130.lib.spice <corner>`) so nominal and MC runs share models.
 
+## Evidence refresh (2026-11-10, HEAD `ca416e4`)
+
+`make magic-pex` and `make magic-pex-compare` were re-run in the
+`/grid/OpenSERDES` checkout.  The earlier `build/verify/magic_pex/*.json`
+records carried `/opt/OpenSERDES/...` paths from the retired checkout; the
+regenerated `tx_compare.json` now points at `/grid/OpenSERDES/...` and reports
+PEX rise/fall `58.68 ps / 53.32 ps` vs schematic `12.94 ps / 11.61 ps`, with
+a delay-aware best lag of `81.8 ps` -- matching the numbers in the table
+above.  The RX comparison also regenerated cleanly: PEX `tco_fall 1.224 ns`
+/ `OUT_B rise 3.156 ns` vs schematic `1.197 ns` / `3.138 ns`.  Standalone
+Magic DRC on both legacy macro GDS (`make analog-drc`) is also clean (0 errors
+each) in this checkout.  The five stale `sha256` entries in the three
+`analog/macros/*/manifest.json` views (LEF / Liberty) were refreshed as part
+of this run; without that, `make analog-package` -- a CI step -- failed with
+`view lef: sha256 mismatch`.
+
 ## Limits
 
 - The Magic extraction is **RC extraction**, not a DRC/LVS signoff.  The

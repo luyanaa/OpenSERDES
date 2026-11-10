@@ -59,9 +59,11 @@ module serializer_hier_2to1 #(
 
     generate
         for (genvar w = 0; w < WORDS; w++) begin : g_word_bit
-            assign word_bit[w] = LSB_FIRST
+            // Match serializer_stream's operand isolation so the reference
+            // comparison in tb_serializer_hier_2to1 stays bit-exact.
+            assign word_bit[w] = active_q & (LSB_FIRST
                 ? data_q[w][bit_sel_q]
-                : data_q[w][LAST_BIT-bit_sel_q];
+                : data_q[w][LAST_BIT-bit_sel_q]);
         end
         for (genvar w = 0; w < TREE; w++) begin : g_leaf
             if (w < WORDS) begin : g_present

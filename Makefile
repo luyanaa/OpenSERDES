@@ -6,6 +6,7 @@ SV2V     ?= sv2v
 PYTHON   ?= python3
 SPEC     ?= spec/default.yaml
 OUT      ?= out/default
+GEN_FLAGS ?=
 REPORT   ?= spec/qualification_report.example.json
 LEVEL    ?= RTL_FUNCTIONAL
 PACKAGE  ?= out/default
@@ -14,6 +15,13 @@ SIGNOFF_LEVEL ?= POST_ROUTE_TIMING
 PPA_DB   ?= tech/ppa_measured.yaml
 PPA_CSV  ?=
 PPA_OUT  ?= tech/ppa_measured.yaml
+POWER_RUN    ?= build/analog_pnr_sky130/runs/analog_link_signoff
+POWER_RECORD ?= $(BUILD)/verify/power_evidence.json
+PPA_TECH ?= sky130
+PPA_SCL  ?= sky130_fd_sc_hd
+PPA_KIND ?= rx
+PPA_ARCH ?= source_sync
+PPA_RATE ?= 100
 VERIFY_PROFILE ?= verification/profiles/stressed.yaml
 VERIFY_OUT     ?= $(BUILD)/verify/ber.json
 SOC_E2E_PACKAGE ?= out/ci-soc
@@ -55,7 +63,7 @@ RTL   := $(wildcard rtl/*.sv)
 SV2V_DIR := $(BUILD)/sv2v
 SV2V_RTL := $(SV2V_DIR)/rtl.v
 
-.PHONY: all sim lint synth regress gen qualify signoff ppa-import clean si-eye si-bathtub si-jtol si-rtl-jtol verify-link analog-pcell-probe analog-pcell-inv analog-pcell-tx analog-pcell-tx-verify analog-pcell-tx-views analog-pcell-tx-1-4-16 analog-pcell-tx-1-4-16-verify analog-pcell-rx-fb analog-pcell-rx-fb-verify analog-pcell-rx-fb-views analog-freepdk45-probe analog-etri050-probe m3-noise m3-holdout m3-closure analog-stdcell-gen analog-macro-gen analog-contracts analog-gds analog-gds-audit analog-views analog-package analog-macro-pex analog-drc analog-rx-dc analog-rx-pvt mixed-signal-e2e rx-pex-digital-e2e ms-phy-baseline phy-link-closure soc-e2e soc-e2e-stress analog-lut sky130-lut analog-lut-demo analog-tech-check sky130-pvt pvt-margin pdk-mc xyce-global-mc magic-pex magic-pex-compare sky130-mc pex-compare lib-catalog timing-compare analog-macro-package
+.PHONY: all sim lint synth regress gen qualify signoff ppa-import ppa-power-import clean si-eye si-bathtub si-jtol si-rtl-jtol verify-link analog-pcell-probe analog-pcell-inv analog-pcell-tx analog-pcell-tx-verify analog-pcell-tx-views analog-pcell-tx-1-4-16 analog-pcell-tx-1-4-16-verify analog-pcell-rx-fb analog-pcell-rx-fb-verify analog-pcell-rx-fb-views analog-freepdk45-probe analog-etri050-probe m3-noise m3-holdout m3-closure analog-stdcell-gen analog-macro-gen analog-contracts analog-gds analog-gds-audit analog-views analog-package analog-macro-pex analog-drc analog-rx-dc analog-rx-pvt mixed-signal-e2e rx-pex-digital-e2e ms-phy-baseline phy-link-closure soc-e2e soc-e2e-stress analog-lut sky130-lut analog-lut-demo analog-tech-check sky130-pvt pvt-margin pdk-mc xyce-global-mc magic-pex magic-pex-compare sky130-mc pex-compare lib-catalog timing-compare analog-macro-package
 
 all: sim
 
@@ -86,6 +94,9 @@ $(BUILD)/tb_serializer_hier_2to1: tb/tb_serializer_hier_2to1.sv rtl/serializer_s
 	$(IVERILOG) -g2012 -Wall -o $@ $^
 
 $(BUILD)/tb_serializer_half_rate: tb/tb_serializer_half_rate.sv rtl/serializer_stream.sv rtl/serializer_half_rate.sv | $(BUILD)
+	$(IVERILOG) -g2012 -Wall -o $@ $^
+
+$(BUILD)/tb_serializer_pingpong: tb/tb_serializer_pingpong.sv rtl/serializer_pingpong.sv | $(BUILD)
 	$(IVERILOG) -g2012 -Wall -o $@ $^
 
 $(BUILD)/tb_deserializer_half_rate: tb/tb_deserializer_half_rate.sv rtl/deserializer_half_rate.sv | $(BUILD)
@@ -235,6 +246,7 @@ $(BUILD)/tb_serdes_bist_word: tb/tb_serdes_bist_word.sv rtl/prbs_word_gen.sv rtl
 SIM_BINS := $(BUILD)/tb_serializer_lsb $(BUILD)/tb_serializer_msb \
             $(BUILD)/tb_serializer_capture $(BUILD)/tb_serializer_stream \
             $(BUILD)/tb_serializer_hier_2to1 $(BUILD)/tb_serializer_half_rate \
+            $(BUILD)/tb_serializer_pingpong \
             $(BUILD)/tb_deserializer_half_rate $(BUILD)/tb_receiver_pair_sampler \
             $(BUILD)/tb_deserializer_lsb $(BUILD)/tb_deserializer_msb \
             $(BUILD)/tb_serdes_loopback_lsb $(BUILD)/tb_serdes_loopback_msb \
@@ -265,6 +277,7 @@ sim: $(SIM_BINS)
 	$(VVP) $(BUILD)/tb_serializer_stream
 	$(VVP) $(BUILD)/tb_serializer_hier_2to1
 	$(VVP) $(BUILD)/tb_serializer_half_rate
+	$(VVP) $(BUILD)/tb_serializer_pingpong
 	$(VVP) $(BUILD)/tb_deserializer_half_rate
 	$(VVP) $(BUILD)/tb_receiver_pair_sampler
 	$(VVP) $(BUILD)/tb_deserializer_lsb
@@ -668,7 +681,7 @@ regress:
 	$(PYTHON) scripts/regress.py
 
 gen:
-	SV2V=$(SV2V) $(PYTHON) scripts/gen_ip.py --spec $(SPEC) --out $(OUT) --force --ppa-db $(PPA_DB)
+	SV2V=$(SV2V) $(PYTHON) scripts/gen_ip.py --spec $(SPEC) --out $(OUT) --force --ppa-db $(PPA_DB) $(GEN_FLAGS)
 
 qualify:
 	$(PYTHON) scripts/qualify.py --report $(REPORT) --level $(LEVEL)
@@ -678,6 +691,15 @@ signoff:
 
 ppa-import:
 	$(PYTHON) scripts/import_ppa.py --csv $(PPA_CSV) --out $(PPA_OUT)
+
+# Derive a provenance-complete measured PPA row from a completed LibreLane run.
+# collect_power.py fails closed if final/metrics.json has no power__* keys.
+ppa-power-import:
+	$(PYTHON) scripts/collect_power.py --run $(POWER_RUN) --out $(POWER_RECORD) \
+		--csv-out $(PPA_CSV) --tech $(PPA_TECH) --scl $(PPA_SCL) \
+		--kind $(PPA_KIND) --arch $(PPA_ARCH) --rate $(PPA_RATE) \
+		--source $(POWER_RUN)
+	$(PYTHON) scripts/import_ppa.py --csv $(PPA_CSV) --out $(PPA_OUT) --replace
 
 clean:
 	rm -rf $(BUILD) out

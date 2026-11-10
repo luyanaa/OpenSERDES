@@ -213,6 +213,24 @@ before using it for a commit or a tapeout-oriented flow.
 - IHP EZ130 8T: measured +2.1 ns serializer advantage over `sg13g2_stdcell`;
   validation is the remaining gate.
 
+### Generator-selectable variants (item 9)
+
+`tech/ihp-sg13g2/tech.yaml` now declares `scl_variants.ez130_8t_v1p1`
+(Liberty + LEF present under `/grid/ihp130/ez130_8t_v1p1`, active-low-reset
+DFF `DFFRQX2`, 8-track 0.42 x 3.36 um).  Select it with
+`tech: {tx: {name: ihp-sg13g2, scl: ez130_8t_v1p1}, ...}`;
+`spec/ihp_ez130.yaml` is the reference and generates with
+`pdk_lib_files_present: true`.  The icsprout55 H7CH/H7CL/H7CR variants remain
+available.  sky130 `hs`/`hdll` and gf180 `mcu9t5v0` are still **not**
+selectable: no complete Liberty set for them exists in this installation, so
+adding a profile would only produce an unresolvable `pdk_lib_files_present:
+false` entry.
+
+Per-endpoint libraries: a single `target: link` netlist must use one scl.
+Generate `target: tx` and `target: rx` separately (optionally with different
+scl variants) and compose the link outside the generator.  The gate message
+says so explicitly.
+
 ## 6. Generator integration rule
 
 A library is selectable only if it has a `scl_variants` entry with its own

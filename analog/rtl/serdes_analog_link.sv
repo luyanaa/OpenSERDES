@@ -46,7 +46,10 @@ module serdes_analog_link #(
     output logic rx_sample_strobe,
     output logic rx_serial_data,
     output logic rx_serial_valid,
-    output logic signed [ADAPT_FRAC_BITS:0] rx_freq_trim,
+    // Unsigned bit vector on purpose: OpenROAD 26Q3's read_verilog rejects
+    // "output signed" in the Yosys-generated netlist.  This port is a pure
+    // pass-through of the CDR loop state; no signed arithmetic is done here.
+    output logic [ADAPT_FRAC_BITS:0] rx_freq_trim,
     output logic rx_clk_out,
     output logic [15:0][31:0] csr_regs
 );

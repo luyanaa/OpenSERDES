@@ -43,6 +43,7 @@ limits:
   serial_mbps: 50
   max_endpoint_line_rate_mbps: 200
   max_link_line_rate_mbps: 200
+  max_sample_clock_mhz: 400   # 2.5 ns RX demonstrated at +0.315 ns (prepnr_sta.md 3.6)
   note: "H7CL 5 ns TX + OS=2; RX can close at 2.5 ns. Endpoint/link gates are pre-PnR."
   note: "H7CH=HVT, H7CL=LVT, H7CR=RVT; all 7-track. PDK_ROOT is the Librelane overlay; PDK_LIB_ROOT is the icsprout55-pdk library root."
 cts:

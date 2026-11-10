@@ -6,7 +6,11 @@ module serdes_tx_digital #(
     parameter int DATA_WIDTH   = 32,
     parameter int WORDS        = 8,
     parameter bit LSB_FIRST    = 1'b1,
-    parameter bit CAPTURE_MODE = 1'b0
+    parameter bit CAPTURE_MODE = 1'b0,
+    // PINGPONG=1 selects the dual-bank serializer (item 10): ready stays high
+    // on back-to-back frames instead of dropping for WORDS capture cycles, at
+    // the cost of one extra WORDS x DATA_WIDTH register bank.
+    parameter bit PINGPONG     = 1'b0
 ) (
     input  logic                              tx_clk,
     input  logic                              tx_rst_n,
@@ -28,22 +32,43 @@ module serdes_tx_digital #(
         .rst_n_out(tx_rst_n_sync)
     );
 
-    serializer #(
-        .DATA_WIDTH(DATA_WIDTH),
-        .WORDS(WORDS),
-        .LSB_FIRST(LSB_FIRST),
-        .CAPTURE_MODE(CAPTURE_MODE)
-    ) u_serializer (
-        .clk(tx_clk),
-        .rst_n(tx_rst_n_sync),
-        .enable(tx_enable),
-        .load(tx_load),
-        .par_data(tx_par_data),
-        .ready(tx_ready),
-        .serial_out(tx_serial_out),
-        .serial_valid(tx_serial_valid),
-        .busy(tx_busy),
-        .frame_done(tx_frame_done)
-    );
+    generate
+        if (PINGPONG) begin : g_pingpong
+            serializer_pingpong #(
+                .DATA_WIDTH(DATA_WIDTH),
+                .WORDS(WORDS),
+                .LSB_FIRST(LSB_FIRST)
+            ) u_serializer (
+                .clk(tx_clk),
+                .rst_n(tx_rst_n_sync),
+                .enable(tx_enable),
+                .load(tx_load),
+                .par_data(tx_par_data),
+                .ready(tx_ready),
+                .serial_out(tx_serial_out),
+                .serial_valid(tx_serial_valid),
+                .busy(tx_busy),
+                .frame_done(tx_frame_done)
+            );
+        end else begin : g_single
+            serializer #(
+                .DATA_WIDTH(DATA_WIDTH),
+                .WORDS(WORDS),
+                .LSB_FIRST(LSB_FIRST),
+                .CAPTURE_MODE(CAPTURE_MODE)
+            ) u_serializer (
+                .clk(tx_clk),
+                .rst_n(tx_rst_n_sync),
+                .enable(tx_enable),
+                .load(tx_load),
+                .par_data(tx_par_data),
+                .ready(tx_ready),
+                .serial_out(tx_serial_out),
+                .serial_valid(tx_serial_valid),
+                .busy(tx_busy),
+                .frame_done(tx_frame_done)
+            );
+        end
+    endgenerate
 
 endmodule

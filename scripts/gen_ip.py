@@ -24,11 +24,14 @@ import yaml
 
 ROOT = Path(__file__).resolve().parent.parent
 ARCH_DB_PATH = ROOT / "tech" / "arch_db.yaml"
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import ppa_model  # noqa: E402  (RATIO-aware area/clock-load model)
 
 # Source dependencies for each generated design.
 DESIGN_FILES = {
     "serdes_8b10b_top": [
-        "serializer.sv", "deserializer_word.sv", "deserializer.sv",
+        "serializer.sv", "serializer_pingpong.sv", "deserializer_word.sv",
+        "deserializer.sv",
         "cdr_sync.sv", "cdr_oversampling.sv", "cdr_adaptive.sv",
         "comma_align.sv", "receiver_sampler.sv", "reset_sync.sv",
         "serdes_tx_digital.sv", "serdes_rx_digital.sv",
@@ -37,7 +40,8 @@ DESIGN_FILES = {
         "encoder_8b10b.sv", "decoder_8b10b.sv", "serdes_8b10b_top.sv",
     ],
     "serdes_64b66b_top": [
-        "serializer.sv", "deserializer_word.sv", "deserializer.sv",
+        "serializer.sv", "serializer_pingpong.sv", "deserializer_word.sv",
+        "deserializer.sv",
         "cdr_sync.sv", "cdr_oversampling.sv", "cdr_adaptive.sv",
         "comma_align.sv", "pcs_8b10b_comma.sv", "pcs_64b66b_lock.sv",
         "receiver_sampler.sv", "reset_sync.sv",
@@ -45,18 +49,23 @@ DESIGN_FILES = {
         "serdes_64b66b_top.sv",
     ],
     "serdes_digital_top": [
-        "serializer.sv", "deserializer_word.sv", "deserializer.sv",
+        "serializer.sv", "serializer_pingpong.sv", "deserializer_word.sv",
+        "deserializer.sv",
         "cdr_sync.sv", "cdr_oversampling.sv", "cdr_adaptive.sv",
         "comma_align.sv", "receiver_sampler.sv", "reset_sync.sv",
         "serdes_tx_digital.sv", "serdes_rx_digital.sv",
         "serdes_digital_top.sv",
     ],
     "serdes_tx_digital": [
-        "serializer.sv", "reset_sync.sv", "serdes_tx_digital.sv",
+        "serializer.sv", "serializer_pingpong.sv", "reset_sync.sv",
+        "serdes_tx_digital.sv",
     ],
     "serdes_tx_stream_digital": [
         "serializer_stream.sv", "reset_sync.sv",
         "serdes_tx_stream_digital.sv",
+    ],
+    "serdes_tx_half_rate_digital": [
+        "serializer_half_rate.sv", "serdes_tx_half_rate_digital.sv",
     ],
     "serdes_tx_axis_digital": [
         "axis_tx_adapter.sv", "serializer_stream.sv", "reset_sync.sv",
@@ -111,7 +120,7 @@ PRESETS = {
                "features": ["bist", "calibration", "dft"]},
 }
 
-CODING_FACTOR = {"raw": 1.0, "none": 1.0, "8b10b": 1.25, "64b66b": 66.0 / 64.0}
+CODING_FACTOR = {"raw": 1.0, "8b10b": 1.25, "64b66b": 66.0 / 64.0}
 
 # Digital capability vocabulary.  Values are implementation classes; the
 # generator only accepts options that are present in an integrated generated
@@ -214,6 +223,7 @@ class Tech:
     native_dff: str
     limits: dict[str, Any]
     cts: dict[str, Any]
+    clock_gate: dict[str, Any]
 
 
 def load_tech(name: str, scl_override: str | None) -> Tech:
@@ -244,6 +254,7 @@ def load_tech(name: str, scl_override: str | None) -> Tech:
         native_dff=(variant or {}).get("native_dff", data.get("native_dff", "")),
         limits=data.get("limits", {}),
         cts=data.get("cts", {}),
+        clock_gate=data.get("clock_gate", {}) or {},
     )
 
 
@@ -253,8 +264,17 @@ def load_arch_db() -> dict[str, dict[str, Any]]:
     return yaml.safe_load(ARCH_DB_PATH.read_text())
 
 
+PPA_WARNINGS: list[str] = []
+PPA_MEASURED = {"measured_post_route", "measured_pre_pnr"}
+
+
 def load_ppa(path: str | None) -> dict[tuple[str, str, str, str], dict[str, Any]]:
-    """Load measured PPA entries keyed by (tech, scl, kind, arch)."""
+    """Load measured PPA entries keyed by (tech, scl, kind, arch).
+
+    A measured claim is only trusted when its provenance block was verified by
+    import_ppa.py.  A hand-written YAML that skips the importer is downgraded
+    here, so the manifest can never claim measured PPA without evidence.
+    """
     if not path:
         return {}
     ppa_path = Path(path)
@@ -264,6 +284,15 @@ def load_ppa(path: str | None) -> dict[tuple[str, str, str, str], dict[str, Any]
     entries: dict[tuple[str, str, str, str], dict[str, Any]] = {}
     for entry in data.get("entries", []):
         key = (entry["tech"], entry.get("scl", ""), entry["kind"], entry["arch"])
+        if entry.get("confidence") in PPA_MEASURED:
+            prov = entry.get("provenance") or {}
+            if prov.get("verified") is not True or not prov.get("metrics_sha256"):
+                entry = dict(entry)
+                entry["confidence"] = "unverified_claim"
+                entry["provenance_warning"] = (
+                    "measured PPA claim has no verified provenance; downgraded")
+                PPA_WARNINGS.append(
+                    f"ppa_db {key}: measured claim downgraded to unverified_claim")
         entries[key] = entry
     return entries
 
@@ -286,10 +315,21 @@ def pareto(candidates: list[tuple[str, dict[str, Any]]]) -> list[str]:
     return frontier
 
 
+def _model_metrics(kind: str, name: str, db: dict[str, Any], ratio: int,
+                   oversample: int, line_rate: float,
+                   latency_factor: float) -> dict[str, float]:
+    ref_arch = ppa_model.REFERENCE[kind][0]
+    ref_lat = float(db.get(ref_arch, {}).get("latency_factor", 1.0))
+    return ppa_model.relative_metrics(
+        kind, name, ratio, oversample, line_rate,
+        latency_factor=latency_factor, reference_latency=ref_lat)
+
+
 def select_arch(kind: str, requested: str | None, target: str, ratio: int,
                 line_rate: float, oversample: int, objectives: list[str],
                 clocking: str, ppm: float, tech_name: str, tech_scl: str,
-                ppa: dict[tuple[str, str, str, str], dict[str, Any]]) -> dict[str, Any]:
+                ppa: dict[tuple[str, str, str, str], dict[str, Any]],
+                opt: dict[str, Any] | None = None) -> dict[str, Any]:
     db = load_arch_db().get(kind, {})
     candidates: list[tuple[str, dict[str, Any]]] = []
     reasons: list[str] = []
@@ -311,8 +351,33 @@ def select_arch(kind: str, requested: str | None, target: str, ratio: int,
                 eff["metrics"] = dict(ppa_entry["metrics"])
             eff["confidence"] = ppa_entry.get("confidence", "measured_post_route")
             eff["ppa_source"] = ppa_entry.get("source", "")
+            if ppa_entry.get("provenance"):
+                eff["ppa_provenance"] = ppa_entry["provenance"]
+            if ppa_entry.get("provenance_warning"):
+                eff["provenance_warning"] = ppa_entry["provenance_warning"]
             if "absolute" in ppa_entry:
                 eff["absolute"] = ppa_entry["absolute"]
+        # Metrics precedence: measured PPA > explicit tech_overrides.metrics
+        # > the RATIO-aware ppa_model.  Never leave a hand-written guess.
+        if "metrics" not in eff:
+            try:
+                eff["metrics"] = _model_metrics(
+                    kind, name, db, ratio, oversample, line_rate,
+                    float(eff.get("latency_factor", 1.0)))
+                eff["metrics_source"] = "ppa_model"
+                eff["ppa_model"] = {
+                    "source": ppa_model.MODEL_SOURCE,
+                    "estimate": ppa_model.estimate(
+                        name, ratio, oversample, line_rate, kind),
+                }
+                eff["confidence"] = "modeled_yosys_cells"
+            except KeyError:
+                eff["metrics"] = {"area": 1.0, "power": 1.0, "latency": 1.0}
+                eff["metrics_source"] = "no_model_fallback"
+                eff["confidence"] = "unmodeled"
+        elif "metrics_source" not in eff:
+            eff["metrics_source"] = ("measured_ppa_db" if ppa_entry
+                                     else "tech_override")
         if requested and name != requested:
             continue
         if target == "link" and not eff.get("supports_link", True):
@@ -328,6 +393,9 @@ def select_arch(kind: str, requested: str | None, target: str, ratio: int,
         if kind == "rx":
             if oversample < eff.get("min_oversample", 1):
                 reasons.append(f"{name}: OVERSAMPLE {oversample} < min")
+                continue
+            if "max_oversample" in eff and oversample > eff["max_oversample"]:
+                reasons.append(f"{name}: OVERSAMPLE {oversample} > max")
                 continue
             if clocking == "source_sync" and name != "source_sync":
                 reasons.append(f"{name}: clocking is source_sync")
@@ -347,26 +415,70 @@ def select_arch(kind: str, requested: str | None, target: str, ratio: int,
         detail = "\n  ".join(reasons) if reasons else "no candidates"
         fail(f"no {kind} architecture satisfies the spec:\n  {detail}")
 
+    opt = opt or {}
+    objective_set = opt.get("objectives") or objectives or ["area", "power", "latency"]
+    weights = opt.get("weights") or {o: 1.0 for o in objective_set}
+    budgets = opt.get("budgets") or {}
+    aggregation = opt.get("aggregation", "weighted_sum")
+
+    # Hard budgets are the effective lever: they remove candidates, unlike the
+    # Pareto filter (see note in result["selection"]).
+    budget_rejections: list[str] = []
+    if budgets:
+        kept = []
+        for n, c in candidates:
+            m = c.get("metrics", {})
+            bad = [k for k, v in budgets.items() if float(m.get(k, 0.0)) > v]
+            if bad:
+                budget_rejections.append(f"{n}: {'/'.join(bad)} exceeds budget")
+                reasons.append(f"{n}: {'/'.join(bad)} exceeds budget")
+            else:
+                kept.append((n, c))
+        candidates = kept
+        if not candidates:
+            fail(f"no {kind} architecture satisfies budgets {budgets}:\n  " +
+                 "\n  ".join(budget_rejections))
     frontier = pareto(candidates)
+
+    def score(item: tuple[str, dict[str, Any]]):
+        metrics = item[1].get("metrics", {})
+        vals = [weights.get(k, 0.0) * float(metrics.get(k, 0.0))
+                for k in objective_set]
+        if aggregation == "minmax":
+            return max(vals) if vals else 0.0
+        if aggregation == "lexicographic":
+            order = sorted(range(len(objective_set)),
+                           key=lambda i: -weights.get(objective_set[i], 0.0))
+            return tuple(vals[i] for i in order)
+        total = sum(weights.get(k, 0.0) for k in objective_set) or 1.0
+        return sum(vals) / total
+
     if requested:
         chosen_name, chosen = candidates[0]
     else:
-        objective_set = objectives or ["area", "power", "latency"]
-        weights = {o: 1.0 for o in objective_set}
-
-        def score(item: tuple[str, dict[str, Any]]) -> float:
-            metrics = item[1].get("metrics", {})
-            total = sum(weights.values()) or 1.0
-            return sum(weights.get(k, 0.0) * float(metrics.get(k, 0.0))
-                       for k in objective_set) / total
-
-        chosen_name, chosen = min(candidates, key=score)
+        eligible = [(n, c) for n, c in candidates if n in frontier]
+        chosen_name, chosen = min(eligible, key=score)
+    chosen_score = score((chosen_name, chosen))
+    if isinstance(chosen_score, tuple):
+        chosen_score = list(chosen_score)
 
     result = dict(chosen)
     result["name"] = chosen_name
     result["frontier"] = frontier
     result["confidence"] = chosen.get("confidence", "estimated")
+    result["confidence_scope"] = "capability_gate_estimate_not_signoff"
     result["tech"] = tech_name
+    result["selection"] = {
+        "objectives": objective_set,
+        "weights": weights,
+        "budgets": budgets,
+        "aggregation": aggregation,
+        "score": chosen_score,
+        "budget_rejections": budget_rejections,
+        "note": ("For any monotone score (all weights >= 0) a dominated "
+                 "candidate can never win, so the Pareto filter is informational. "
+                 "Hard budgets and weights are the effective selection levers."),
+    }
     return result
 
 
@@ -432,10 +544,23 @@ def validate(spec: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
     rx = spec.get("rx", {}) or {}
     if not isinstance(tx, dict) or not isinstance(rx, dict):
         fail("tx and rx must be mappings")
-    clocking = str(rx.get("clocking", "independent")).lower()
-    if clocking not in ("independent", "source_sync"):
-        fail("rx.clocking must be independent or source_sync")
     ppm = as_float(rx.get("ppm", 0.0), "rx.ppm")
+    opt_in = spec.get("optimization", {}) or {}
+    power_first = bool(opt_in.get("clock_power_priority", False)) if isinstance(opt_in, dict) else False
+    clocking_raw = str(rx.get("clocking", "independent")).lower()
+    if clocking_raw == "auto":
+        # "auto" resolves to the lowest-clock option that still meets the link
+        # requirements.  source_sync needs an external forwarded clock; it is
+        # only chosen when the spec explicitly asks for power-first behaviour
+        # and there is no ppm offset to track.
+        clocking = "source_sync" if (power_first and abs(ppm) == 0) else "independent"
+        spec.setdefault("_warnings", []).append(
+            f"rx.clocking=auto resolved to {clocking} "
+            f"(clock_power_priority={power_first}, ppm={ppm})")
+    elif clocking_raw in ("independent", "source_sync"):
+        clocking = clocking_raw
+    else:
+        fail("rx.clocking must be independent, source_sync or auto")
 
     # Clock generation, recovery and sampler are separate axes.  They must
     # not be inferred from one another when the user asks for a physical
@@ -459,7 +584,13 @@ def validate(spec: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
     elif clocking == "source_sync":
         oversample = 1
     elif os_raw in (None, "auto"):
-        oversample = 8 if abs(ppm) > 0 else 4
+        if abs(ppm) > 0:
+            oversample = 8
+        elif power_first and bool(rx.get("allow_os2", False)):
+            # Restricted 2x mode: half the clock load of OS=4, no jitter margin.
+            oversample = 2
+        else:
+            oversample = 4
     else:
         oversample = as_int(os_raw, "rx.oversample")
     if target != "tx" and clocking != "source_sync":
@@ -485,6 +616,24 @@ def validate(spec: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
     elif tx_arch_name == "auto":
         tx_arch_name = None
 
+    tx_bank_mode = str(tx.get("bank", "single")).lower()
+    if tx_bank_mode not in ("single", "pingpong"):
+        fail("tx.bank must be single or pingpong")
+    if tx_bank_mode == "pingpong" and target != "tx":
+        fail("tx.bank: pingpong is only available for target: tx in this "
+             "release; use it on a TX endpoint package")
+
+    tx_rate_mode = str(tx.get("rate_mode", "full")).lower()
+    if tx_rate_mode not in ("full", "half"):
+        fail("tx.rate_mode must be full or half")
+    if tx_rate_mode == "half":
+        if target != "tx":
+            fail("tx.rate_mode: half is only available for target: tx; "
+                 "there is no verified half-rate RX")
+        if str((spec.get("interface") or {}).get("enable_mode", "static")).lower() != "static":
+            fail("tx.rate_mode: half has no enable port yet; set "
+                 "interface.enable_mode: static")
+
     rx_arch_name = rx.get("architecture", "auto")
     if rx_arch_name == "auto":
         rx_arch_name = None
@@ -508,13 +657,55 @@ def validate(spec: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
     if clock_source != clocking:
         fail("rx.clock_source must match rx.clocking in the current digital backend")
 
-    objectives = spec.get("optimization", {}).get("objectives",
-                                                   ["area", "power", "latency"])
+    opt_in = spec.get("optimization", {}) or {}
+    if not isinstance(opt_in, dict):
+        fail("optimization must be a mapping")
+    objectives = opt_in.get("objectives", ["area", "power", "latency"])
     if not isinstance(objectives, list) or not objectives:
         fail("optimization.objectives must be a non-empty list")
     for obj in objectives:
         if obj not in ("area", "power", "latency"):
             fail("optimization.objectives must use area, power, latency")
+    weights_in = opt_in.get("weights", {}) or {}
+    if not isinstance(weights_in, dict):
+        fail("optimization.weights must be a mapping")
+    weights = {}
+    for key, value in weights_in.items():
+        if key not in objectives:
+            fail(f"optimization.weights key {key!r} is not in objectives")
+        try:
+            w = float(value)
+        except (TypeError, ValueError):
+            fail(f"optimization.weights.{key} must be numeric")
+        if w < 0:
+            fail(f"optimization.weights.{key} must be >= 0")
+        weights[key] = w
+    for obj in objectives:
+        weights.setdefault(obj, 1.0)
+    if not any(weights[o] > 0 for o in objectives):
+        fail("optimization.weights must give at least one objective a positive weight")
+    budgets_in = opt_in.get("budgets", {}) or {}
+    if not isinstance(budgets_in, dict):
+        fail("optimization.budgets must be a mapping")
+    budgets = {}
+    for key, value in budgets_in.items():
+        if key not in ("area", "power", "latency"):
+            fail(f"optimization.budgets key {key!r} must be area, power or latency")
+        try:
+            b = float(value)
+        except (TypeError, ValueError):
+            fail(f"optimization.budgets.{key} must be numeric")
+        if b <= 0:
+            fail(f"optimization.budgets.{key} must be positive")
+        budgets[key] = b
+    aggregation = str(opt_in.get("aggregation", "weighted_sum")).lower()
+    if aggregation not in ("weighted_sum", "minmax", "lexicographic"):
+        fail("optimization.aggregation must be weighted_sum, minmax or lexicographic")
+    optimization = {"objectives": objectives, "weights": weights,
+                    "budgets": budgets, "aggregation": aggregation,
+                    "clock_power_priority": bool(opt_in.get("clock_power_priority", False)),
+                    "clock_gating": bool(opt_in.get("clock_gating", False)),
+                    "export_clk_out": bool(opt_in.get("export_clk_out", True))}
 
     tech_refs = spec.get("tech", {})
     if not isinstance(tech_refs, dict):
@@ -533,6 +724,10 @@ def validate(spec: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
     else:
         tech = rx_tech
 
+    if optimization["clock_gating"] and not tech.clock_gate.get("icg_cell"):
+        fail(f"optimization.clock_gating requested but {tech.name}/{tech.scl} "
+             "does not declare clock_gate.icg_cell in tech.yaml")
+
     limit_key = "max_link_line_rate_mbps" if target == "link" else "max_endpoint_line_rate_mbps"
     limit = tech.limits.get(limit_key, tech.limits.get("serial_mbps"))
     if limit is not None and line_rate > float(limit):
@@ -547,6 +742,24 @@ def validate(spec: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
     rx_period_ns = tx_period_ns / oversample if oversample else tx_period_ns
     sample_clock_mhz = line_rate * oversample
 
+    # An oversampling CDR runs the whole RX word bank and synchronizer at
+    # line_rate x OVERSAMPLE.  The line-rate gate above does not bound that
+    # clock, so a spec can otherwise pass the gate while demanding an
+    # impossible RX frequency (e.g. 400 MHz on sky130).  Bounds come from the
+    # pre-PnR results in docs/prepnr_sta.md, not from a node-name assumption.
+    if target in ("link", "rx") and oversample > 1:
+        max_sample = tech.limits.get("max_sample_clock_mhz")
+        if max_sample is not None and sample_clock_mhz > float(max_sample):
+            message = (
+                f"RX sample clock {sample_clock_mhz:g} MHz "
+                f"(line rate {line_rate:g} Mb/s x OVERSAMPLE {oversample}) exceeds "
+                f"{tech.name}/{tech.scl} max_sample_clock_mhz={max_sample} MHz")
+            if args.relax_limits:
+                spec.setdefault("_warnings", []).append(message + " (relaxed)")
+            else:
+                fail(message + "; lower line_rate/oversample, use source_sync, "
+                     "or --relax-limits only for an explicit experiment")
+
     interface = spec.get("interface", {}) or {}
     if not isinstance(interface, dict):
         fail("interface must be a mapping")
@@ -558,8 +771,9 @@ def validate(spec: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
     control = str(interface.get("control", p["control"])).lower()
     cdc = str(interface.get("cdc", p["cdc"])).lower()
     features = interface.get("features", p["features"])
-    if data_mode not in ("raw", "valid_ready", "axi4_stream"):
-        fail("interface.data must be raw, valid_ready or axi4_stream")
+    if data_mode not in ("valid_ready", "axi4_stream"):
+        fail("interface.data must be valid_ready or axi4_stream; 'raw' is not "
+             "a distinct data mode (it previously fell through to valid_ready)")
     if control not in ("native", "apb"):
         fail("interface.control must be native or apb")
     if cdc not in ("none", "async_fifo", "auto"):
@@ -767,6 +981,26 @@ def validate(spec: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
                 "generated design; use an available option or explicit `none`"
             )
 
+    # A scaffold package must say what it does NOT contain.  Without this the
+    # manifest's feature list plus empty warnings would make an
+    # --allow-incomplete package indistinguishable from a complete one.
+    missing_blocks: list[str] = []
+    if args.allow_incomplete:
+        if preset == "phy_ip":
+            missing_blocks += ["calibration", "dft", "scan", "clock_gating"]
+        if preset == "soc" and not soc_any:
+            missing_blocks += ["soc_axi_apb_cdc_wrapper"]
+        if data_mode == "axi4_stream" and target == "link" and not soc_any:
+            missing_blocks += ["link_axis_wrapper"]
+        if (control == "apb" or cdc != "none" or features) and not soc_any:
+            missing_blocks += ["apb_cdc_bist_integration"]
+        missing_blocks = sorted(set(missing_blocks))
+        if missing_blocks:
+            spec.setdefault("_warnings", []).append(
+                "scaffold package: missing blocks " + ", ".join(missing_blocks) +
+                "; --allow-incomplete was used, do NOT treat as a deliverable IP")
+    spec["_missing_blocks"] = missing_blocks
+
     return {
         "name": name,
         "target": target,
@@ -780,6 +1014,8 @@ def validate(spec: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
         "tx_period_ns": tx_period_ns,
         "rx_period_ns": rx_period_ns,
         "tx_arch_name": tx_arch_name,
+        "tx_rate_mode": tx_rate_mode,
+        "tx_bank_mode": tx_bank_mode,
         "rx_arch_name": rx_arch_name,
         "clocking": clocking,
         "clock_source": clock_source,
@@ -787,11 +1023,13 @@ def validate(spec: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
         "sampler_architecture": sampler_arch,
         "ppm": ppm,
         "sample_clock_mhz": sample_clock_mhz,
+        "max_sample_clock_mhz": tech.limits.get("max_sample_clock_mhz"),
         "user_clock_mhz": user_clock if user_clock is not None else line_rate,
         "tx_user_clock_mhz": tx_user_clock,
         "rx_user_clock_mhz": rx_user_clock,
         "cdc_proven_synchronous": proven_sync,
         "objectives": objectives,
+        "optimization": optimization,
         "tech": tech,
         "tx_tech": tx_tech,
         "rx_tech": rx_tech,
@@ -805,6 +1043,7 @@ def validate(spec: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
         "sync_pattern": sync_pattern_int,
         "sync_len": sync_len,
         "capabilities": cap_defaults,
+        "missing_blocks": missing_blocks,
         "warnings": spec.get("_warnings", []),
     }
 
@@ -825,14 +1064,14 @@ def build_plan(cfg: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
         tx_arch = select_arch("tx", cfg["tx_arch_name"], tx_target, cfg["ratio"],
                               cfg["line_rate"], cfg["oversample"], cfg["objectives"],
                               cfg["clocking"], cfg["ppm"], cfg["tech"].name,
-                              cfg["tech"].scl, ppa)
+                              cfg["tech"].scl, ppa, opt=cfg["optimization"])
     else:
         tx_arch = dict(unused)
     if cfg["target"] in ("link", "rx"):
         rx_arch = select_arch("rx", cfg["rx_arch_name"], cfg["target"], cfg["ratio"],
                               cfg["line_rate"], cfg["oversample"], cfg["objectives"],
                               cfg["clocking"], cfg["ppm"], cfg["tech"].name,
-                              cfg["tech"].scl, ppa)
+                              cfg["tech"].scl, ppa, opt=cfg["optimization"])
     else:
         rx_arch = dict(unused)
 
@@ -848,8 +1087,11 @@ def build_plan(cfg: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
         else:
             design = "serdes_digital_top"
     elif cfg["target"] == "tx":
-        design = ("serdes_tx_axis_digital"
-                  if cfg["data_mode"] == "axi4_stream" else tx_arch["module"])
+        if cfg.get("tx_rate_mode") == "half":
+            design = "serdes_tx_half_rate_digital"
+        else:
+            design = ("serdes_tx_axis_digital"
+                      if cfg["data_mode"] == "axi4_stream" else tx_arch["module"])
     else:
         design = ("serdes_rx_axis_digital"
                   if cfg["data_mode"] == "axi4_stream" else rx_arch["module"])
@@ -865,6 +1107,8 @@ def build_plan(cfg: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
     if design in ("serdes_tx_digital", "serdes_digital_top",
                   "serdes_8b10b_top", "serdes_64b66b_top"):
         params["CAPTURE_MODE"] = int(tx_arch.get("capture_mode", 0))
+    if design == "serdes_tx_digital":
+        params["PINGPONG"] = 1 if cfg.get("tx_bank_mode") == "pingpong" else 0
     if design in ("serdes_soc_wrapper", "serdes_soc_cdc_wrapper"):
         params.update({
             "SYNC_LEN": cfg["sync_len"],
@@ -873,14 +1117,14 @@ def build_plan(cfg: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
             "BIST_PRBS_WIDTH": 7,
         })
     if design == "serdes_soc_cdc_wrapper":
-        params["FIFO_DEPTH"] = 16
+        params["FIFO_DEPTH"] = cfg["fifo_depth"]
     if design in ("serdes_rx_digital", "serdes_rx_axis_digital", "serdes_digital_top",
                   "serdes_8b10b_top", "serdes_64b66b_top"):
         params.update({
             "OVERSAMPLE": cfg["oversample"],
-            "SYNC_STAGES": 3,
-            "LOCK_THRESH": 8,
-            "LOCK_STALE_BITS": 16,
+            "SYNC_STAGES": cfg["sync_stages"],
+            "LOCK_THRESH": cfg["lock_thresh"],
+            "LOCK_STALE_BITS": cfg["lock_stale_bits"],
             "CDR_MODE": int(rx_arch.get("cdr_mode", 0)),
             "CDR_BYPASS": 1 if cfg["oversample"] == 1 else 0,
             "ALIGN_MODE": cfg["align_mode"],
@@ -889,6 +1133,9 @@ def build_plan(cfg: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
             "ADAPT_FRAC_BITS": 12,
             "ADAPT_LOOP_GAIN": 4,
         })
+    if design == "serdes_rx_digital":
+        params["CLK_OUT_ENABLE"] = (1 if cfg["optimization"].get("export_clk_out", True)
+                                    else 0)
     # Phase/threshold training is only wired into the digital top and the SoC
     # CDC wrapper (the two tops that own the oversampling-CDR phase actuator).
     if (cfg["capabilities"]["training"] == "phase_threshold" and
@@ -900,25 +1147,28 @@ def build_plan(cfg: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
         })
 
     if design == "serdes_soc_cdc_wrapper":
-        clock_port = "pclk"
         clock_period = 1000.0 / cfg["user_clock_mhz"]
         clock_ports = ["pclk", "s_axis_aclk", "m_axis_aclk", "tx_clk", "rx_clk"]
     elif design == "serdes_soc_wrapper":
-        clock_port = "clk"
         clock_period = cfg["tx_period_ns"]
         clock_ports = ["clk"]
+    elif design == "serdes_tx_half_rate_digital":
+        # clk_bit runs at the line rate; clk_word is the divide-by-2 word clock.
+        clock_period = cfg["tx_period_ns"]
+        clock_ports = ["clk_word", "clk_bit"]
     elif cfg["target"] == "link":
-        clock_port = "tx_clk"
         clock_period = cfg["tx_period_ns"]
         clock_ports = ["tx_clk", "rx_clk"]
     elif cfg["target"] == "tx":
-        clock_port = "tx_clk"
         clock_period = cfg["tx_period_ns"]
         clock_ports = ["tx_clk"]
     else:
-        clock_port = "rx_clk"
         clock_period = cfg["rx_period_ns"]
         clock_ports = ["rx_clk"]
+    # LibreLane's CLOCK_PORT accepts a list and CTS turns it into CLOCK_NET,
+    # so every declared clock is buffered.  CLOCK_PERIOD stays scalar (the
+    # primary clock); the individual periods live in the supplied SDC.
+    clock_port = list(clock_ports)
 
     capture_semantics = {
         "parallel_mux": "atomic: load && ready captures the full frame; upstream may change data the next cycle",
@@ -927,9 +1177,11 @@ def build_plan(cfg: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
         "axi4_stream": "axi4_stream: per-word AXIS beats; tlast marks the last word; no full-frame hold",
         "soc_wrapper": "soc_wrapper: TX AXIS frame = comma + payload words; RX AXIS frame = payload words",
         "soc_cdc_wrapper": "soc_cdc_wrapper: AXIS frames cross async FIFOs; APB control/status synchronized",
+        "half_rate": "half_rate: word capture on clk_word; final bit mux on clk_bit = 2 x clk_word",
         "not_used": "n/a",
     }.get("soc_cdc_wrapper" if design == "serdes_soc_cdc_wrapper"
           else "soc_wrapper" if design == "serdes_soc_wrapper"
+          else "half_rate" if design == "serdes_tx_half_rate_digital"
           else "axi4_stream" if design == "serdes_tx_axis_digital"
           else tx_arch["name"], "unknown")
 
@@ -964,11 +1216,27 @@ def digital_capability_report(cfg: dict[str, Any], plan: dict[str, Any]) -> dict
     """
     clock_recovery = cfg["clock_recovery"]
     framing = "sync_word" if cfg["align_mode"] != 0 else "none"
+    # Coded links are generated, but they are coding-layer packages only.
+    # Record the unimplemented PCS work so "integrated" is not read as a
+    # complete 8b/10b or 64b/66b link capability.
+    coding_limits = []
+    if cfg["coding"] == "8b10b":
+        coding_limits = [
+            "enc_ctrl is tied to 0: no K-codes / comma are emitted, so alignment "
+            "must be supplied externally",
+            "no link-level running-disparity or 8b/10b error recovery",
+        ]
+    elif cfg["coding"] == "64b66b":
+        coding_limits = [
+            "no full IEEE control-field, lane-distribution or gearbox semantics",
+            "external block/character alignment is the integrator's responsibility",
+        ]
     return {
         "coding": {
             "selected": cfg["coding"],
             "implementation": "rtl",
             "integrated": cfg["coding"] in ("raw", "8b10b", "64b66b"),
+            "limitations": coding_limits,
         },
         "framing": {
             "selected": framing,
@@ -1031,10 +1299,65 @@ def synth_parameters(params: dict[str, Any]) -> list[str]:
     order = ["DATA_WIDTH", "WORDS", "LSB_FIRST", "CAPTURE_MODE", "OVERSAMPLE",
              "SYNC_STAGES", "LOCK_THRESH", "LOCK_STALE_BITS", "CDR_MODE",
              "CDR_BYPASS", "ALIGN_MODE", "SYNC_LEN", "SYNC_PATTERN",
-             "ADAPT_FRAC_BITS", "ADAPT_LOOP_GAIN", "FIFO_DEPTH",
+             "ADAPT_FRAC_BITS", "ADAPT_LOOP_GAIN", "CLK_OUT_ENABLE", "PINGPONG", "FIFO_DEPTH",
              "BIST_PRBS_WIDTH",
              "TRAINING_ENABLE", "TRAIN_DWELL_CYCLES", "TRAIN_ERROR_WIDTH"]
     return [f"{k}={params[k]}" for k in order if k in params]
+
+
+def signoff_extras(cfg: dict[str, Any], stage: str) -> list[str]:
+    """Constraints that only signoff.sdc carries.
+
+    post_cts.sdc already enables propagated clocks and reset recovery.  A real
+    signoff stage additionally needs the target library's design-rule limits;
+    these come from tech/<pdk>/tech.yaml (cts:) and are emitted as explicit SDC
+    rather than left implicit in LibreLane environment variables.
+
+    OCV derates, derated corners and extracted parasitics are deliberately NOT
+    invented here: the PDK signoff flow must supply them.  The comment in the
+    emitted file says so, so this file cannot be mistaken for a complete
+    foundry signoff constraint set.
+    """
+    if stage != "signoff":
+        return []
+    cts = cfg["tech"].cts or {}
+    lines = [
+        "",
+        "# Signoff-only: library design-rule limits from tech/<pdk>/tech.yaml.",
+        "# NOT included (must be supplied by the PDK signoff flow): OCV/derates,",
+        "# derated timing corners, extracted parasitics, and SI/PI constraints.",
+    ]
+    emitted = 0
+    if cts.get("max_fanout") is not None:
+        lines.append(f"set_max_fanout {float(cts['max_fanout']):.1f} [current_design]")
+        emitted += 1
+    if cts.get("max_slew_ns") is not None:
+        lines.append(f"set_max_transition {float(cts['max_slew_ns']):.4f} [current_design]")
+        emitted += 1
+    if cts.get("max_cap_ff") is not None:
+        # tech.yaml is in fF; Liberty/SDC capacitance is in pF.
+        lines.append(f"set_max_capacitance {float(cts['max_cap_ff']) / 1000.0:.6f} [current_design]")
+        emitted += 1
+    if not emitted:
+        lines.append("# tech profile declares no CTS design-rule limits; none emitted.")
+    return lines
+
+
+def _sdc_finish(lines: list[str], io: float, load: float) -> str:
+    # The constraint lines are emitted with the historical defaults as
+    # placeholders.  Substitute only inside the io-delay / load lines so a
+    # user-supplied uncertainty of 0.200 is never mistaken for an io delay.
+    rendered: list[str] = []
+    for line in lines:
+        if line is None:
+            continue
+        stripped = line.lstrip()
+        if stripped.startswith(("set_input_delay", "set_output_delay")):
+            line = line.replace("0.200", f"{io:.3f}")
+        elif stripped.startswith("set_load"):
+            line = line.replace("0.010", f"{load:.3f}")
+        rendered.append(line)
+    return "\n".join(rendered) + "\n"
 
 
 def sdc_text(cfg: dict[str, Any], plan: dict[str, Any], stage: str) -> str:
@@ -1044,6 +1367,8 @@ def sdc_text(cfg: dict[str, Any], plan: dict[str, Any], stage: str) -> str:
     os = cfg["oversample"]
     setup = cfg.get("setup_uncertainty_ns", 0.100)
     hold = cfg.get("hold_uncertainty_ns", 0.050)
+    io = cfg.get("io_delay_ns", 0.200)
+    load = cfg.get("output_load_pf", 0.010)
     lines: list[str] = [
         f"# Generated by OpenSERDES gen_ip.py ({stage}). Do not edit by hand.",
         f"# Stage: {stage}",
@@ -1119,7 +1444,8 @@ def sdc_text(cfg: dict[str, Any], plan: dict[str, Any], stage: str) -> str:
                 "# Post-CTS/signoff: reset recovery/removal is enabled.",
                 "set_propagated_clock [all_clocks]",
             ]
-        return "\n".join(lines) + "\n"
+        lines += signoff_extras(cfg, stage)
+        return _sdc_finish(lines, io, load)
 
     if plan["design"] == "serdes_soc_wrapper":
         lines = [
@@ -1152,7 +1478,49 @@ def sdc_text(cfg: dict[str, Any], plan: dict[str, Any], stage: str) -> str:
                 "# Post-CTS/signoff: reset recovery/removal is enabled.",
                 "set_propagated_clock [all_clocks]",
             ]
-        return "\n".join(lines) + "\n"
+        lines += signoff_extras(cfg, stage)
+        return _sdc_finish(lines, io, load)
+
+    if plan["design"] == "serdes_tx_half_rate_digital":
+        word_period = tx * 2.0
+        lines = [
+            f"# Generated by OpenSERDES gen_ip.py ({stage}). Do not edit by hand.",
+            f"# Stage: {stage}",
+            "",
+            f"set BIT_PERIOD_NS {tx:.6f}",
+            "create_clock -name clk_bit -period $BIT_PERIOD_NS [get_ports clk_bit]",
+            f"set WORD_PERIOD_NS {word_period:.6f}",
+            "# clk_word is the divide-by-2 word clock; keep the phase relationship.",
+            "create_generated_clock -name clk_word -source [get_ports clk_bit] "
+            "-divide_by 2 [get_ports clk_word]",
+            f"set_clock_uncertainty -setup {setup:.3f} [get_clocks clk_bit]",
+            f"set_clock_uncertainty -hold  {hold:.3f} [get_clocks clk_bit]",
+            f"set_clock_uncertainty -setup {setup:.3f} [get_clocks clk_word]",
+            f"set_clock_uncertainty -hold  {hold:.3f} [get_clocks clk_word]",
+            "",
+            "set_input_delay  -clock clk_word 0.200 [get_ports {in_valid in_word*}]",
+            "set_output_delay -clock clk_word 0.200 [get_ports in_ready]",
+            "set_output_delay -clock clk_bit 0.200 [get_ports {serial_out serial_valid busy frame_done}]",
+            "set_load 0.010 [get_ports serial_out]",
+            "",
+        ]
+        if stage == "pre_pnr":
+            lines += [
+                "# Pre-CTS: asynchronous reset recovery/removal is not signed off yet.",
+                "set_false_path -from [get_ports rst_n]",
+                "foreach pin [get_pins -hierarchical *RESET_B] { set_false_path -through $pin }",
+                "foreach pin [get_pins -hierarchical *RN]      { set_false_path -through $pin }",
+                "foreach pin [get_pins -hierarchical *SN]      { set_false_path -through $pin }",
+                "foreach pin [get_pins -hierarchical *SETN]    { set_false_path -through $pin }",
+                "foreach pin [get_pins -hierarchical *SET_B]   { set_false_path -through $pin }",
+            ]
+        else:
+            lines += [
+                "# Post-CTS/signoff: reset recovery/removal is enabled.",
+                "set_propagated_clock [all_clocks]",
+            ]
+        lines += signoff_extras(cfg, stage)
+        return _sdc_finish(lines, io, load)
 
     if target in ("link", "tx"):
         if target == "tx" and plan["design"] == "serdes_tx_axis_digital":
@@ -1210,7 +1578,8 @@ def sdc_text(cfg: dict[str, Any], plan: dict[str, Any], stage: str) -> str:
             "# uncertainty from the actual CTS skew/jitter before signoff.",
             "set_propagated_clock [all_clocks]",
         ]
-    return "\n".join(line for line in lines if line is not None) + "\n"
+    lines += signoff_extras(cfg, stage)
+    return _sdc_finish(lines, io, load)
 
 
 def make_readme(cfg: dict[str, Any], plan: dict[str, Any], manifest: dict[str, Any]) -> str:
@@ -1244,9 +1613,12 @@ def make_readme(cfg: dict[str, Any], plan: dict[str, Any], manifest: dict[str, A
         lines.append(f"- RX Pareto frontier: {', '.join(rx['frontier'])}")
     lines += [
         "",
-        "The relative area/power/latency metrics in tech/arch_db.yaml are",
-        "placeholders for measured post-route data. They are capability-gated,",
-        "not signoff numbers.",
+        "Architecture metrics come from scripts/ppa_model.py: a linear cell-count",
+        "model fitted to Yosys generic-gate synthesis at 8x4 and 32x8, plus a",
+        "DFF x f_clock clock-load proxy for power. They are RATIO- and",
+        "OVERSAMPLE-dependent capability-gate estimates -- NOT PDK area, NOT",
+        "measured power, NOT signoff PPA. A measured ppa_measured.yaml entry",
+        "overrides the model; see manifest.ppa_model and architecture.*.metrics_source.",
         "",
         "## Integration",
         "",
@@ -1272,17 +1644,19 @@ def make_readme(cfg: dict[str, Any], plan: dict[str, Any], manifest: dict[str, A
         "",
         "- constraints/pre_pnr.sdc: pre-CTS, async reset excluded.",
         "- constraints/post_cts.sdc: propagated clock, reset recovery enabled.",
-        "- constraints/signoff.sdc: signoff template, reset recovery enabled.",
+        "- constraints/signoff.sdc: propagated clock plus tech design-rule "
+        "limits; reset recovery enabled. Still a template -- the PDK signoff "
+        "flow must add OCV derates, corners and extracted parasitics.",
         "- pnr/librelane.yaml: LibreLane configuration.",
         "",
         "## Clocking",
         "",
         f"- clock ports: {', '.join(plan['clock_ports'])}",
         f"- TX period: {cfg['tx_period_ns']:.3f} ns; RX period: {cfg['rx_period_ns']:.3f} ns",
-        f"- PnR CLOCK_PORT: {plan['clock_port']}",
-        "- For target link, the SDC creates both clocks but the scalar PnR",
-        "  CLOCK_PORT names only tx_clk. Verify that the CTS step adds rx_clk",
-        "  to its clock set before trusting RX skew.",
+        f"- PnR CLOCK_PORT: {', '.join(plan['clock_port'])}",
+        "- CLOCK_PORT lists every clock in the design; LibreLane's CTS step",
+        "  uses it as CLOCK_NET. CLOCK_PERIOD is the primary clock only -- the",
+        "  individual clock periods are defined in the supplied SDC files.",
         "",
         "## Qualification",
         "",
@@ -1292,13 +1666,20 @@ def make_readme(cfg: dict[str, Any], plan: dict[str, Any], manifest: dict[str, A
         "## Known gaps",
         "",
         "- No analog TX/RX wrapper, PEX, SI/PI, jitter/BER or silicon data in this package.",
-        "- soc/phy_ip presets require optional APB/AXI-Stream/CDC/BIST modules "
-        "that are not implemented in this release.",
+        "- phy_ip / non-soc APB/AXIS packages are scaffold-only; missing blocks "
+        "are listed in manifest.missing_blocks and in the README section above.",
+        ("- Coded link limitations: " +
+         "; ".join(manifest["capabilities"]["coding"]["limitations"])
+         if manifest["capabilities"]["coding"]["limitations"] else ""),
         "- Pre-PnR and pre-CTS timing results are not a PHY line-rate guarantee.",
         "",
     ]
     if cfg["warnings"]:
         lines += ["## Warnings", ""] + [f"- {w}" for w in cfg["warnings"]] + [""]
+    if cfg["missing_blocks"]:
+        lines += ["## Missing blocks (scaffold package)", "",
+                  "- " + ", ".join(cfg["missing_blocks"]),
+                  "- Do not integrate this package as a deliverable IP.", ""]
     return "\n".join(lines)
 
 
@@ -1358,6 +1739,45 @@ def convert_package_rtl(out: Path, files: list[str], allow_native: bool) -> dict
     }
 
 
+def _clock_recommendation(cfg: dict[str, Any], plan: dict[str, Any]) -> dict[str, Any] | None:
+    """Quantify the lowest-clock alternative (item 5), using ppa_model.
+
+    Purely advisory: changing the clocking mode changes the link's physical
+    requirements, so the generator never switches it silently.
+    """
+    if cfg["target"] == "tx":
+        return None
+    name = plan["rx_arch"].get("name")
+    if not name or name == "not_used" or cfg["oversample"] <= 1:
+        return None
+    rate = cfg["line_rate"]
+    ratio = cfg["ratio"]
+    try:
+        cur = ppa_model.estimate(name, ratio, cfg["oversample"], rate, "rx")
+        if abs(cfg["ppm"]) == 0:
+            alt_arch, alt_os = "source_sync", 1
+            req = "requires an external forwarded bit clock"
+        else:
+            alt_arch, alt_os = "fixed_oversampling_os2", 2
+            req = "requires rx.allow_os2: true and has no jitter margin"
+        alt = ppa_model.estimate(alt_arch, ratio, alt_os, rate, "rx")
+    except KeyError:
+        return None
+    return {
+        "current": {"arch": name, "oversample": cfg["oversample"],
+                    "sample_clock_mhz": cur["clock_mhz"],
+                    "clock_load": round(cur["clock_load"], 1)},
+        "alternative": {"arch": alt_arch, "oversample": alt_os,
+                        "sample_clock_mhz": alt["clock_mhz"],
+                        "clock_load": round(alt["clock_load"], 1)},
+        "alternative_clock_load_ratio": round(alt["clock_load"] / cur["clock_load"], 4),
+        "requirement": req,
+        "note": ("clock_load is the DFF x f_clock proxy from ppa_model.py, not "
+                 "measured power. Select with rx.clocking: auto + "
+                 "optimization.clock_power_priority: true."),
+    }
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="Generate a spec-driven OpenSERDES digital IP package")
     ap.add_argument("--spec", required=True)
@@ -1404,7 +1824,36 @@ def main() -> int:
         cfg["hold_uncertainty_ns"] = as_float(
             get(spec, "constraints", "uncertainty_hold_ns", default=0.050),
             "constraints.uncertainty_hold_ns")
+        cons = spec.get("constraints", {}) or {}
+        cfg["io_delay_ns"] = as_float(cons.get("io_delay_ns", 0.200),
+                                      "constraints.io_delay_ns")
+        cfg["output_load_pf"] = as_float(cons.get("output_load_pf", 0.010),
+                                         "constraints.output_load_pf")
+        cfg["sync_stages"] = as_int(cons.get("sync_stages", 3),
+                                    "constraints.sync_stages")
+        cfg["lock_thresh"] = as_int(cons.get("lock_thresh", 8),
+                                    "constraints.lock_thresh")
+        cfg["lock_stale_bits"] = as_int(cons.get("lock_stale_bits", 16),
+                                        "constraints.lock_stale_bits")
+        cfg["fifo_depth"] = as_int(cons.get("fifo_depth", 16),
+                                   "constraints.fifo_depth")
+        if cfg["sync_stages"] < 2:
+            fail("constraints.sync_stages must be >= 2")
+        if cfg["lock_thresh"] < 1 or cfg["lock_stale_bits"] < 1:
+            fail("constraints.lock_thresh and lock_stale_bits must be >= 1")
+        depth = cfg["fifo_depth"]
+        if depth < 2 or depth & (depth - 1):
+            fail("constraints.fifo_depth must be a power of two >= 2")
         plan = build_plan(cfg, args)
+        cfg["warnings"].extend(PPA_WARNINGS)
+        rec = _clock_recommendation(cfg, plan)
+        if rec:
+            cfg["clock_recommendation"] = rec
+            cfg["warnings"].append(
+                "clock power: %s OS=%s has %.2fx the clock load of %s; %s"
+                % (rec["current"]["arch"], rec["current"]["oversample"],
+                   1.0 / rec["alternative_clock_load_ratio"],
+                   rec["alternative"]["arch"], rec["requirement"]))
     except SpecError as exc:
         print(f"spec error: {exc}", file=sys.stderr)
         return 2
@@ -1463,7 +1912,12 @@ def main() -> int:
 
     tech = cfg["tech"]
     corners = expand({k: list(v) for k, v in tech.corners.items()})
-    pdk_paths_resolved = not unresolved(corners)
+    lib_files = [Path(p) for libs in corners.values() for p in libs]
+    pdk_lib_files_present = all(p.is_file() for p in lib_files)
+    pdk_paths_resolved = (not unresolved(corners)) and pdk_lib_files_present
+    if not unresolved(corners) and not pdk_lib_files_present:
+        cfg["warnings"].append(
+            "PDK liberty paths are expanded but some .lib files are missing")
     pnr_files = (plan["files"] if not sv2v_meta.get("used")
                  else sv2v_meta["pnr_files"])
     pnr = {
@@ -1484,14 +1938,32 @@ def main() -> int:
         pnr["CTS_MAX_CAP"] = float(tech.cts["max_cap_ff"]) / 1000.0
     if tech.cts.get("max_slew_ns") is not None:
         pnr["CTS_MAX_SLEW"] = float(tech.cts["max_slew_ns"])
+    clock_gate = tech.clock_gate
+    if cfg["optimization"].get("clock_gating") and clock_gate.get("icg_cell"):
+        pnr["SYNTH_CLOCKGATE_MIN_WIDTH"] = int(clock_gate.get("min_width", 8))
+        pnr["SYNTH_CLOCKGATE_POSEDGE_ICG"] = "%s/%s/%s/%s" % (
+            clock_gate["icg_cell"], clock_gate["enable_pin"],
+            clock_gate["clk_pin"], clock_gate["gated_clk_pin"])
     (out / "pnr" / "librelane.yaml").write_text(yaml.safe_dump(pnr, sort_keys=False))
     (out / "pnr" / "README.md").write_text(
         "# PnR notes\n\n"
-        f"`CLOCK_PORT` is set to {plan['clock_port']}. "
-        "For target link, the SDC also creates the RX clock; confirm the "
-        "CTS/clock-plan step includes it. `pre_pnr.sdc` is intentionally "
-        "used for PnR; `signoff.sdc` enables reset recovery/removal and "
-        "propagated clocks.\n")
+        f"`CLOCK_PORT` lists all clocks: {', '.join(plan['clock_port'])}. "
+        "LibreLane's CTS step uses this list as CLOCK_NET, so every declared "
+        "clock is buffered. `CLOCK_PERIOD` is a scalar for the primary "
+        "clock only; the per-clock periods come from `pre_pnr.sdc` / "
+        "`signoff.sdc`. Confirm the target PDK signoff flow supplies OCV "
+        "derates, derated corners and extracted parasitics -- the generated "
+        "signoff.sdc is not a complete foundry signoff deck.\n\n"
+        + ("Clock gating: Yosys SYNTH_CLOCKGATE_* enabled (ICG "
+           + pnr.get("SYNTH_CLOCKGATE_POSEDGE_ICG", "n/a")
+           + "); re-run CTS/STA after insertion.\n\n"
+           if pnr.get("SYNTH_CLOCKGATE_POSEDGE_ICG") else
+           "Clock gating: not enabled for this package.\n\n")
+        + "Power evidence: LibreLane STAPostPNR writes power__* metrics into "
+        "final/metrics.json. Run scripts/collect_power.py on the completed run "
+        "and feed the result through scripts/import_ppa.py to obtain a "
+        "provenance-verified measured PPA entry. Unverified measured claims are "
+        "downgraded to unverified_claim by gen_ip.py.\n")
 
     spec_text = Path(args.spec).read_text()
     qualification = {
@@ -1515,33 +1987,64 @@ def main() -> int:
         "spec_sha256": hashlib.sha256(spec_text.encode()).hexdigest(),
         "target": cfg["target"],
         "design": plan["design"],
+        "tx_rate_mode": cfg.get("tx_rate_mode", "full"),
+        "tx_bank_mode": cfg.get("tx_bank_mode", "single"),
         "line_rate_mbps": cfg["line_rate"],
         "data_width": cfg["width"],
         "words": cfg["words"],
         "tech": {"name": tech.name, "scl": tech.scl, "pdk": tech.pdk,
                  "native_dff": tech.native_dff,
-                 "pdk_paths_resolved": pdk_paths_resolved},
+                 "pdk_paths_resolved": pdk_paths_resolved,
+                 "pdk_lib_files_present": pdk_lib_files_present},
         "params": plan["params"],
         "architecture": {
-            "tx": {k: plan["tx_arch"][k] for k in ("name", "module", "confidence", "frontier")
+            "tx": {k: plan["tx_arch"][k] for k in ("name", "module", "confidence",
+                                                  "confidence_scope", "frontier",
+                                                  "metrics", "metrics_source", "ppa_model",
+                                                  "ppa_provenance", "provenance_warning",
+                                                  "selection")
                    if k in plan["tx_arch"]} |
                   ({k: plan["tx_arch"][k] for k in ("ppa_source", "absolute")
                     if k in plan["tx_arch"]}),
-            "rx": {k: plan["rx_arch"][k] for k in ("name", "module", "confidence", "frontier")
+            "rx": {k: plan["rx_arch"][k] for k in ("name", "module", "confidence",
+                                                  "confidence_scope", "frontier",
+                                                  "metrics", "metrics_source", "ppa_model",
+                                                  "ppa_provenance", "provenance_warning",
+                                                  "selection")
                    if k in plan["rx_arch"]} |
                   ({k: plan["rx_arch"][k] for k in ("ppa_source", "absolute")
                     if k in plan["rx_arch"]}),
         },
         "ppa_db": plan["ppa_db"],
         "ppa_entries": plan["ppa_entries"],
+        "ppa_model": {
+            "source": ppa_model.MODEL_SOURCE,
+            "scope": "Yosys generic-gate cell count + DFF x f_clock clock-load proxy",
+            "not_measured": ["PDK area", "total dynamic power", "leakage", "post-route PPA"],
+            "precedence": "measured ppa_db > tech_overrides.metrics > modeled",
+        },
         "interface": {k: cfg[k] for k in ("preset", "data_mode", "control", "cdc",
                                           "features", "enable_mode",
                                           "tx_user_clock_mhz", "rx_user_clock_mhz",
                                           "cdc_proven_synchronous")},
         "tx_capture_semantics": plan["capture_semantics"],
         "optional_blocks": plan["optional_blocks"],
+        "missing_blocks": cfg["missing_blocks"],
+        "features_missing": [f for f in cfg["features"] if f != "bist"],
         "capabilities": digital_capability_report(cfg, plan),
         "capability_request": cfg["capabilities"],
+        "optimization": cfg["optimization"],
+        "clock_gating": {
+            "enabled": bool(cfg["optimization"].get("clock_gating")),
+            "implementation": "Yosys SYNTH_CLOCKGATE_* (synthesis-time ICG insertion)",
+            "icg": (("%s/%s/%s/%s" % (tech.clock_gate["icg_cell"],
+                                      tech.clock_gate["enable_pin"],
+                                      tech.clock_gate["clk_pin"],
+                                      tech.clock_gate["gated_clk_pin"]))
+                    if cfg["optimization"].get("clock_gating") else None),
+            "note": ("RTL keeps one clock per domain by design; ICG insertion is a "
+                     "synthesis step and must be re-verified after CTS."),
+        },
         "sv2v": sv2v_meta,
         "verification_config": {
             "cdr_mode": int(plan["params"].get(
@@ -1567,11 +2070,13 @@ def main() -> int:
             "recovery": cfg["clock_recovery"],
             "sampler_architecture": cfg["sampler_architecture"],
             "sample_clock_mhz": cfg["sample_clock_mhz"],
+            "max_sample_clock_mhz": cfg.get("max_sample_clock_mhz"),
+            "recommendation": cfg.get("clock_recommendation"),
             "ports": plan["clock_ports"],
             "tx_period_ns": cfg["tx_period_ns"],
             "rx_period_ns": cfg["rx_period_ns"],
             "pnr_clock_port": plan["clock_port"],
-            "note": "CLOCK_PORT is scalar; verify rx_clk enters the CTS clock set for target link.",
+            "note": "CLOCK_PORT lists every clock; CLOCK_PERIOD is the primary clock only, per-clock periods are in the SDC.",
         },
         "link_capability": {
             "evidence_level": "NONE",

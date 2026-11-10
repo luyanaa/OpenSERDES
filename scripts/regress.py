@@ -2,6 +2,7 @@
 """Parameter and configuration regression for the portable SerDes RTL."""
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import shutil
@@ -60,6 +61,12 @@ CASES = [
      {"DATA_WIDTH": 32, "WORDS": 8, "LSB_FIRST": 1}),
 
     ("stream_8x4", "tb_serializer_stream", ["rtl/serializer_stream.sv"], {}),
+    ("serializer_pingpong_8x4_lsb", "tb_serializer_pingpong",
+     ["rtl/serializer_pingpong.sv"], {"DATA_WIDTH": 8, "WORDS": 4, "LSB_FIRST": 1}),
+    ("serializer_pingpong_8x4_msb", "tb_serializer_pingpong",
+     ["rtl/serializer_pingpong.sv"], {"DATA_WIDTH": 8, "WORDS": 4, "LSB_FIRST": 0}),
+    ("serializer_pingpong_32x8", "tb_serializer_pingpong",
+     ["rtl/serializer_pingpong.sv"], {"DATA_WIDTH": 32, "WORDS": 8, "LSB_FIRST": 1}),
     ("serializer_half_8x4", "tb_serializer_half_rate",
      ["rtl/serializer_stream.sv", "rtl/serializer_half_rate.sv"],
      {"DATA_WIDTH": 8, "WORDS": 4, "LSB_FIRST": 1}),
@@ -163,6 +170,11 @@ def run_generator_checks() -> tuple[int, int]:
         ("soc", [], 0),
         ("soc", ["--allow-incomplete"], 0),
         ("phy_ip", ["--allow-incomplete"], 0),
+        ("power_tradeoff", [], 0),
+        ("low_power", [], 0),
+        ("tx_half_rate", [], 0),
+        ("ihp_ez130", [], 0),
+        ("tx_pingpong", [], 0),
     ]
     for spec_name, extra, expected in spec_cases:
         total += 1
@@ -181,7 +193,9 @@ def run_generator_checks() -> tuple[int, int]:
                                        ("tx_axis", "serdes_tx_axis_digital"),
                                        ("rx_axis", "serdes_rx_axis_digital"),
                                        ("soc_single_clock", "serdes_soc_wrapper"),
-                                       ("soc", "serdes_soc_cdc_wrapper")):
+                                       ("soc", "serdes_soc_cdc_wrapper"),
+                                       ("tx_half_rate", "serdes_tx_half_rate_digital"),
+                                       ("tx_pingpong", "serdes_tx_digital")):
         total += 1
         out = ROOT / "build" / "gen" / spec_name
         cmd = [py, "scripts/gen_ip.py", "--spec", f"spec/{spec_name}.yaml",
@@ -201,6 +215,20 @@ def run_generator_checks() -> tuple[int, int]:
                         out / "qualification.json"]
             ok = manifest.get("design") == expected_design and all(p.exists() for p in required)
             detail = f"design={manifest.get('design')} files={'ok' if ok else 'missing'}"
+            if ok:
+                # P1 regressions: signoff.sdc must be a real third stage,
+                # CLOCK_PORT must list every clock, and confidence must be
+                # labelled as a capability-gate estimate.
+                post = (out / "constraints" / "post_cts.sdc").read_text()
+                sign = (out / "constraints" / "signoff.sdc").read_text()
+                pnr_text = (out / "pnr" / "librelane.yaml").read_text()
+                cp_block = pnr_text.split("CLOCK_PORT:", 1)[1].split("\n\n", 1)[0]
+                scope_ok = any(
+                    a.get("confidence_scope") == "capability_gate_estimate_not_signoff"
+                    for a in manifest["architecture"].values())
+                ok = ("set_max_fanout" in sign and "set_max_fanout" not in post
+                      and cp_block.lstrip().startswith("-") and scope_ok)
+                detail += f" p1_contracts={'ok' if ok else 'fail'}"
             if ok:
                 files = (out / "rtl" / "filelist.f").read_text().split()
                 compile_cmd = [IVERILOG, "-g2012", "-Wall", "-s", expected_design,
@@ -284,10 +312,37 @@ def run_signoff_checks() -> tuple[int, int]:
 
     ppa_dir = ROOT / "build" / "ppa"
     ppa_dir.mkdir(parents=True, exist_ok=True)
+
+    # Fixture: a synthetic but structurally real LibreLane power report, fed
+    # through collect_power.py so the measured claim has verifiable provenance.
+    fixture_run = ppa_dir / "fixture_run"
+    (fixture_run / "final").mkdir(parents=True, exist_ok=True)
+    (fixture_run / "final" / "metrics.json").write_text(json.dumps({
+        "power__internal__total": 0.0034,
+        "power__switching__total": 0.0012,
+        "power__leakage__total": 5e-8,
+        "power__total": 0.0046,
+    }) + "\n")
+    (fixture_run / "resolved.json").write_text(json.dumps({
+        "DEFAULT_CORNER": "nom_tt_025C_1v80", "CLOCK_PERIOD": 20.0,
+        "PDK": "sky130A", "STD_CELL_LIBRARY": "sky130_fd_sc_hd",
+    }) + "\n")
+    record = ppa_dir / "power_record.json"
+    subprocess.run([py, "scripts/collect_power.py", "--run", str(fixture_run),
+                    "--out", str(record)], cwd=ROOT, text=True,
+                   capture_output=True, timeout=60, check=True)
+    record_hash = hashlib.sha256(record.read_bytes()).hexdigest()
+
+    header = ("tech,scl,kind,arch,max_line_rate_mbps,rel_area,rel_power,rel_latency,"
+              "confidence,source,power_mw,provenance_report,provenance_sha256,"
+              "corner,period_ns,git_commit,tool\n")
+    def ppa_row(rate, source):
+        return ("icsprout55,ics55_LLSC_H7CL,rx,fixed_oversampling,%s,1.0,1.0,1.0,"
+                "measured_post_route,%s,4.6,%s,%s,nom_tt_025C_1v80,20.0,fixture,OpenSTA\n"
+                % (rate, source, record.resolve(), record_hash))
+
     csv_path = ppa_dir / "measured.csv"
-    csv_path.write_text(
-        "tech,scl,kind,arch,max_line_rate_mbps,rel_area,rel_power,rel_latency,confidence,source\n"
-        "icsprout55,ics55_LLSC_H7CL,rx,fixed_oversampling,200,1.0,1.0,1.0,measured_post_route,run-001\n")
+    csv_path.write_text(header + ppa_row(200, "run-001"))
     ppa_path = ppa_dir / "measured.yaml"
     subprocess.run([py, "scripts/import_ppa.py", "--csv", str(csv_path),
                     "--out", str(ppa_path), "--replace"], cwd=ROOT,
@@ -310,9 +365,7 @@ def run_signoff_checks() -> tuple[int, int]:
         failed += 1
 
     low_csv = ppa_dir / "low.csv"
-    low_csv.write_text(
-        "tech,scl,kind,arch,max_line_rate_mbps,rel_area,rel_power,rel_latency,confidence,source\n"
-        "icsprout55,ics55_LLSC_H7CL,rx,fixed_oversampling,80,1.0,1.0,1.0,measured_post_route,run-low\n")
+    low_csv.write_text(header + ppa_row(80, "run-low"))
     low_yaml = ppa_dir / "low.yaml"
     subprocess.run([py, "scripts/import_ppa.py", "--csv", str(low_csv),
                     "--out", str(low_yaml), "--replace"], cwd=ROOT,
@@ -323,6 +376,68 @@ def run_signoff_checks() -> tuple[int, int]:
          "--ppa-db", str(low_yaml)], cwd=ROOT, text=True, capture_output=True, timeout=60)
     ok = proc.returncode == 2 and "gate 80" in (proc.stdout + proc.stderr)
     print(f"{'PASS' if ok else 'FAIL'} ppa_capability_gate_rejected: exit={proc.returncode}")
+    if not ok:
+        failed += 1
+
+    # An unproven measured claim must be rejected by the importer...
+    unproven_csv = ppa_dir / "unproven.csv"
+    unproven_csv.write_text(
+        "tech,scl,kind,arch,max_line_rate_mbps,rel_area,rel_power,rel_latency,confidence,source\n"
+        "icsprout55,ics55_LLSC_H7CL,rx,fixed_oversampling,200,1.0,1.0,1.0,measured_post_route,run-x\n")
+    total += 1
+    strict = subprocess.run([py, "scripts/import_ppa.py", "--csv", str(unproven_csv),
+                             "--out", str(ppa_dir / "unproven.yaml"), "--replace"],
+                            cwd=ROOT, text=True, capture_output=True, timeout=60)
+    ok = strict.returncode != 0 and "provenance" in (strict.stdout + strict.stderr)
+    print(f"{'PASS' if ok else 'FAIL'} ppa_unproven_rejected: exit={strict.returncode}")
+    if not ok:
+        failed += 1
+
+    # ...and only allowed with --allow-unproven, which downgrades the claim.
+    downgraded_yaml = ppa_dir / "unproven_allow.yaml"
+    subprocess.run([py, "scripts/import_ppa.py", "--csv", str(unproven_csv),
+                    "--out", str(downgraded_yaml), "--replace", "--allow-unproven"],
+                   cwd=ROOT, text=True, capture_output=True, timeout=60, check=True)
+    total += 1
+    proc = subprocess.run(
+        [py, "scripts/gen_ip.py", "--spec", "spec/default.yaml", "--check",
+         "--ppa-db", str(downgraded_yaml)], cwd=ROOT, text=True,
+        capture_output=True, timeout=60)
+    ok = False
+    detail = proc.returncode
+    if proc.returncode == 0:
+        try:
+            payload = json.loads(proc.stdout)
+            ok = payload.get("rx_confidence") == "unverified_claim"
+            detail = payload.get("rx_confidence")
+        except json.JSONDecodeError:
+            pass
+    print(f"{'PASS' if ok else 'FAIL'} ppa_unproven_downgraded: {detail}")
+    if not ok:
+        failed += 1
+
+    # A hand-written YAML that bypasses the importer must also be downgraded.
+    hand_yaml = ppa_dir / "handwritten.yaml"
+    hand_yaml.write_text(
+        "schema: 1\nentries:\n- tech: icsprout55\n  scl: ics55_LLSC_H7CL\n"
+        "  kind: rx\n  arch: fixed_oversampling\n  max_line_rate_mbps: 200\n"
+        "  metrics: {area: 1.0, power: 1.0, latency: 1.0}\n"
+        "  confidence: measured_post_route\n  source: handwritten\n")
+    total += 1
+    proc = subprocess.run(
+        [py, "scripts/gen_ip.py", "--spec", "spec/default.yaml", "--check",
+         "--ppa-db", str(hand_yaml)], cwd=ROOT, text=True,
+        capture_output=True, timeout=60)
+    ok = False
+    detail = proc.returncode
+    if proc.returncode == 0:
+        try:
+            payload = json.loads(proc.stdout)
+            ok = payload.get("rx_confidence") == "unverified_claim"
+            detail = payload.get("rx_confidence")
+        except json.JSONDecodeError:
+            pass
+    print(f"{'PASS' if ok else 'FAIL'} ppa_handwritten_downgraded: {detail}")
     if not ok:
         failed += 1
     return total, failed

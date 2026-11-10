@@ -225,3 +225,85 @@ clock semantics.
 - The new RTL migrates the **digital data path, fixed/adaptive CDR and comma
   frame alignment**, not the original CDR's scan-trim algorithm or the
   receiver's analog sampler.  Those remain explicit migration items.
+
+## 6. Lower-oversampling (2x / baud-rate) CDR: measured negative result
+
+Item 6 of the PPA audit asked for a 2x baud-rate bang-bang CDR to cut the RX
+clock from OVERSAMPLE x line rate to 2x.  Investigation on 2026-11-10 shows
+this is **not reachable by parameterising the existing loop**:
+
+| Test | Result |
+|---|---|
+| `cdr_adaptive` OS=8, 0 / +700 / -700 ppm, 5000 bits | PASS (freq_trim 0 / +47 / -53) |
+| `cdr_adaptive` OS=4, 0 ppm, 5000 bits | FAIL, ~2405 bit errors |
+| `cdr_adaptive` OS=4, SAMPLE_BASE offset 0..3 | FAIL, ~2405 errors each |
+| `cdr_adaptive` OS=4, N_CHECK=1500 (shorter) | FAIL, ~650 errors |
+
+Structural cause, not a tuning problem:
+
+- `PHASE_OS_S = OVERSAMPLE + 2` while `phase_q` wraps at `OVERSAMPLE - 1`.
+  For OVERSAMPLE < 8 the resulting `phase_err` has no negative branch
+  (OS=4: phase_err is {0,1,2,-3}, and |−3| exceeds `PHASE_HALF_S`), so the
+  loop can only push one way.
+- For OVERSAMPLE = 2, `SAMPLE_BASE = HALF + 1 = 2` lies outside the period
+  `0..1`, so the data sample is never selected.
+
+A genuine 2x CDR therefore needs a different signal path, not a lower
+`OVERSAMPLE`:
+
+1. **Phase interpolator / multiphase clock** (analog or a delay-locked ring),
+   so the sampling instant can move sub-UI; or
+2. **DDR / both-edge sampling** with a quadrature clock; or
+3. **A 3-way phase-error detector** that derives a signed error from two
+   samples plus the previous UI's boundary (a new `cdr_bang_bang` module, not
+   a parameter of the current counter).
+
+Until one of those exists, the low-power path is **source_sync (OS=1)** or the
+restricted **fixed OS=2** mode (`rx.allow_os2: true`), both already supported.
+The generator's `bang_bang` / `pi_cdr` options therefore stay fail-closed.
+Do not lower `adaptive_oversampling.min_oversample` below 8 without a new
+detector and a passing `tb_cdr_adaptive` at OS=4.
+
+The testbench is now parameterised (`-P tb_cdr_adaptive.OS_PARAM=<n>`) so the
+OS=4 failure can be reproduced.
+
+## 7. Lower-oversampling CDR design (item 6): measured status
+
+A purpose-built 4x bang-bang CDR exists at rtl/cdr_bang_bang.sv.  It is lint-
+and synth-clean and is **not** wired into serdes_rx_digital, the generator,
+make sim or regress.
+
+Verified (tb/tb_cdr_bang_bang.sv, 5000 bits, OS=4):
+
+| ppm | result |
+|---:|---|
+| 0 | PASS |
+| +100 | PASS |
+| +300 | FAIL |
+| +700 | FAIL |
+| -100 | FAIL |
+| -300 | FAIL |
+| -700 | FAIL |
+
+Design and why it stops short:
+- cdr_sync depth is rounded to a multiple of OVERSAMPLE so the phase label at
+  the current clock matches the delayed sample.
+- Acquisition measures the bit boundary directly: inside a UI only the adjacent
+  sample pair that straddles a transition differs, so the per-phase change
+  count peaks at the boundary.  Data phase = boundary + OS/2.
+- The 2x case is fundamentally ambiguous: the edge sample sits exactly on the
+  boundary, the Alexander vote is 50/50, and a binary/discrete selector
+  random-walks.  Measured: a 2x version never holds lock.  That is why the
+  design is 4x and why 2x is not offered.
+- A forced full selector rotation at 0 ppm costs ~12% bit errors, so selector
+  moves are safe only within the eye.  The continuous vote stepper currently
+  walks the selector toward the boundary at larger ppm; that is the open bug.
+- The unit slip must change the UI length, not the selector; and a shortened
+  period must clamp the sample phase into the UI (otherwise the sample phase is
+  skipped and a bit is duplicated).
+
+What is still required: a properly derived 1st/2nd-order loop filter with a
+continuous phase error (or a small NCO/phase interpolator) rather than a
+discrete selector walk.  Until that is verified at 0/+-700 ppm, use
+source_sync (OS=1) or fixed OS=2 for low power, and the 8x adaptive loop for
+ppm offsets.  Do not lower adaptive_oversampling.min_oversample below 8.

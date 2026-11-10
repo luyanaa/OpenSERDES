@@ -9,14 +9,15 @@
 // CDR would slip.
 module tb_cdr_adaptive #(
     parameter real PPM      = 700.0,
-    parameter int  N_CHECK  = 5000
+    parameter int  N_CHECK  = 5000,
+    parameter int  OS_PARAM = 8
 );
 
-    localparam int  OS         = 8;
+    localparam int  OS         = OS_PARAM;
     localparam int  SYNC       = 3;
     localparam int  LOCK_TH    = 8;
     localparam int  N_BITS     = N_CHECK + 256;
-    localparam real BIT_PERIOD = 80.0 * (1.0 + PPM / 1000000.0);
+    localparam real BIT_PERIOD = (OS * 10.0) * (1.0 + PPM / 1000000.0);
 
     logic clk;
     logic rst_n;

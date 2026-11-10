@@ -61,12 +61,15 @@ module serializer #(
     assign frame_done   = frame_done_q;
     assign serial_out   = serial_mux;
 
-    // One bit-select slice per word.
+    // One bit-select slice per word, with operand isolation: when the block is
+    // not driving valid serial data the wide bit-select muxes are held at 0 so
+    // they stop toggling with bit_sel_q.  serial_out is a don't-care when
+    // serial_valid (active_q) is low, so this is bit-exact.
     generate
         for (genvar w = 0; w < WORDS; w++) begin : g_word_bit
-            assign word_bit[w] = LSB_FIRST
+            assign word_bit[w] = active_q & (LSB_FIRST
                 ? data_q[w][bit_sel_q]
-                : data_q[w][LAST_BIT-bit_sel_q];
+                : data_q[w][LAST_BIT-bit_sel_q]);
         end
     endgenerate
 

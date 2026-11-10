@@ -55,11 +55,14 @@ module serializer_stream #(
     assign frame_done   = frame_done_q;
     assign serial_out   = serial_mux;
 
+    // Operand isolation: the wide bit-select muxes are held at 0 whenever the
+    // block is not emitting a valid bit, so they do not toggle with bit_sel_q
+    // during capture/idle.  serial_valid = active_q, so this is bit-exact.
     generate
         for (genvar w = 0; w < WORDS; w++) begin : g_word_bit
-            assign word_bit[w] = LSB_FIRST
+            assign word_bit[w] = active_q & (LSB_FIRST
                 ? data_q[w][bit_sel_q]
-                : data_q[w][LAST_BIT-bit_sel_q];
+                : data_q[w][LAST_BIT-bit_sel_q]);
         end
     endgenerate
 
