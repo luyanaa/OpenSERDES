@@ -108,7 +108,16 @@ Rules:
   `docs/prepnr_sta.md` -- e.g. 400 MHz on 130 nm is not realistic for this
   RTL, while 2.5 ns (400 MHz) is demonstrated on icsprout55 H7CL.  Both the
   measured clock and its limit are recorded in `manifest.clocking`.
-  `--relax-limits` downgrades this to a warning.  Note that
+  `--relax-limits` downgrades this to a warning.
+- A third tier distinguishes **"can generate" from "has been signed off"**.
+  `limits.signoff_sample_clock_mhz_by_arch` gives the measured post-route
+  closure per CDR architecture (currently only `bang_bang_oversampling`:
+  45 / 30 / 80 / 65 MHz on sky130 / gf180mcuD / ihp-sg13g2 / icsprout55).
+  Above that value the generator **does not fail** -- it appends a warning to
+  `manifest.warnings` saying the configuration is an unverified experiment.
+  This is deliberate: the PDK-level gate says the silicon can run that fast,
+  not that a particular CDR architecture closes, and blocking would prevent
+  the very experiments needed to improve the number.  Note that
   `spec/phy_ip.yaml` was corrected from 100 Mb/s / OS=8 (800 MHz, unclosable)
   to 50 Mb/s / OS=8 (400 MHz) when this gate was added.
 - `constraints` also accepts `io_delay_ns` (0.200), `output_load_pf` (0.010),
