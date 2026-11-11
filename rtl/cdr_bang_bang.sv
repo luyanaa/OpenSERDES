@@ -122,14 +122,6 @@ module cdr_bang_bang #(
     logic                     cx_e;
     logic                     nxt_c;
     logic                     nxt_e;
-    // Threshold tests on the accumulator high bits.  center_e is
-    // phase_offset << FR and edge_e is 2^(PWQ-1), both aligned to FR, so
-    // phase_q/phase_w/phase_next compare against them with PWQ-FR (or +1) bits
-    // instead of a full-width comparator.  Exact for phase_offset < OS, the
-    // documented domain (phase_offset walks the eye within one UI).
-    localparam int HI_W = PWQ - FR;            // == PH_W
-    logic [HI_W-1:0]  pq_hi, pw_hi;
-    logic [HI_W:0]    pn_hi;
     logic                     center_hit;
     logic                     edge_hit;
     logic                     c_done_q;
@@ -176,9 +168,6 @@ module cdr_bang_bang #(
         phase_next = PWN'(phase_q) + PWN'(inc_r);
         wrap       = phase_next[PWQ];
         phase_w    = phase_next[PWQ-1:0];
-        pq_hi      = phase_q[PWQ-1:FR];
-        pw_hi      = phase_w[PWQ-1:FR];
-        pn_hi      = phase_next[PWQ:FR];
 
         // Event positions.  The loop closes on the edge sample, so the
         // absolute phase origin (and therefore the sync delay) is absorbed;
@@ -211,18 +200,18 @@ module cdr_bang_bang #(
         // distinction dropped one centre event whenever phase_w happened to
         // land past center_e, and the edge then latched the previous bit.
         if (wrap) begin
-            cx_c  = pq_hi < phase_offset;
-            nxt_c = pw_hi >= phase_offset;
-            cx_e  = !pq_hi[HI_W-1];
-            nxt_e = pw_hi[HI_W-1];
+            cx_c  = phase_q < center_e;
+            nxt_c = phase_w >= center_e;
+            cx_e  = phase_q < edge_e;
+            nxt_e = phase_w >= edge_e;
             center_hit = (cx_c && !c_done_q) || nxt_c;
             edge_hit   = (cx_e && !e_done_q) || nxt_e;
         end else begin
             // phase_w == phase_next here (no wrap), but comparing phase_next
             // lets abc reuse the adder carry chain; the truncated phase_w
             // slice mapped 4 ns slower on sky130 (see the study doc).
-            cx_c  = (pq_hi < phase_offset) && (pn_hi >= phase_offset);
-            cx_e  = !pq_hi[HI_W-1] && pn_hi[HI_W-1];
+            cx_c  = (phase_q < center_e) && (phase_next >= center_e);
+            cx_e  = (phase_q < edge_e)   && (phase_next >= edge_e);
             nxt_c = 1'b0;
             nxt_e = 1'b0;
             center_hit = !c_done_q && cx_c;
@@ -243,8 +232,6 @@ module cdr_bang_bang #(
     always_comb begin
         // KI == 1 makes KI*vote a value in {-1,0,+1}: an incrementer instead of
         // a 16-bit multiply/adder.  The general form stays for other KI values.
-        // (Pre-computing both +/-1 candidates was tried: it doubles freq_q's
-        // fanout and mapped 5 ns slower before placement, so keep one adder.)
         if (KI == 1)
             freq_next = freq_q + ((vote == 2'sd1) ? -FW'(1) :
                                   (vote == -2'sd1) ? FW'(1) : FW'(0));
