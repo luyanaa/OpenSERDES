@@ -778,6 +778,20 @@ def validate(spec: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
                 fail(message + "; lower line_rate/oversample, use source_sync, "
                      "or --relax-limits only for an explicit experiment")
 
+        # Second tier: the hard gate above is a PDK-level physical bound, which
+        # is too coarse to mean "this CDR architecture closes".  sky130 can
+        # route a 200 MHz fixed-oversampling link while a bang-bang loop closes
+        # at ~45 MHz post-route.  Record, do not block: a configuration above
+        # the measured closure is an experiment, not a signoff-clean design.
+        verified = (tech.limits.get("signoff_sample_clock_mhz_by_arch") or {}).get(
+            rx_arch_name)
+        if verified is not None and sample_clock_mhz > float(verified):
+            spec.setdefault("_warnings", []).append(
+                f"RX sample clock {sample_clock_mhz:g} MHz exceeds the verified "
+                f"post-route closure for {tech.name}/{tech.scl} "
+                f"{rx_arch_name} ({float(verified):g} MHz); treat as an "
+                "unverified experiment, not a signoff-clean configuration")
+
     interface = spec.get("interface", {}) or {}
     if not isinstance(interface, dict):
         fail("interface must be a mapping")

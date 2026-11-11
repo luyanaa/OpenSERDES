@@ -27,7 +27,7 @@ Measured cells / DFF:
   rx fixed_oversampling OS8   228 / 68  @32      767 / 320  @256
   rx adaptive_oversampling    847 / 115 @32     1382 / 367  @256
   rx source_sync              120 / 50  @32      656 / 302  @256
-  rx bang_bang_oversampling  1411 / 126 @32     1956 / 378  @256
+  rx bang_bang_oversampling  1159 / 242 @32     1695 / 746  @256   (exact-width)
 
 Scope and limits (do not overclaim):
 
@@ -38,11 +38,16 @@ Scope and limits (do not overclaim):
   It is the correct quantity for comparing oversampling factors, and is NOT
   a power measurement. Real power needs SAIF + report_power.
 * rel_latency comes from the documented handshake behaviour, not from STA.
-* bang_bang_oversampling is measured, not modelled.  Its 24/25-bit
-  signed arithmetic (phase accumulator, increment clamp, KP*vote) makes it
-  about 7x the cells of fixed_oversampling at the same RATIO; the earlier
-  placeholder (150 / 34) understated area by an order of magnitude.  Its
-  advantage is clock load (DFF x f_clock), not area.
+* bang_bang_oversampling is measured, not modelled.  The bang-bang row was
+  re-measured after the exact-width NCO change (commit 63c9f6d: phase_q
+  FR+PH_W bits, phase_next +1, loop state FR+2, folded wrap/centre
+  constants).  It is now **4.9x** the cells of fixed_oversampling and
+  **1.36x** adaptive at RATIO=32 (previously quoted as ~7x / 1411 cells).
+  Method: yosys 0.52, all package `sv2v` sources, `synth -top
+  serdes_rx_digital -flatten`, DFF column counts `$_DFF*` including enable
+  flops (the older 126/378 figures counted only plain DFFs, which is why they
+  are smaller than the numbers here).  Its advantage is clock load
+  (DFF x f_clock), not area.
 * confidence is modeled_yosys_cells -- never measured_post_route.
   A measured ppa_measured.yaml entry always overrides this model.
 """

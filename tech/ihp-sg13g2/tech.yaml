@@ -37,6 +37,10 @@ limits:
   max_endpoint_line_rate_mbps: 100
   max_link_line_rate_mbps: 50
   max_sample_clock_mhz: 200   # 5 ns RX closes at +1.78 ns (prepnr_sta.md 3.5)
+
+  # Post-route bang-bang critical path 10.96 ns; no clean signoff yet (DRC/LVS).
+  signoff_sample_clock_mhz_by_arch:
+    bang_bang_oversampling: 80
 cts:
   target_skew_ps: 50
   max_slew_ns: 0.5

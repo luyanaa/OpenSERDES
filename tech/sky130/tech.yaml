@@ -20,6 +20,12 @@ limits:
   max_endpoint_line_rate_mbps: 100
   max_link_line_rate_mbps: 50
   max_sample_clock_mhz: 200   # 5 ns RX; 400 MHz is not realistic at 130 nm (prepnr_sta.md 3.5)
+
+  # Post-route verified closure per CDR architecture (not the PDK bound).
+  # bang_bang: 22 ns routed with exact-width NCO, see
+  # docs/bang_bang_pipeline_study.md and build/pnr/cross_pdk_close22_A.json.
+  signoff_sample_clock_mhz_by_arch:
+    bang_bang_oversampling: 45
   note: "Endpoint 100 Mb/s, OS=2 full link 50 Mb/s; not post-route signoff."
 # Integrated clock gate used by Yosys SYNTH_CLOCKGATE_* when the spec sets
 # optimization.clock_gating: true.  Pins verified in the sky130 TT liberty:
