@@ -63,7 +63,7 @@ RTL   := $(wildcard rtl/*.sv)
 SV2V_DIR := $(BUILD)/sv2v
 SV2V_RTL := $(SV2V_DIR)/rtl.v
 
-.PHONY: all sim lint synth regress gen qualify signoff ppa-import ppa-power-import clean si-eye si-bathtub si-jtol si-rtl-jtol verify-link analog-pcell-probe analog-pcell-inv analog-pcell-tx analog-pcell-tx-verify analog-pcell-tx-views analog-pcell-tx-1-4-16 analog-pcell-tx-1-4-16-verify analog-pcell-rx-fb analog-pcell-rx-fb-verify analog-pcell-rx-fb-views analog-freepdk45-probe analog-etri050-probe m3-noise m3-holdout m3-closure analog-stdcell-gen analog-macro-gen analog-contracts analog-gds analog-gds-audit analog-views analog-package analog-macro-pex analog-drc analog-rx-dc analog-rx-pvt mixed-signal-e2e rx-pex-digital-e2e ms-phy-baseline phy-link-closure soc-e2e soc-e2e-stress analog-lut sky130-lut analog-lut-demo analog-tech-check sky130-pvt pvt-margin pdk-mc xyce-global-mc magic-pex magic-pex-compare sky130-mc pex-compare lib-catalog timing-compare analog-macro-package
+.PHONY: all sim lint synth regress gen qualify signoff ppa-import ppa-power-import clean si-eye si-bathtub si-jtol si-rtl-jtol verify-link analog-pcell-probe analog-pcell-inv analog-pcell-tx analog-pcell-tx-verify analog-pcell-tx-views analog-pcell-tx-1-4-16 analog-pcell-tx-1-4-16-verify analog-pcell-rx-fb analog-pcell-rx-fb-verify analog-pcell-rx-fb-views analog-freepdk45-probe analog-etri050-probe m3-noise m3-holdout m3-closure analog-stdcell-gen analog-macro-gen analog-contracts analog-gds analog-gds-audit analog-views analog-package analog-macro-pex analog-drc analog-rx-dc analog-rx-pvt mixed-signal-e2e rx-pex-digital-e2e pex-jtol-sweep cross-pdk-pnr ms-phy-baseline phy-link-closure soc-e2e soc-e2e-stress analog-lut sky130-lut analog-lut-demo analog-tech-check sky130-pvt pvt-margin pdk-mc xyce-global-mc magic-pex magic-pex-compare sky130-mc pex-compare lib-catalog timing-compare analog-macro-package
 
 all: sim
 
@@ -654,6 +654,36 @@ ms-phy-baseline: magic-pex analog-macro-pex
 		--prbs-seeds $(or $(MS_PHY_PRBS_SEEDS),0x5D) \
 		--noise-seeds $(or $(MS_PHY_NOISE_SEEDS),7) \
 		--out $(MS_PHY_OUT) --workdir $(MS_PHY_WORKDIR)
+
+# Closed-loop jitter tolerance through the TX/RX PEX chain: the analog
+# decisions (with sinusoidal jitter on the TX edges) are replayed into the
+# generated package's frame scoreboard.  Jtol sweep points are set with
+# JTOL_SJ_UI (space separated amplitudes in UI).
+JTOL_SJ_UI ?= 0.0 0.3 0.45 0.6 0.75
+JTOL_SJ_FREQ_MHZ ?= 2.0
+JTOL_PACKAGE ?= build/gen/bang_bang_4x
+# P2: mapped post-route STA/power for the bang-bang RX across every supported
+# PDK.  Runs inside the project's LibreLane devshell so the full toolchain is
+# pinned; see docs/cross_pdk_pnr.md.
+CROSS_PDK_SPEC ?= spec/bang_bang_4x.yaml
+CROSS_PDK_TECHS ?= sky130,gf180mcuD,ihp-sg13g2,icsprout55
+CROSS_PDK_OUT ?= $(BUILD)/pnr/cross_pdk.json
+CROSS_PDK_SHELL_DIR ?= /opt/librelane
+CROSS_PDK_NIX_SHELL ?= /nix/var/nix/profiles/default/bin/nix-shell
+cross-pdk-pnr:
+	cd $(CROSS_PDK_SHELL_DIR) && $(CROSS_PDK_NIX_SHELL) --run \
+	  'cd $(CURDIR) && LIBRELANE_BIN=librelane $(PYTHON) scripts/run_cross_pdk_pnr.py \
+	     --spec $(CROSS_PDK_SPEC) --techs $(CROSS_PDK_TECHS) \
+	     --out $(CROSS_PDK_OUT)'
+
+pex-jtol-sweep: magic-pex analog-macro-pex $(JTOL_PACKAGE)/rtl/serdes_rx_digital.sv
+	$(PYTHON) verification/analog/pex_jtol_sweep.py \
+		--package $(JTOL_PACKAGE) \
+		--rate-mbps $(or $(JTOL_RATE_MBPS),100) \
+		--sj-freq-mhz $(JTOL_SJ_FREQ_MHZ) \
+		--frames $(or $(JTOL_FRAMES),2) \
+		$(foreach a,$(JTOL_SJ_UI),--sj-ui $(a)) \
+		--out $(BUILD)/verify/pex_jtol.json
 
 rx-pex-digital-e2e: magic-pex analog-macro-pex
 	$(PYTHON) verification/analog/rx_pex_digital_e2e.py \

@@ -53,7 +53,8 @@ module serdes_rx_axis_digital #(
     output logic                              rx_sample_strobe,
     output logic                              rx_serial_data,
     output logic                              rx_serial_valid,
-    output logic signed [ADAPT_FRAC_BITS:0]   rx_freq_trim,
+    // Two's-complement value; not declared signed for Yosys/OpenROAD portability.
+    output logic [ADAPT_FRAC_BITS:0]   rx_freq_trim,
     output logic                              rx_busy,
     output logic                              rx_clk_out,
     output logic                              crc_error,

@@ -69,7 +69,8 @@ module serdes_digital_top #(
     output logic                              rx_frame_valid,
     output logic                              rx_serial_data,
     output logic                              rx_serial_valid,
-    output logic signed [ADAPT_FRAC_BITS:0]   rx_freq_trim,
+    // Two's-complement value; not declared signed for Yosys/OpenROAD portability.
+    output logic [ADAPT_FRAC_BITS:0]   rx_freq_trim,
 
     // Optional digital training interface.  The error count is supplied by
     // the link scoreboard/PRBS checker; the phase request drives the CDR's

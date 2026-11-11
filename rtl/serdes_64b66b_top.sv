@@ -52,7 +52,8 @@ module serdes_64b66b_top #(
     output logic                              rx_frame_valid,
     output logic                              rx_serial_data,
     output logic                              rx_serial_valid,
-    output logic signed [ADAPT_FRAC_BITS:0]   rx_freq_trim,
+    // Two's-complement value; not declared signed for Yosys/OpenROAD portability.
+    output logic [ADAPT_FRAC_BITS:0]   rx_freq_trim,
     output logic                              sync_error
 );
     localparam int LINE_WIDTH = 66;

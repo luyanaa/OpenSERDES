@@ -31,11 +31,26 @@ from verification.analog.magic_pex import find_pdk_root  # noqa: E402
 
 
 def _pwl(bits: list[int], ui_ns: float, edge_ns: float = 0.08,
-         high_v: float = 1.8) -> str:
+         high_v: float = 1.8, sj_ui: float = 0.0,
+         sj_freq_mhz: float = 0.0) -> str:
+    """PWL stimulus, optionally with deterministic sinusoidal jitter.
+
+    sj_ui is the peak jitter as a fraction of a UI and sj_freq_mhz its
+    frequency.  The jitter is applied to the edge times only, so the bit
+    values and their nominal spacing are unchanged and the recovered stream
+    stays comparable against the unjittered reference.
+    """
+    import math
+
+    def jit(t: float) -> float:
+        if sj_ui <= 0.0 or sj_freq_mhz <= 0.0:
+            return 0.0
+        return sj_ui * ui_ns * math.sin(2.0 * math.pi * sj_freq_mhz * 1e6 * t * 1e-9)
+
     pts = []
     last = 0.0
     for i, bit in enumerate(bits):
-        t = i * ui_ns
+        t = i * ui_ns + jit(i * ui_ns)
         pts.append(f"{t:.6g}n {0.0 if i == 0 else (high_v if bits[i-1] else 0.0):.6g}")
         # Add a finite edge at the beginning of each bit.
         v = high_v if bit else 0.0
@@ -51,7 +66,8 @@ def run(tx: Path, rx: Path, bits: list[int], ui_ns: float, pdk: Path,
         noise_mv: float = 0.0, noise_seed: int = 1,
         mc_seed: int | None = None,
         vdd: float = 1.8, temp_c: float | None = None,
-        phase_len: int = 0) -> dict[str, Any]:
+        phase_len: int = 0, sj_ui: float = 0.0,
+        sj_freq_mhz: float = 0.0) -> dict[str, Any]:
     workdir = workdir.resolve()
     workdir.mkdir(parents=True, exist_ok=True)
     wave = workdir / "wave.dat"
@@ -77,7 +93,8 @@ def run(tx: Path, rx: Path, bits: list[int], ui_ns: float, pdk: Path,
 .lib "{lib}" {corner}
 {mc}{temp}.param VDD={vdd:g}
 Vdd VDD 0 {{VDD}}
-Vin VIN 0 PWL({_pwl(bits, ui_ns, high_v=vin_high)})
+Vin VIN 0 PWL({_pwl(bits, ui_ns, high_v=vin_high,
+                              sj_ui=sj_ui, sj_freq_mhz=sj_freq_mhz)})
 .include "{tx.resolve()}"
 .include "{rx.resolve()}"
 Xtx GND VDD VIN VOUT Inv_Transmitter
@@ -193,6 +210,8 @@ wrdata {wave.resolve()} v(VIN) v(VOUT) v(RXIN) v(OUT)
         "out_min_v": float(np.min(out)),
         "out_max_v": float(np.max(out)),
         "vin_high_v": vin_high,
+        "sj_ui": sj_ui,
+        "sj_freq_mhz": sj_freq_mhz,
         "noise_mv": noise_mv,
         "noise_seed": noise_seed,
         "mc_seed": mc_seed,

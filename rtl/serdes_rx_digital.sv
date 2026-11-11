@@ -69,7 +69,8 @@ module serdes_rx_digital #(
     output logic                              rx_frame_valid,
     output logic                              rx_serial_data,
     output logic                              rx_serial_valid,
-    output logic signed [ADAPT_FRAC_BITS:0]   rx_freq_trim
+    // Two's-complement value; not declared signed for Yosys/OpenROAD portability.
+    output logic [ADAPT_FRAC_BITS:0]   rx_freq_trim
 );
 
     // CDR_MODE is used directly: 0=fixed, 1=adaptive, 2=source-sync,

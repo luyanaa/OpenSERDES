@@ -75,7 +75,8 @@ module serdes_soc_wrapper #(
     output logic                              rx_sample_strobe,
     output logic                              rx_serial_data,
     output logic                              rx_serial_valid,
-    output logic signed [ADAPT_FRAC_BITS:0]   rx_freq_trim,
+    // Two's-complement value; not declared signed for Yosys/OpenROAD portability.
+    output logic [ADAPT_FRAC_BITS:0]   rx_freq_trim,
     output logic                              rx_clk_out,
     output logic [15:0][31:0]                 csr_regs
 );

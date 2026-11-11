@@ -54,7 +54,12 @@ module cdr_adaptive #(
     output logic clk_out,
     output logic lock,
     output logic lock_stale,
-    output logic signed [FRAC_BITS:0] freq_trim
+    // Two's-complement loop state in NCO LSBs.  The port is deliberately not
+    // declared signed: Yosys emits the keyword into the netlist and OpenROAD's
+    // read_verilog rejects it, which blocks STA for every design that
+    // instantiates this module.  Consumers wanting a signed value declare their
+    // own variable as signed, as the testbenches do.
+    output logic [FRAC_BITS:0] freq_trim
 );
 
     localparam int N            = (SYNC_STAGES < 2) ? 2 : SYNC_STAGES;
