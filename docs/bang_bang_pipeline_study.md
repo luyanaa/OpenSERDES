@@ -258,8 +258,26 @@ between the frequency estimate and the NCO control word.
 | A (exact widths) | 20.61 ns | 16.48 ns | -5.76 | 2037 |
 | **C2 (control-word delay)** | **13.85 ns** | **12.04 ns** | **-1.32** | 2109 |
 
-C2 is **-36% routed depth vs A** and **-36% vs baseline**, and gets within
-1.3 ns of the 100 MHz (10 ns) target.  Full functional suite passes:
+C2 is **-27% routed depth vs A** and **-36% vs baseline** at the same 10 ns
+target, and gets within 1.3 ns of 100 MHz.
+
+Target-vs-achieved caveat (same effect as A): the resizer's effort scales with
+the constraint, so a *relaxed* target does not produce a better result.  C2
+across three targets (same RTL, same flow):
+
+| target | CP | WNS |
+|---|---:|---:|
+| 10 ns (100 MHz) | 12.04 ns | -1.32 |
+| 12 ns | 13.57 ns | **-0.91** |
+| 15 ns | 17.32 ns | -1.63 |
+
+So C2 does **not** have a verified closure point in this range; its best
+result is -0.91 ns at the 12 ns target and -1.32 ns at 100 MHz.  The tool's
+achieved CP always exceeds the target by 1.3-2.3 ns and does not improve as
+the target is relaxed.  Compare variants at the **same** target only; do not
+read a relaxed run as the closure point.
+
+Full functional suite passes:
 0/+-100/+-300/+-700/+-1000 ppm, patterns 0-3 (incl. 6% density),
 `tb_cdr_phase_offset`, `tb_cdr_leak`, 105/105 regression, lint clean.
 DRC/LVS/antenna clean in the routed run.
