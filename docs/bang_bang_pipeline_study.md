@@ -232,22 +232,72 @@ PD/NCO partition) is a new design, not a parameter change, and 4x sampling
 already has less jitter margin (docs §6 records the 2x/baud-rate negative
 result).
 
+### 4.5 Direction C2 - register only the NCO control word (sampling untouched)
+
+The P1/P2/B failures came from delaying the **sampling** pipeline.  C2 keeps
+every sampling-side signal on its original cycle and moves only the
+frequency-control update behind a register:
+
+```
+control path (1 clock behind):
+    inc_c = CLKINC + clamp(freq_q - kick_q)
+    inc_r <= inc_c
+fast path (every clock, unchanged):
+    phase_next = phase_q + inc_r
+    wrap / phase_w / centre-edge events / d_q / d_out_q / strobe_q / done flags
+```
+
+`phase_q`, `center_hit`, `edge_hit`, `d_q`, `d_prev_q`, `e_q`,
+`d_out_q`, `strobe_q`, `c_done_q`, `e_done_q`, leak and lock all keep
+their original timing.  The only cost is one extra clock of loop latency
+between the frequency estimate and the NCO control word.
+
+| variant | pre-PnR | routed 10 ns CP | routed WNS | cells (10 ns run) |
+|---|---:|---:|---:|---:|
+| baseline | 31.49 ns | 18.87 ns | -8.27 | 2186 |
+| A (exact widths) | 20.61 ns | 16.48 ns | -5.76 | 2037 |
+| **C2 (control-word delay)** | **13.85 ns** | **12.04 ns** | **-1.32** | 2109 |
+
+C2 is **-36% routed depth vs A** and **-36% vs baseline**, and gets within
+1.3 ns of the 100 MHz (10 ns) target.  Full functional suite passes:
+0/+-100/+-300/+-700/+-1000 ppm, patterns 0-3 (incl. 6% density),
+`tb_cdr_phase_offset`, `tb_cdr_leak`, 105/105 regression, lint clean.
+DRC/LVS/antenna clean in the routed run.
+
+Why it works where P1/P2 failed: the event state machine (`c_done_q`/
+`e_done_q`, wrap, `nxt_c`/`nxt_e`) is fed by `phase_q` and `phase_next`
+in the same cycle as before; only `inc_r` is registered, so the sampling
+instant is unchanged.  The loop still spans two cycles, but through a single
+clean register on the control word.
+
+**Open for C2:** the added control latency changes loop dynamics.  Capture
+range, frequency-step response and limit-cycle behaviour must be
+characterised (not just bit-error counts), and the 1.3 ns gap to 100 MHz needs
+either another arithmetic cut in the phase/event path or a second control
+stage.  See §5.
+
 ## 5. Recommendation
 
-1. **A is landed** (`rtl/cdr_bang_bang.sv`): -34% pre-PnR depth, -7% cells,
-   -20% power at an equal target, -12.7% routed depth at the 10 ns target,
-   and a verified routed closure at **22 ns instead of 25 ns** (45.5 MHz
-   sample clock).  Full regression 105/105, lint clean.
-2. **100 MHz is still not reachable** with this architecture.  A is a real
-   PPA and ~14% frequency win, not a solution to the 25 -> 10 ns gap.
-3. **Do not pursue B or D.**  B is 9% over A with a broken strobe and a
-   loop-delay risk; D needs FR<=6 and therefore cannot track +-1000 ppm.
-4. If 100 MHz is a hard requirement, it needs a **new architecture**
-   (pipelined-but-correct loop, or a different PD/NCO partition) and a full
-   jitter-tolerance re-characterisation, not a local optimisation.
-5. The 25 ns baseline record is kept as the pre-A signoff reference
-   (`build/pnr/cross_pdk_close25_sky130.json`); the A record is
-   `build/pnr/cross_pdk_close22_A.json`.
+1. **A is landed on master** (`rtl/cdr_bang_bang.sv`): -34% pre-PnR depth,
+   -7% cells, -20% power at an equal target, -12.7% routed depth at the 10 ns
+   target, verified routed closure at **22 ns instead of 25 ns** (45.5 MHz).
+   105/105 regression, lint clean.  Keep it as the reference.
+2. **C2 is the leading candidate for 100 MHz** and lives on
+   `exp/cdr-control-delay`: routed **12.04 ns / WNS -1.32** at the 10 ns
+   target (A: 16.48 / -5.76; baseline: 18.87 / -8.27), full functional suite
+   and 105/105 regression.  It is **not merged**: the extra control-cycle
+   latency still needs capture-range / frequency-step / limit-cycle
+   characterisation, and the last 1.3 ns needs another cut.
+3. **Do not pursue B or D.**  B breaks the sampling pipeline (50-93% bit
+   errors at 0 ppm) for only 9% over A; D needs FR<=6 and therefore cannot
+   track +-1000 ppm.
+4. **Next for C2**: (a) closed-loop stability characterisation, not just
+   BER; (b) shave the last 1.3 ns in `inc_r -> phase_next -> compare -> PD`
+   (e.g. a second control stage, or a hierarchical comparator); (c) only then
+   consider merging to master and re-running the four PDKs.
+5. Records: baseline 25 ns `build/pnr/cross_pdk_close25_sky130.json`, A 22 ns
+   `build/pnr/cross_pdk_close22_A.json`, C2 10 ns
+   `build/pnr/cross_pdk_c2_10ns.json` (portable/local, not committed).
 
 ## 6. Reproduce
 
@@ -272,8 +322,7 @@ EOF
 sta -no_init -no_splash -exit /tmp/cdr.tcl   # cmd_file is positional
 ```
 
-The P1/P2/B/A prototypes were generated in a scratch tree from
-`rtl/cdr_bang_bang.sv` (split NCO `always_comb` for the pipelines; width and
-constant folding for A).  They are **not** committed and are not proposed RTL.
-`rtl/cdr_bang_bang.sv` in this repository is unchanged; direction A is a
-verified prototype, not a landed change.
+A is on `master` (`rtl/cdr_bang_bang.sv`).  C2 is on `exp/cdr-control-delay`
+(one extra register on the NCO control word, sampling pipeline unchanged).
+The P1/P2/B prototypes were scratch-tree only and were **not** kept: they fail
+the functional suite.  C2 is the only pipeline-style change that passes it.
