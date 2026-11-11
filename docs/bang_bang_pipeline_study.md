@@ -288,11 +288,53 @@ in the same cycle as before; only `inc_r` is registered, so the sampling
 instant is unchanged.  The loop still spans two cycles, but through a single
 clean register on the control word.
 
-**Open for C2:** the added control latency changes loop dynamics.  Capture
-range, frequency-step response and limit-cycle behaviour must be
-characterised (not just bit-error counts), and the 1.3 ns gap to 100 MHz needs
-either another arithmetic cut in the phase/event path or a second control
-stage.  See §5.
+### 4.6 C2 loop-stability characterisation
+
+Same RTL, 100 MHz clock, PRBS unless noted (tb_cdr_bang_bang with the new
+steady-state / step diagnostics).
+
+| check | result |
+|---|---|
+| capture range (5000 bits, PRBS) | PASS from **-3000 to +4000 ppm**; fails at -4000 (38 errors) and +5000 |
+| frequency step 0 -> +700 ppm | **0 bit errors** (relock 0 bits) |
+| frequency step +700 -> -700 ppm | **0 bit errors** |
+| frequency step -1000 -> +1000 ppm | **0 bit errors** |
+| 100k bits at 0 ppm | PASS, freq_q span **3 LSB** (limit cycle), mean 0 |
+| 100k bits at -1000 ppm | PASS, freq_q span **29 LSB**, mean 65 |
+| 100k bits at +1000 ppm | PASS |
+
+Interpretation: the one-cycle control latency does **not** destabilise the
+loop over the +-1000 ppm spec (2-4x margin), it does not lose bits across a
++1000 ppm step, and the residual limit cycle is small (3 LSB = 46 ppm p-p at
+0 ppm).  The larger span at 500-1000 ppm (28-31 LSB) is the bang-bang loop
+dithering around the offset; it is a bounded limit cycle, not a run-away.
+
+Capture is asymmetric (-3000 / +4000).  That is expected for a bang-bang
+loop with a leak.  The -4000 test may also be limited by pull-in time inside
+the 5000-bit window rather than a hard capture edge; it was not re-run with a
+longer window.
+
+### 4.7 A further threshold cut was tried and reverted
+
+Because `center_e = phase_offset << FR` and `edge_e = 2^(PWQ-1)` are aligned
+to FR, the centre/edge tests only need the accumulator high bits (2-3 bits at
+OS=4) instead of 18-19 bit comparators.  That measured **13.31 ns pre-PnR vs
+13.85 for C2**, but **routed 13.02 ns / WNS -2.34 at the 10 ns target vs
+12.04 / -1.32 for C2** -- worse where it counts.  The smaller comparators
+mapped into worse cells/placement.  Reverted; C2 remains the branch state.
+This is a caution against judging a change by pre-PnR depth alone.
+
+**Still open for C2:** the last ~1.3 ns to 100 MHz.  Two further cuts were
+evaluated and neither is worth shipping:
+
+- threshold high-bit compares: better pre-PnR, worse routed (§4.7);
+- a **second control stage** (register `trans`/`vote` so the loop filter runs
+  one more cycle later): 13.05 ns pre-PnR vs 13.85 for C2, i.e. only 0.8 ns,
+  at the cost of a second cycle of loop latency and a full re-characterisation.
+
+So C2's honest position is **12-13 ns (77-83 MHz)** for this architecture on
+sky130.  Reaching 100 MHz needs the multiphase/DLL/phase-interpolator backend
+or a different PD/NCO partition, not more local arithmetic.  See §5.
 
 ## 5. Recommendation
 
