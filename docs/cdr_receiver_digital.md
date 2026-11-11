@@ -409,6 +409,28 @@ LSB (7.6 ppm), which is 0.05 UI of drift per 10^4 UIs, and it saves 204 cells
 run.  `KP` is expressed relative to `NCO_FRAC` (`1 << (FR - KP_SHIFT)`),
 so the proportional gain is unchanged by this choice.
 
+**Exact internal widths (P2 follow-up).**  The table above is about
+`NCO_FRAC`; the *internal* signal widths were also over-provisioned
+(`PW = FR+PH_W+3`, `FW = FR+4`), which put three extra bits of carry chain on
+the single-cycle loop path.  They are now exact:
+
+- `phase_q` is `PWQ = FR+PH_W` bits (18 at FR=16, OS=4) and `phase_next` is
+  `PWN = PWQ+1`; the wrap is `phase_next[PWQ]` and `phase_w` is the low
+  `PWQ` bits, so the wrap compare and the `- ONE` subtract both disappear.
+- `center_e` reduces to `phase_offset * CLKINC` (a shift), because
+  `CENTER+CENTER == ONE` and `(x + ONE) & (ONE-1) == x`.
+- The lower clamp `inc_v < CLKINC/4` was unreachable (`freq_q >= FMIN`,
+  `|kick_q| <= KP`), so clamping is done on the 16-bit `delta = freq_q-kick_q`.
+- `KI == 1` turns `freq_q - KI*vote` into an incrementer.
+
+Result: **573 cells (was 699), 73 DFF (was 78), 20.64 ns pre-PnR (was
+31.49 ns)**, functional suite unchanged (105/105 regression cases, all ppm and
+patterns).  The historical 1285-cell figure for NCO_FRAC=16 above is the
+pre-change count.  Derivation, measurements and the rejected pipeline/faster
+alternatives are in [`bang_bang_pipeline_study.md`](bang_bang_pipeline_study.md).
+
+
+
 
 
 ### 7.3 Limits (do not overclaim)

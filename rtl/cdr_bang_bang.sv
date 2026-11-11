@@ -33,12 +33,13 @@ module cdr_bang_bang #(
     parameter int OVERSAMPLE      = 4,
     parameter int SYNC_STAGES     = 3,
     // Fractional bits of the NCO: the frequency resolution of the integral
-    // path, 1 LSB = 2^-NCO_FRAC clock periods per clock (244 ppm at 20, 15 ppm
-    // at 16).  20 is over-provisioned - it costs about 200 extra Yosys cells in
-    // the 24/25-bit signed loop arithmetic for a resolution the PD can never
-    // use.  16 keeps the quantisation drift below 0.05 UI per 10^4 UIs; 14
-    // does not (0.2 UI).  Yosys on this module: 1489 cells at 20, 1285 at 16,
-    // 1191 at 14.
+    // path, 1 LSB = 2^-NCO_FRAC clock periods per clock (15 ppm at 16).  20 is
+    // over-provisioned - it costs extra Yosys cells in the signed loop
+    // arithmetic for a resolution the PD can never use.  16 keeps the
+    // quantisation drift below 0.05 UI per 10^4 UIs; 14 does not (0.2 UI).
+    // Before the exact-width change the module was 1489 cells at 20, 1285 at
+    // 16, 1191 at 14; after it, 573 at 16.  See
+    // docs/bang_bang_pipeline_study.md for the width/timing analysis.
     parameter int NCO_FRAC        = 16,
 
     parameter int KI              = 1,
@@ -76,11 +77,17 @@ module cdr_bang_bang #(
     localparam int PH_W    = $clog2(OS);
     localparam int N       = (SYNC_STAGES < 3) ? 3 : SYNC_STAGES;
     localparam int FR      = NCO_FRAC;
-    localparam int PW      = FR + PH_W + 3;
-    localparam int FW      = FR + 4;
-    localparam logic [PW-1:0] ONE    = PW'(OS << FR);
-    localparam logic [PW-1:0] CENTER = PW'((OS << FR) >>> 1);
-    localparam logic [PW-1:0] CLKINC = PW'(1 << FR);
+    // Exact widths instead of the old FR+PH_W+3 / FR+4 margins:
+    //   phase_q in [0, 2^(FR+PH_W))   -> PWQ bits
+    //   phase_next < 2^(FR+PH_W+1)    -> PWN = PWQ+1; bit PWQ is the wrap
+    //   freq_q in [-2^(FR-2), 2^(FR-2)] -> FW = FR+2 signed
+    // The old PW/FW margins cost one comparand's worth of carry chain each on
+    // the single-cycle loop path (see docs/bang_bang_pipeline_study.md).
+    localparam int PWQ     = FR + PH_W;
+    localparam int PWN     = PWQ + 1;
+    localparam int FW      = FR + 2;
+    localparam logic [PWQ-1:0] CENTER = PWQ'(1 << (PWQ - 1));
+    localparam logic [PWQ-1:0] CLKINC = PWQ'(1 << FR);
     localparam logic signed [FW-1:0] KP   = FW'(1 << (FR - KP_SHIFT));
     localparam logic signed [FW-1:0] KI_S = FW'(KI);
     localparam logic signed [FW-1:0] FMAX = FW'(1 << (FR - 2));
@@ -99,15 +106,16 @@ module cdr_bang_bang #(
 
     logic [N-1:0]             samples;
     logic                     s;
-    logic [PW-1:0]            phase_q;
+    logic [PWQ-1:0]           phase_q;
     logic signed [FW-1:0]     freq_q;
     logic signed [FW-1:0]     kick_q;
-    logic signed [FW-1:0]     inc_v;
+    logic signed [FW-1:0]     delta;
+    logic [PWN-1:0]           inc_v;
     logic signed [FW-1:0]     freq_next;
-    logic [PW-1:0]            phase_next;
-    logic [PW-1:0]            phase_w;
-    logic [PW-1:0]            center_e;
-    logic [PW-1:0]            edge_e;
+    logic [PWN-1:0]           phase_next;
+    logic [PWQ-1:0]           phase_w;
+    logic [PWQ-1:0]           center_e;
+    logic [PWQ-1:0]           edge_e;
     logic                     wrap;
     logic                     cx_c;
     logic                     cx_e;
@@ -142,15 +150,21 @@ module cdr_bang_bang #(
     // kick_q and freq_q are registers, so this block only reads state.
     // ------------------------------------------------------------------
     always_comb begin
-        inc_v = FW'(CLKINC) + freq_q - kick_q;
-        if (inc_v < FW'(CLKINC >>> 2))
-            inc_v = FW'(CLKINC >>> 2);
-        else if (inc_v > FW'(CLKINC) + FMAX)
-            inc_v = FW'(CLKINC) + FMAX;
+        // inc_v = CLKINC + freq_q - kick_q, clamped to [CLKINC/4, CLKINC+FMAX].
+        // The lower bound is unreachable: freq_q >= FMIN and |kick_q| <= KP, so
+        // inc_v >= CLKINC + FMIN - KP = 0.72*CLKINC > CLKINC/4.  Clamping the
+        // signed delta alone is therefore equivalent and needs only a 16-bit
+        // compare instead of two 20-bit ones on the loop path.
+        delta = freq_q - kick_q;
+        if (delta > FMAX) delta = FMAX;
+        inc_v = PWN'(CLKINC) + PWN'(delta);
 
-        phase_next = phase_q + PW'(inc_v);
-        wrap       = (phase_next >= ONE);
-        phase_w    = wrap ? (phase_next - ONE) : phase_next;
+        // phase_next carries one extra bit: bit PWQ is the wrap, and the low
+        // PWQ bits equal phase_next - ONE when it wrapped.  The wrap is a bit
+        // test and the wrap subtraction is a truncation, no comparator or mux.
+        phase_next = PWN'(phase_q) + PWN'(inc_v);
+        wrap       = phase_next[PWQ];
+        phase_w    = phase_next[PWQ-1:0];
 
         // Event positions.  The loop closes on the edge sample, so the
         // absolute phase origin (and therefore the sync delay) is absorbed;
@@ -169,7 +183,10 @@ module cdr_bang_bang #(
         // across the eye.  A centre threshold of 0 coincides with the wrap
         // and is detected by the "next UI" branch below.
         edge_e   = CENTER;
-        center_e = (CENTER + CENTER + PW'(phase_offset) * CLKINC) & (ONE - 1'b1);
+        // CENTER + CENTER == ONE and (x + ONE) & (ONE-1) == x for x < ONE, so
+        // the old add/multiply/mask reduces to phase_offset * CLKINC (a shift;
+        // phase_offset <= 3 so 3*CLKINC still fits in PWQ bits).
+        center_e = PWQ'(phase_offset) * CLKINC;
 
         // Wrap-aware fractional threshold crossing.  On a wrap the traversed
         // interval is (phase_q, ONE) - the UI that is ending - followed by
@@ -187,6 +204,9 @@ module cdr_bang_bang #(
             center_hit = (cx_c && !c_done_q) || nxt_c;
             edge_hit   = (cx_e && !e_done_q) || nxt_e;
         end else begin
+            // phase_w == phase_next here (no wrap), but comparing phase_next
+            // lets abc reuse the adder carry chain; the truncated phase_w
+            // slice mapped 4 ns slower on sky130 (see the study doc).
             cx_c  = (phase_q < center_e) && (phase_next >= center_e);
             cx_e  = (phase_q < edge_e)   && (phase_next >= edge_e);
             nxt_c = 1'b0;
@@ -207,7 +227,13 @@ module cdr_bang_bang #(
     end
 
     always_comb begin
-        freq_next = freq_q - (KI_S * vote);
+        // KI == 1 makes KI*vote a value in {-1,0,+1}: an incrementer instead of
+        // a 16-bit multiply/adder.  The general form stays for other KI values.
+        if (KI == 1)
+            freq_next = freq_q + ((vote == 2'sd1) ? -FW'(1) :
+                                  (vote == -2'sd1) ? FW'(1) : FW'(0));
+        else
+            freq_next = freq_q - (KI_S * vote);
         if (freq_next > FMAX) freq_next = FMAX;
         else if (freq_next < FMIN) freq_next = FMIN;
     end

@@ -1,0 +1,279 @@
+# Bang-bang CDR pipeline-cut study
+
+> Scope: **pre-PnR structural analysis**, not a design change.  All numbers
+> below are from `yosys 0.52` + `abc -liberty sky130_fd_sc_hd__ss_100C_1v60`
+> + OpenROAD `sta` at a 10 ns clock with ideal clocks and no SPEF.  They
+> measure **logic depth**, not routed timing.  The corresponding routed
+> sky130 number is 24.23 ns in the ss corner
+> (`build/pnr/cross_pdk_close/sky130/runs/close_25ns_sky130`); pre-PnR is
+> ~1.3x slower because it has no buffering/sizing.  Use ratios, not absolute
+> nanoseconds, when comparing variants.
+
+## 1. Root cause: a single-cycle closed loop
+
+The post-route critical path starts at `g_bang_bang.u_cdr.freq_q[11]` and
+returns to a `freq_q` D input within **one clock**.  Decomposed from the
+45-gate pre-PnR path (31.485 ns):
+
+```
+freq_q --> inc_v = CLKINC + freq_q - kick_q   (20b add/sub + saturation mux)
+       --> phase_next = phase_q + inc_v       (21b ripple-carry: 7x maj3)
+       --> wrap = phase_next >= ONE           (21b compare)
+       --> phase_w = wrap ? phase_next-ONE : phase_next  (21b sub + mux)
+       --> cx_c/cx_e vs center_e/edge_e      (4x 21b compare)
+       --> center_hit / edge_hit --> trans --> vote (Alexander BBPD)
+       --> freq_next = freq_q - KI*vote + clamp (20b add + 2 compares)
+       --> freq_q (D)
+```
+
+Three ripple-carry segments (`maj3_1` chains, ~13 cells) account for about
+half the delay.  The rest is comparators, saturation muxes and the PD.
+
+**Why it is one cycle:** the BBPD must vote on the phase event of the *current*
+UI and have that vote change the NCO increment for the *next* clock.  The
+`kick_q` proportional term is explicitly a one-clock increment offset, and
+`c_done_q`/`e_done_q` enforce exactly one centre and one edge event per UI
+across the wrap boundary.  `docs/cdr_receiver_digital.md` §7.1 documents
+this, and the `nxt_c`/`nxt_e` wrap logic and the per-UI leak semantics were
+both fixed for off-by-one bugs.  These states are tightly coupled to the
+phase accumulator; they are not independent datapath stages.
+
+## 2. Measured variants (pre-PnR, sky130 ss, 10 ns clock)
+
+| Variant | arrival | cells | DFF | `tb_cdr_bang_bang` 0 / +700 / -700 ppm |
+|---|---:|---:|---:|---|
+| baseline, NCO_FRAC=16 | 31.49 ns | 699 | 78 | PASS / PASS / PASS |
+| NCO_FRAC=18 | 31.26 ns | 769 | – | – |
+| NCO_FRAC=14 | 26.33 ns | 667 | – | – |
+| NCO_FRAC=12 | 23.25 ns | 622 | – | – |
+| yosys `wreduce` + `opt -full` | 31.49 ns | 699 | 78 | (no change) |
+| **P3**: phase width PW 21 -> 19 | **26.40 ns** | **588** | 78 | **PASS / PASS / PASS** |
+| P1: two-stage pipeline | 19.05 ns | 705 | 116 | **FAIL / FAIL / FAIL** |
+| P2: three-stage pipeline | 16.68 ns | 777 | 162 | **FAIL / FAIL / FAIL** |
+| P1 + NCO_FRAC=12 | 13.67 ns | 621 | 104 | FAIL |
+| P2 + NCO_FRAC=12 | 11.32 ns | 694 | 142 | FAIL |
+| **A**: exact widths + folded constants (FR=16) | **20.64 ns** | **573** | 73 | **PASS (all 9 ppm, all 4 patterns)** |
+| **B**: A + re-timed 2-stage PD/filter pipeline | **18.71 ns** | 575 | 77 | **FAIL (0 ppm 1170/5000)** |
+| A with FR=12 | 16.94 ns | 483 | – | (see D below) |
+| A with FR=10 | 15.72 ns | 442 | – | (see D below) |
+| A with FR=8 | 16.15 ns | 394 | – | (see D below) |
+| A with FR=6 | 11.19 ns | 352 | – | (see D below) |
+
+Functional results (5000 bits, PRBS):
+
+```
+baseline  PPM=0    PASS  freq_trim=0
+P1        PPM=0    FAIL  errors=2550/5000  freq_trim=12
+P2        PPM=0    FAIL  errors=4671/5000  freq_trim=-37
+P2        PPM=700  FAIL  errors=4675/5000  freq_trim=-1276
+```
+
+- `P1` registers the phase accumulator outputs and feeds the registered
+  `phase_q_r`/`phase_next_r`/`phase_w_r`/`wrap_r`/`s_r`/`*_done_r` into
+  event detection + PD; `phase_q <= phase_w_r`.
+- `P2` additionally registers `inc_v` and the pre-accumulation state.
+- `P3` only narrows `PW` from `FR+PH_W+3` to `FR+PH_W+1` (19 bits at
+  FR=16).  This is sufficient because `ONE = 2^(FR+PH_W)` and
+  `inc_max < 2^(FR+1)`, so `phase_next < 2^(FR+PH_W+1)`.  **Margin is
+  tight** — `center_e` can reach `2^(FR+PH_W) + 3*2^FR` at
+  `PHASE_CTRL_W=2`; a larger `phase_offset` width or OVERSAMPLE needs a
+  re-derivation before this is safe to ship.
+
+## 3. Findings
+
+1. **Width reduction alone cannot reach 10 ns.**  16 -> 12 buys only 26%
+   (31.5 -> 23.3 ns), and FR=12 is already rejected by
+   `docs/cdr_receiver_digital.md` §7.4 (244 ppm/LSB, 0.2 UI drift per 10^4
+   UIs).  `wreduce` finds nothing extra; the synthesis already does it.
+
+2. **Mechanically inserting pipeline registers breaks the CDR.**  P1/P2 cut
+   the path by 40-47% but mis-time the event state machine: event detection
+   consumes one cycle of phase state while `phase_q`/`kick_q`/`c_done_q`/
+   `e_done_q`/`wrap` and the leak counters advance on another.  The result is
+   ~50% bit errors at 0 ppm and a runaway `freq_trim` on P2.  This does
+   **not** prove a correctly re-timed pipeline is impossible, but it proves
+   that a local register insertion is not a valid cut.
+
+3. **Pipeline stages do not balance.**  P1's worst stage is the comparator / PD
+   logic (no `maj3` on the path); P2's worst stage moves back to the phase
+   accumulator (14 `maj3` cells).  Cutting `inc_v` out (P2 vs P1) buys only
+   12% because the ripple-carry chain simply relocates.
+
+4. **Even the best combination misses the target on validated parameters.**
+   P2+FR=12 reaches 11.32 ns pre-PnR (~8.7 ns routed by the 0.77 ratio), but
+   it costs both the rejected NCO resolution **and** a 2-cycle loop delay.
+   With FR=16 and a 1-cycle loop, no variant gets below 19 ns pre-PnR.
+
+5. **Loop delay is itself a risk.**  A bang-bang loop with two registered
+   stages adds 1-2 clocks of pure delay between PD vote and NCO response.
+   That reduces phase margin of the second-order loop and can produce limit
+   cycling or slower pull-in at ±1000 ppm / 6% transition density.  Any
+   re-timed design needs closed-loop behaviour checks (settling, overshoot,
+   frequency-step response), not just bit-error counts.
+
+6. **Only the single-cycle-preserving change worked.**  P3 (PW compression)
+   is function-equivalent on 0/±700 ppm, saves 16% delay and 16% cells, and
+   touches no loop timing.  It is the low-risk direction, but -16% is not
+   enough for 100 MHz.
+
+7. **A (exact widths + folded constants) works and is the largest safe win.**
+   See §4.1.
+
+## 4. Four directions, each verified
+
+### 4.1 Direction A - exact widths, folded constants, single-cycle loop kept
+
+Arithmetic-only change, no loop-timing change.  Transformations:
+
+- `PWQ = FR+PH_W` (18 bits) for `phase_q`, `PWN = PWQ+1` (19) for the sum,
+  `FW = FR+2` (16) for the loop state (the old margins were `+3` and `+4`).
+- `wrap = phase_next[PWQ]` - a single bit, no 19-bit comparator.
+- `phase_w = phase_next[PWQ-1:0]` - truncation, no subtract and no mux.
+- `center_e = phase_offset * CLKINC` - a shift; `CENTER+CENTER == ONE` and
+  `(x + ONE) & (ONE-1) == x` collapse the old add/multiply/mask.
+- `edge_e = CENTER` is a single bit, so that compare is one bit wide.
+- Clamp moved onto `delta = freq_q - kick_q` (16 bits).  The old lower clamp
+  `inc_v < CLKINC/4` was **unreachable** (`freq_q >= FMIN`, `|kick_q| <= KP`),
+  so the 20-bit lower comparator is deleted; the upper clamp becomes a 16-bit
+  compare.
+- `inc_v = CLKINC + delta` (17 bits), `freq_next` is an incrementer because
+  `KI == 1` and `vote in {-1,0,+1}`.
+
+Result: **20.64 ns (-34%), 573 cells (-18%), 73 DFF (-5%)**, and the full
+functional suite passes: 0 / +-100 / +-300 / +-700 / +-1000 ppm, patterns
+0-3 (PRBS, 256-bit run, bursty, 6% density), `tb_cdr_phase_offset`
+(offset 0-1), `tb_cdr_leak`.  `freq_trim` matches the baseline exactly
+(-43 at +700 ppm, +35 at -700 ppm).
+
+**Landed** in `rtl/cdr_bang_bang.sv`; final pre-PnR measurement of the landed
+file is **20.61 ns, 550 cells, 73 DFF** (105/105 regression cases pass, lint
+clean).
+
+#### Routed results (sky130, LibreLane 3.0.17)
+
+| target | variant | CP (ss) | WNS (ss) | cells | power | DRC/LVS |
+|---|---:|---:|---:|---:|---:|---|
+| 20 ns | baseline | 22.29 ns | -1.69 | 2214 | 1.53 uW | clean |
+| 20 ns | **A** | 22.41 ns | -1.72 | **2050** | **1.23 uW** | clean |
+| 10 ns | baseline | 18.87 ns | -8.27 | 2186 | – | clean |
+| 10 ns | **A** | **16.48 ns** | **-5.76** | **2037** | – | clean |
+| 22 ns | **A** | 22.41 ns | **0 (MET, +0.28)** | 2050 | 1.12 uW | clean |
+| 25 ns | baseline | 24.23 ns | 0 (MET) | 2212 | 1.19 uW | clean |
+
+`critical_path_arrival_ns` includes clock insertion delay, so it can exceed
+the period while still meeting timing (the 22 ns row has arrival 22.41 and
+slack +0.28).  Use WNS, not the arrival, for closure claims.
+
+**Verified closure: A closes at 22 ns (WNS 0, hold 0, DRC 0, LVS 0), where
+the baseline needed 25 ns.**  That is 40 -> 45.5 MHz sample clock (+14%),
+still far from the 100 MHz target.
+
+The honest reading: the pre-PnR -34% does **not** map to -34% routed.
+At a tight 10 ns target the routed path improves **-12.7%** (18.87 -> 16.48)
+and WNS improves by 2.5 ns, because the resizer works harder and the shorter
+logic gives it fewer levels to size.  At a relaxed 20 ns target the tool stops
+optimising and both variants land at ~22.4 ns, so timing is flat - but A still
+saves **7% cells, 5% area and 20% power** (smaller loop arithmetic = less
+switching).
+
+Consequence: A is a real PPA win (area, power, and ~13% routed depth) but it
+does **not** by itself close 100 MHz; the critical path is still
+`u_cdr.freq_q` -> NCO -> PD -> `freq_q`.
+
+One empirical detail worth keeping: the non-wrap branch originally compared
+`phase_w` instead of `phase_next` (they are equal when `!wrap`).  That maps
+**4 ns slower** (24.62 vs 20.61 ns, 552 vs 550 cells) because abc reuses the
+adder carry chain for the `phase_next` compare but not for the truncated
+`phase_w` slice.  Functionally identical, but the comparator operand matters.
+
+### 4.2 Direction B - re-timed two-stage PD/filter pipeline: rejected
+
+Phase accumulation stays single-cycle (it must, to keep one UI per clock);
+only the PD result and loop filter move behind a register.  The done flags
+(`c_done_q`/`e_done_q`) and `wrap` stay with the phase stage.
+
+Result: **18.71 ns, 575 cells, 77 DFF**, but **functional FAIL** at 0 ppm
+(1170/5000 bit errors, `freq_trim` stays 0, first error at bit 3).  Three
+independent implementations (P1, P2, B) all fail, so this is structural, not
+a one-off bug: `d_q`/`d_prev_q`/`d_out_q`/`strobe_q` and the event flags
+must advance on the *same* cycle as the phase event, and delaying the PD
+result by one clock shifts the strobe relative to the recovered bit.
+
+Even if a correct re-timing were found, it buys **9% over A** (18.71 vs
+20.64) at the cost of a two-cycle loop delay, ~2x the re-verification
+surface, and an open loop-stability question.  Not worth it.
+
+### 4.3 Direction C - accept the verified 25 ns point: available today
+
+The routed sky130 result already exists and is clean: 25 ns / 10 Mb/s,
+WNS 0 in all three corners, hold 0, Magic DRC 0, KLayout DRC 0, LVS 0,
+antenna 0, 1.19 uW (`build/pnr/cross_pdk_close25_sky130.json`).  This is a
+verified `POST_ROUTE_TIMING` + `PHYSICAL_SIGNOFF`-clean point at 40 MHz
+sample clock.  It needs no RTL change.
+
+### 4.4 Direction D - change the architecture: insufficient on its own
+
+Removing fractional NCO bits is the cheapest architectural change.  Measured
+on the A structure (pre-PnR, sky130 ss, 10 ns):
+
+| NCO_FRAC | arrival | cells | 1 LSB (ppm) | usable? |
+|---:|---:|---:|---:|---|
+| 16 | 20.64 ns | 573 | 15 | yes |
+| 12 | 16.94 ns | 483 | 244 | marginal (rejected by §7.4 for drift) |
+| 10 | 15.72 ns | 442 | 977 | no (+-488 ppm static error) |
+| 8 | 16.15 ns | 394 | 3906 | no (+-1953 ppm) |
+| 6 | 11.19 ns | 352 | 15625 | **no** (+-7813 ppm >> the +-1000 ppm to track) |
+
+Only FR<=6 reaches 10 ns territory, and its +-7813 ppm quantisation error
+exceeds the +-1000 ppm offset the loop must track, so it cannot lock.  Even
+FR=10 (+-488 ppm) is not a usable operating point.  A real
+architectural change (integer counter + multiphase select, or a different
+PD/NCO partition) is a new design, not a parameter change, and 4x sampling
+already has less jitter margin (docs §6 records the 2x/baud-rate negative
+result).
+
+## 5. Recommendation
+
+1. **A is landed** (`rtl/cdr_bang_bang.sv`): -34% pre-PnR depth, -7% cells,
+   -20% power at an equal target, -12.7% routed depth at the 10 ns target,
+   and a verified routed closure at **22 ns instead of 25 ns** (45.5 MHz
+   sample clock).  Full regression 105/105, lint clean.
+2. **100 MHz is still not reachable** with this architecture.  A is a real
+   PPA and ~14% frequency win, not a solution to the 25 -> 10 ns gap.
+3. **Do not pursue B or D.**  B is 9% over A with a broken strobe and a
+   loop-delay risk; D needs FR<=6 and therefore cannot track +-1000 ppm.
+4. If 100 MHz is a hard requirement, it needs a **new architecture**
+   (pipelined-but-correct loop, or a different PD/NCO partition) and a full
+   jitter-tolerance re-characterisation, not a local optimisation.
+5. The 25 ns baseline record is kept as the pre-A signoff reference
+   (`build/pnr/cross_pdk_close25_sky130.json`); the A record is
+   `build/pnr/cross_pdk_close22_A.json`.
+
+## 6. Reproduce
+
+```bash
+# baseline: map cdr_bang_bang with sky130 ss liberty, then STA at 10 ns
+yosys -p 'read_verilog -sv rtl/cdr_bang_bang.sv; \
+          read_verilog -sv rtl/cdr_sync.sv; \
+          chparam -set NCO_FRAC 16 cdr_bang_bang; \
+          hierarchy -top cdr_bang_bang -check; \
+          synth -top cdr_bang_bang -flatten; \
+          dfflibmap -liberty <sky130_fd_sc_hd__ss_100C_1v60.lib>; \
+          abc -liberty <...> -D 10000; opt_clean -purge; \
+          write_verilog -noattr /tmp/cdr_mapped.v'
+cat > /tmp/cdr.tcl <<'EOF'
+read_liberty <...>
+read_verilog /tmp/cdr_mapped.v
+link_design cdr_bang_bang
+create_clock -name clk -period 10 [get_ports clk]
+report_checks -path_delay max
+report_wns
+EOF
+sta -no_init -no_splash -exit /tmp/cdr.tcl   # cmd_file is positional
+```
+
+The P1/P2/B/A prototypes were generated in a scratch tree from
+`rtl/cdr_bang_bang.sv` (split NCO `always_comb` for the pipelines; width and
+constant folding for A).  They are **not** committed and are not proposed RTL.
+`rtl/cdr_bang_bang.sv` in this repository is unchanged; direction A is a
+verified prototype, not a landed change.

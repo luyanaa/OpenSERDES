@@ -146,17 +146,24 @@ Two cautions about reading these numbers:
 
 ## Current gaps (open items)
 
-Everything below is **not** done.  This list is the hand-off state; none of it
-is implied by the tables above.
+The numbered items below are **not** done.  This list is the hand-off state;
+none of it is implied by the tables above.  The "Evidence handling" section is
+recorded separately as intentional design policy, not an open item.
 
 ### P2 deliverable itself
 
-1. **No PDK closes post-route timing at its capability-gated period.**  Only a
-   slowed-down sky130 point (25 ns / 10 Mb/s, 40 MHz sample clock) is verified
-   clean.  The critical path is the bang-bang CDR's fractional-NCO increment /
-   loop-filter arithmetic (`g_bang_bang.u_cdr.freq_q[0]`).  Closing 100 MHz
-   needs a pipeline cut in that path, not a constraint change.  Untested: any
-   RTL change to the NCO, and any period between 20 and 25 ns.
+1. **No PDK closes post-route timing at its capability-gated period.**  The
+   critical path is the bang-bang CDR's fractional-NCO increment / loop-filter
+   arithmetic (`g_bang_bang.u_cdr.freq_q[0]`).  The NCO arithmetic has since
+   been tightened (exact widths + folded constants, see
+   [`bang_bang_pipeline_study.md`](bang_bang_pipeline_study.md)): that change
+   is landed, keeps every validated parameter, and moves the verified sky130
+   closure from **25 ns to 22 ns** (45.5 MHz sample clock; WNS 0, DRC 0,
+   LVS 0, `build/pnr/cross_pdk_close22_A.json`).  It also cuts routed depth by
+   12.7% at the 10 ns target and area/power by 7%/20% at an equal target.
+   **100 MHz is still not reachable**: closing it needs an architectural
+   change to the loop, not a constraint change.  The tables above are the
+   pre-A numbers and are kept as the baseline reference.
 2. **ihp-sg13g2 is not signoff-clean.**  Magic DRC 37893, KLayout DRC 4739,
    LVS 115 errors; the LVS failure is a `VPWR`/`VGND` vs `VDD`/`VSS` power-pin
    mapping mismatch.  This is a PDK signoff-deck / flow integration gap that
@@ -180,19 +187,23 @@ is implied by the tables above.
    an analog slicer error that the source-synchronous digital replay then
    propagates; it is not a digital CDR jitter-tolerance measurement.
 
-### Evidence handling
+### Evidence handling (design intent, not a gap)
 
-7. **Measured artifacts are local only.**  `build/` is gitignored, so
-   `build/pnr/cross_pdk.json`, the two `cross_pdk_close*.json` records and
-   `build/verify/pex_jtol.json` are not committed and are not reproducible
-   from a fresh checkout.  `make cross-pdk-pnr` and `make pex-jtol-sweep`
-   regenerate them.  `cross_pdk.json` itself was rebuilt from run directories
-   (not re-run) after the driver process was interrupted, and says so in
-   `rebuilt_from`.
+**Measured artifacts are local only, deliberately.**  `build/` is gitignored
+and the project is **portable by default**: it ships reproducible *recipes*
+(`make cross-pdk-pnr`, `make pex-jtol-sweep`) rather than GDS/measurement
+artifacts, and does not bind to any one LibreLane/OpenROAD/Magic/PDK version.
+Users are expected to re-run signoff and characterization in their own
+environment.  `build/pnr/cross_pdk.json`, the two `cross_pdk_close*.json`
+records and `build/verify/pex_jtol.json` are therefore regenerated, not
+delivered.  (`cross_pdk.json` in this working tree was rebuilt from run
+directories after the driver process was interrupted, and says so in
+`rebuilt_from`; that is a property of this local tree, not a requirement on
+anyone else's.)
 
 ### Separate P2 in `docs/analog_pnr.md`
 
-8. **Hard-macro PHY link closure remains `UNVERIFIED`.**  The soft-stdcell
+7. **Hard-macro PHY link closure remains `UNVERIFIED`.**  The soft-stdcell
    `build/verify/phy_link_closure/phy_link_closure.json` is
    `SIGNOFF_ELIGIBLE`, but `phy_link_closure_hard` fails `klayout_xor_zero`,
    `magic_drc_zero` and `klayout_drc_zero`; `hard_link` reports 71 Magic /
