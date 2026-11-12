@@ -1,0 +1,201 @@
+# DLL phase-select backend for the 4x bang-bang CDR
+
+Status: digital half implemented and verified (`rtl/cdr_multiphase.sv`,
+`tb/tb_cdr_multiphase.sv`).  It closes 10 ns pre-PnR by 0.9 ns; routed it is
+**~10.5 ns (~95 MHz), not 100 MHz**.  The DLL, phase mux and sampler are
+specified here but are not built yet; there is no fabricated or
+PEX-characterised DLL.
+
+## 1. Why the current loop stops at 12-13 ns
+
+`cdr_bang_bang` (with C2, commit a587565) resolves one 100 MHz clock period to
+2^-16 in a 16-bit fractional NCO and derives the sampling instant from the
+accumulator carry.  At the 10 ns target the routed result is 12.04 ns / WNS
+-1.32, i.e. 77-83 MHz.  The remaining depth is arithmetic width: the
+accumulator plus threshold compare has to settle inside a 10 ns cycle because
+the sample edge depends on it.
+
+The NCO width is not actually needed.  The phase detector only has to place a
+sample on a 4x grid; a 1/32-UI step (1.25 ns) is finer than the loop's own
+quantisation.  A DLL can supply those 32 positions as 8 phases of the 100 MHz
+clock, so the digital loop only has to *select* a phase and never has to
+generate the edge.
+
+## 2. Architecture
+
+```
+          100 MHz ref
+               |
+          +---------+   8 phases, 1.25 ns spacing
+          |   DLL   |--------------------------------+
+          +---------+                                |
+               |                                     |
+               |  tap[2:0]                           |
+               v                                     v
+        +--------------+   selected phase    +---------------+
+        |  phase mux   |-------------------->|   sampler     |
+        +--------------+                     +-------+-------+
+                                                     | smp (one clk later)
+                                                     v
+                                            +------------------+
+                                            | cdr_multiphase   |
+                                            |  slot/fine loop  |
+                                            |  BBPD + filter   |
+                                            +--------+---------+
+                                                     |
+                                                     +--> tap[2:0]
+```
+
+The digital core runs on the reference clock.  There is no analog timing path
+inside it, and the sampler hand-off is a normal register: the sample is taken
+on the selected phase and read on the next reference edge.
+
+### 2.1 Phase representation
+
+```
+slot_q[1:0]   which of the 4 samples in a UI this cycle is
+tap_q[2:0]    which of the 8 DLL phases the sampler uses
+frac_q[7:0]   sub-tap frequency resolution (122 ppm per LSB at OS=4)
+```
+
+One clock advances `slot_q` by one.  Only at the last slot does the fine word
+change:
+
+```
+fine = {tap, frac}
+fine += freq - kick          // once per UI, at the last slot
+```
+
+so the tap is constant for all four samples of a UI.  The tap is a register
+slice - nothing between the loop state and the phase mux - and the loop's only
+adder is the 13-bit `{tap, frac}` add, which is clock-enabled once per UI.
+
+A tap wrap is a 10 ns slip of the sampling phase, so it also moves which sample
+of the UI is the centre; the carry advances the slot field on top of the
+clock's own +1.  Losing that carry makes the loop lock at 0 ppm and fall apart
+as soon as the tap starts wrapping (measured: 0 ppm passed, +-700 ppm failed
+with 35% BER).
+
+### 2.2 Event detection
+
+Centre and edge events are threshold crossings on the 5-bit `{slot, tap}` phase,
+the same construction as `cdr_bang_bang`, not slot-equality compares.  A slot
+compare can only capture if the accumulator starts on the data eye; a crossing
+restores the full one-UI capture range.  The event pulse is registered once so
+it lands in the cycle where the core reads the sample it classifies.
+
+The centre sits at `phase_offset` slots and the edge half a UI later, so the
+existing phase-offset tests apply unchanged.
+
+## 3. Timing
+
+sky130 `ss_100C_1v60`, yosys 0.52 + `abc -liberty`, `sta` on the mapped
+netlist, no PnR:
+
+| block | critical path | WNS at 10 ns | cells |
+|---|---:|---:|---:|
+| C2 `cdr_bang_bang` (pre-PnR) | 13.85 ns | -5.76 | 2109 (10 ns run) |
+| **`cdr_multiphase` core** | **9.10 ns** | **+0.90** | **512** |
+
+The core closes 100 MHz by 0.9 ns pre-PnR with ~4x fewer gates.  The cell
+count is the core only (no deserialiser, `cdr_sync` or sampler), so it is not a
+drop-in replacement for the C2 number; it is the loop arithmetic that changed.
+
+Routed (LibreLane 3.0.17, sky130 ss_100C_1v60, 10 ns target, no custom SDC):
+**WNS -0.60 ns** with the flow's default 2 ns input delay on every port.  The
+`smp` and `rst_n` ports are internal signals in the integrated CDR (a sampler
+flop and a reset synchroniser, not board inputs), so re-running the same
+placed netlist with 0.3 ns on those two ports gives **WNS -0.46 ns** - a
+~10.5 ns data path, and the worst path is the fine adder, not the sampler
+hand-off.  That is still short of a 100 MHz signoff with the flow's 0.25 ns
+clock uncertainty.
+
+`FREQ_FRAC=7` was tried as a way to lower the pre-PnR adder depth (8.84 ns vs
+9.10).  Routed it came out at -0.66 ns, worse than the -0.46 above, so the
+placement/CTS noise dominates the last adder bit and the committed value stays
+`FREQ_FRAC=8` (122 ppm per LSB).  This is the same lesson as C3: do not choose
+an RTL variant from pre-PnR depth alone.
+
+## 4. Functional verification
+
+`tb/tb_cdr_multiphase.sv` models the phase mux and sampler at
+`(tap + 0.5) * 1.25 ns`, i.e. taps in the middle of each 1.25 ns slot, and
+reads the result on the next clk.
+
+| check | result |
+|---|---|
+| 0 / +-700 / +-1000 ppm, 5000 bits | 0 errors |
+| patterns 0-3 (PRBS, 256-bit run, bursty, 6% density) at +-700 ppm | 0 errors |
+| phase_offset 0-3 at 0 and 700 ppm | 0 errors |
+| frequency steps 0->700, 700->-700, -1000->+1000 | 0 errors, relock 0 bits |
+| capture, 5000 bits | -4000..+4000 ppm pass; +5000 fails |
+| 100k bits at 0 / -1000 / +1000 ppm | 0 errors; freq span 4 / 31 / 30 LSB |
+| lint (`verilator -Wall`) | clean |
+
+Residual: at +3000 ppm the 5000-bit run shows 10 errors during acquisition.
+The -4000/+4000 points pass, so this is a pull-in transient in the capture
+sweep, not a hard capture edge; it was not re-run with a longer window.
+
+## 5. Analog DLL specification
+
+The digital half assumes this macro.  Values are targets, not measurements.
+
+| parameter | target | note |
+|---|---|---|
+| reference | 100 MHz, 1.0-1.8 V | same clock the digital core uses |
+| phases | 8, 1.25 ns nominal spacing | monotonic, within one period |
+| lock range | +-10% reference period | covers +-4000 ppm with margin |
+| static phase error | < 30 ps | tap mismatch directly adds to CDR jitter |
+| period jitter | < 2 ps RMS (1 kHz-100 MHz) | must stay below 0.5% UI |
+| duty cycle | 45-55% | sampler is single-edge |
+| power | < 2 mW | 8-phase VCDL + PD + charge pump + bias |
+| area | < 0.02 mm^2 | 10 ns delay line ~ 150-200 inverter stages |
+
+Suggested implementation: 8-tap voltage-controlled delay line (current-starved
+inverters or RC-loaded stages) locked to one reference period by a bang-bang
+phase detector and charge pump.  Because the total delay is one 10 ns period
+and each tap is 1.25 ns, tap mismatch is the dominant error term; a
+dummy/replica biasing scheme and symmetric tap loading are required.
+
+The phase mux must be glitch-free: switch only while both the old and the new
+phase are low, and hold the selection for at least one period.  A phase step
+during a sampling edge would corrupt a bit.
+
+## 6. Integration work not done yet
+
+1. **RTL integration.**  Add `CDR_MODE=4` to `serdes_rx_digital.sv`: instantiate
+   the DLL black box, the phase mux, the sampler and `cdr_multiphase`; the
+   sampler output replaces `cdr_sync`'s `samples[N-1]`.  This changes the clock
+   tree (8 generated clocks or one muxed clock) and needs a CDC/CTS review.
+2. **Sampler setup.**  With tap 7 the sample is taken at 9.375 ns and read at
+   10 ns - 0.625 ns of setup.  Either retime the sample one extra cycle (the
+   loop already tolerates a cycle of latency) or restrict the usable tap range
+   to 0..6.  Do this before claiming a 100 MHz sampler path.
+3. **Transistor DLL.**  No schematic, layout or PEX yet.  Jitter, lock range,
+   supply sensitivity and tap mismatch are unmeasured; the table above is a
+   spec, not evidence.
+4. **Jitter tolerance.**  The TB drives ideal edges.  The DLL phase noise and
+   the sampler aperture are not in the closed loop, so no JTOL claim follows
+   from the BER sweeps above.
+5. **Frequency resolution.**  `FREQ_FRAC=8` gives 122 ppm per LSB and is the
+   committed value.  The integral path tracks +-1000 ppm with zero errors over
+   100k bits, but the frequency word dithers over ~30 LSB (section 4).  One
+   more bit (`FREQ_FRAC=9`, 61 ppm) puts the pre-PnR adder at 10.27 ns and
+   closes only at 11 ns; pipeline the boundary add if both quieter integral
+   state and 10 ns closure are needed.
+
+## 7. Reproduce
+
+```bash
+iverilog -g2012 -o build/tb_cdr_multiphase \\
+    tb/tb_cdr_multiphase.sv rtl/cdr_multiphase.sv
+vvp build/tb_cdr_multiphase +PPM=0
+vvp build/tb_cdr_multiphase +PPM=1000 +PATTERN=3
+# 100k-bit run: N_CHECK is a compile-time parameter
+iverilog -g2012 -Ptb_cdr_multiphase.N_CHECK=100000 \\
+    -o build/tb_cdr_mp_100k tb/tb_cdr_multiphase.sv rtl/cdr_multiphase.sv
+vvp build/tb_cdr_mp_100k +PPM=-1000
+```
+
+Synthesis/STA recipe is the same as `bang_bang_pipeline_study.md` section 6
+with `cdr_multiphase` as the top.
