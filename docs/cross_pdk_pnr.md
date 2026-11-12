@@ -174,8 +174,10 @@ recorded separately as intentional design policy, not an open item.
    `docs/dll_backend.md` recovers ~1.5 ns over C2; with its boundary-add
    pipeline it routed at ~10.08 ns (~99 MHz) in a matched LibreLane A/B,
    0.31 ns better than the non-pipelined core, but it is not re-run across
-   the PDKs.  The digital core is integrated as `CDR_MODE=4`; the analog DLL
-   is still a specification.  The tables above are the pre-A numbers and are
+   the PDKs.  That is the 8-bit frequency word, which fails the +700 stress
+   patterns; 10/11 bits pass them and miss timing (`dll_backend.md` 3-4).
+   The digital core is integrated as `CDR_MODE=4`; the analog DLL is still a
+   specification.  The tables above are the pre-A numbers and are
    kept as the baseline reference.
 2. **ihp-sg13g2 is not signoff-clean.**  Magic DRC 37893, KLayout DRC 4739,
    LVS 115 errors; the LVS failure is a `VPWR`/`VGND` vs `VDD`/`VSS` power-pin

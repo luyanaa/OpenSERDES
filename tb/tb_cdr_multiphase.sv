@@ -18,7 +18,11 @@ module tb_cdr_multiphase #(
     parameter int  KP_SHIFT_DEF = 2,
     parameter int  LEAK_DEF     = 12,
     parameter real PPM2_DEF     = 0.0,
-    parameter int  STEP_AT_DEF  = 0
+    parameter int  STEP_AT_DEF  = 0,
+    // Must match the delivered endpoint default
+    // (serdes_rx_digital.DLL_FREQ_FRAC = 8).  Run with -P...=11 only for the
+    // explicit 11-bit comparison.
+    parameter int  FREQ_FRAC_DEF = 8
 );
     real ppm;
     int  pattern;
@@ -44,7 +48,7 @@ module tb_cdr_multiphase #(
     int s_hist  [0:N_CHECK-1];
 
     cdr_multiphase #(
-        .OVERSAMPLE(4), .PH_W(3), .FREQ_FRAC(11),
+        .OVERSAMPLE(4), .PH_W(3), .FREQ_FRAC(FREQ_FRAC_DEF),
         .KI(KI_DEF), .KP_SHIFT(KP_SHIFT_DEF), .LEAK_UI_BITS(LEAK_DEF),
         .LOCK_EDGES(16), .LOCK_STALE_BITS(16),
         .PHASE_CTRL_W(2), .FRAC_BITS(12)
@@ -58,15 +62,16 @@ module tb_cdr_multiphase #(
 
     always #5 clk = ~clk;
 
-    // Eight-tap sampler with the selected phase.  The DUT sees the result on
-    // the next clock, so the sample-to-logic hand-off is one full cycle minus
-    // the phase delay.
-    always @(posedge clk) begin
-        if (rst_n) begin
-            #0.01;  // let the DUT's non-blocking tap update settle
-            smp_sel <= #((tap + 0.5) * 1.25) data_in;
-        end
-    end
+    // Eight-tap sampler with the selected phase.  The model reads data_in at
+    // (tap + 0.5) * 1.25 ns, not at the clk edge, and the DUT sees the result
+    // on the next clock (see tb/dll_sampler_model.sv and tb_dll_sampler.sv).
+    dll_sampler_model #(.SLOT_NS(1.25)) u_sampler (
+        .clk(clk),
+        .rst_n(rst_n),
+        .data_in(data_in),
+        .tap(tap),
+        .smp(smp_sel)
+    );
 
     task automatic get_cfg;
         ppm     = PPM_DEF;
@@ -116,8 +121,8 @@ module tb_cdr_multiphase #(
         samples = 0;
         wait (rst_n);
         wait (lock);
-        $display("INFO: multiphase locked PPM=%0.1f pattern=%0d KI=%0d KP_SHIFT=%0d LEAK_UI_BITS=%0d freq_trim=%0d",
-                 ppm, pattern, KI_DEF, KP_SHIFT_DEF, LEAK_DEF, freq_trim);
+        $display("INFO: multiphase locked PPM=%0.1f pattern=%0d FREQ_FRAC=%0d KI=%0d KP_SHIFT=%0d LEAK_UI_BITS=%0d freq_trim=%0d",
+                 ppm, pattern, FREQ_FRAC_DEF, KI_DEF, KP_SHIFT_DEF, LEAK_DEF, freq_trim);
         repeat (64) @(posedge clk);
         while (samples < N_CHECK) begin
             @(posedge clk);

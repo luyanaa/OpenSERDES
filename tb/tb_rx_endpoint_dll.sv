@@ -15,7 +15,8 @@
 //
 // PPM / PATTERN are runtime plusargs (this Icarus build has no runtime -P).
 module tb_rx_endpoint_dll #(
-    parameter int N_CHECK = 5000
+    parameter int N_CHECK = 5000,
+    parameter int FREQ_FRAC_DEF = 8
 );
 
     localparam int DW = 32;
@@ -53,7 +54,8 @@ module tb_rx_endpoint_dll #(
         .ADAPT_FRAC_BITS(12),
         .ADAPT_LOOP_GAIN(8),
         .CLK_OUT_ENABLE(1'b1),
-        .DLL_PH_W(3)
+        .DLL_PH_W(3),
+        .DLL_FREQ_FRAC(FREQ_FRAC_DEF)
     ) dut (
         .rx_clk(clk), .rx_rst_n(rst_n), .rx_enable(enable), .rx_flush(1'b0),
         .rx_align(1'b0), .rx_serial_in(data_in), .phase_offset('0),
@@ -68,14 +70,16 @@ module tb_rx_endpoint_dll #(
 
     always #5 clk = ~clk;
 
-    // Analogue phase mux + sampler: take data_in at (tap + 0.5) * 1.25 ns
-    // after the clk edge and present it on rx_smp for the following edge.
-    always @(posedge clk) begin
-        if (rst_n) begin
-            #0.01;  // let the DUT's non-blocking tap update settle
-            rx_smp <= #((dll_tap + 0.5) * 1.25) data_in;
-        end
-    end
+    // Analogue phase mux + sampler: read the line at (tap + 0.5) * 1.25 ns
+    // after the clk edge, not at the edge itself.  The DUT reads rx_smp on
+    // the following edge (see tb/dll_sampler_model.sv).
+    dll_sampler_model #(.SLOT_NS(1.25)) u_sampler (
+        .clk(clk),
+        .rst_n(rst_n),
+        .data_in(data_in),
+        .tap(dll_tap),
+        .smp(rx_smp)
+    );
 
     task automatic get_cfg;
         ppm = 0.0; pattern = 0;
@@ -105,7 +109,6 @@ module tb_rx_endpoint_dll #(
     initial begin
         get_cfg;
         data_in = 1'b0;
-        rx_smp  = 1'b0;
         wait (rst_n);
         #3.7;
         for (int i = 0; i < N_CHECK+512; i++) begin

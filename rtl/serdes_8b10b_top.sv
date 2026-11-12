@@ -61,6 +61,17 @@ module serdes_8b10b_top #(
     localparam int LINE_WIDTH = 10;
     localparam int IDX_W = (WORDS <= 1) ? 1 : $clog2(WORDS);
 
+    // Fail closed: this wrapper has no DLL phase mux/sampler, so it cannot
+    // supply rx_smp or accept rx_dll_tap.  The unresolved module is an
+    // elaboration error in both simulation and synthesis; an initial $error
+    // would only fire in simulation and synthesis ignores it.  Instantiate
+    // serdes_rx_digital directly to build a mode-4 endpoint.
+    generate
+        if (CDR_MODE == 4) begin : g_mode4_needs_external_sampler
+            dll_mode4_requires_an_external_sampler u_reject();
+        end
+    endgenerate
+
     logic [WORDS-1:0][LINE_WIDTH-1:0] tx_line_q;
     logic [WORDS-1:0][LINE_WIDTH-1:0] rx_line_q;
     logic [WORDS-1:0][DATA_WIDTH-1:0] tx_payload_q;

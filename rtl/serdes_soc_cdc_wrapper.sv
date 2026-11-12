@@ -139,6 +139,17 @@ module serdes_soc_cdc_wrapper #(
                                              (BIST_PRBS_WIDTH == 15) ? 3'b010 :
                                              (BIST_PRBS_WIDTH == 31) ? 3'b011 : 3'b000;
 
+    // Fail closed: this wrapper has no DLL phase mux/sampler, so it cannot
+    // supply rx_smp or accept rx_dll_tap.  The unresolved module is an
+    // elaboration error in both simulation and synthesis; an initial $error
+    // would only fire in simulation and synthesis ignores it.  Instantiate
+    // serdes_rx_digital directly to build a mode-4 endpoint.
+    generate
+        if (CDR_MODE == 4) begin : g_mode4_needs_external_sampler
+            dll_mode4_requires_an_external_sampler u_reject();
+        end
+    endgenerate
+
     // -------------------------------------------------------------------------
     // APB control / status
     // -------------------------------------------------------------------------

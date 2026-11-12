@@ -64,6 +64,17 @@ module serdes_rx_axis_digital #(
     localparam int CRC_BYTES = (CRC_WIDTH + DATA_WIDTH - 1) / DATA_WIDTH;
     localparam int RX_WORDS = CRC_ENABLE ? (WORDS + CRC_BYTES) : WORDS;
 
+    // Fail closed: this wrapper has no DLL phase mux/sampler, so it cannot
+    // supply rx_smp or accept rx_dll_tap.  The unresolved module is an
+    // elaboration error in both simulation and synthesis; an initial $error
+    // would only fire in simulation and synthesis ignores it.  Instantiate
+    // serdes_rx_digital directly to build a mode-4 endpoint.
+    generate
+        if (CDR_MODE == 4) begin : g_mode4_needs_external_sampler
+            dll_mode4_requires_an_external_sampler u_reject();
+        end
+    endgenerate
+
     logic rx_rst_n_sync;
     logic [RX_WORDS-1:0][DATA_WIDTH-1:0] par_data;
     logic frame_valid;

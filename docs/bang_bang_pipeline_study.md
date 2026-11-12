@@ -363,10 +363,13 @@ or a different PD/NCO partition, not more local arithmetic.  See §5.
    `inc_r -> phase_next -> compare -> PD`.  The DLL phase-select prototype is
    in `rtl/cdr_multiphase.sv` and `docs/dll_backend.md`: 8 taps at 1.25 ns,
    13-bit loop add, 9.10 ns / +0.90 WNS pre-PnR at the 10 ns target, 0 errors
-   over 100k bits at 0/+-1000 ppm.  The boundary-add pipeline takes it to
-   7.77 ns / +1.93 pre-PnR and +0.31 ns routed in a matched A/B; with the
+   over 100k bits at 0/+-1000 ppm (PRBS).  The boundary-add pipeline takes it
+   to 7.77 ns / +1.93 pre-PnR and +0.31 ns routed in a matched A/B; with the
    flow's 0.25 ns uncertainty it routes at ~10.08 ns (~99.2 MHz), 0.08 ns
-   short of 100 MHz.  The digital core is wired as `CDR_MODE=4` with an
+   short of 100 MHz.  Those numbers are the 8-bit frequency word; the
+   corrected phase sampler shows 8 bits fails the +700 stress patterns, while
+   10/11 bits pass them and do not close (`docs/dll_backend.md` sections 3-4).
+   The digital core is wired as `CDR_MODE=4` with an
    external `rx_dll_tap`/`rx_smp` sampler interface (`docs/dll_backend.md`
    section 6); the analog DLL is still a specification.
 6. Records: baseline 25 ns `build/pnr/cross_pdk_close25_sky130.json`, A 22 ns

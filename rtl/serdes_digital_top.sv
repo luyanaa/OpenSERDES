@@ -91,6 +91,17 @@ module serdes_digital_top #(
 
     logic [PHASE_CTRL_W-1:0] phase_offset;
 
+    // Fail closed: this wrapper has no DLL phase mux/sampler, so it cannot
+    // supply rx_smp or accept rx_dll_tap.  The unresolved module is an
+    // elaboration error in both simulation and synthesis; an initial $error
+    // would only fire in simulation and synthesis ignores it.  Instantiate
+    // serdes_rx_digital directly to build a mode-4 endpoint.
+    generate
+        if (CDR_MODE == 4) begin : g_mode4_needs_external_sampler
+            dll_mode4_requires_an_external_sampler u_reject();
+        end
+    endgenerate
+
     generate
         if (TRAINING_ENABLE) begin : g_training
             /* verilator lint_off PINCONNECTEMPTY */

@@ -2,13 +2,18 @@
 
 Status: digital half implemented and verified (`rtl/cdr_multiphase.sv`,
 `tb/tb_cdr_multiphase.sv`), and wired into the RX endpoint as `CDR_MODE=4`
-with an external sampler interface (`rx_dll_tap`/`rx_smp`).  With the
-boundary-add pipeline it closes 10 ns pre-PnR by 1.9 ns; routed it is
-**~10.08 ns (~99.2 MHz) with the flow's 0.25 ns uncertainty**, i.e. 0.08 ns
-short of 100 MHz, and +0.31 ns better than the non-pipelined core in a
-matched A/B.  The delay line has first-order and closed-loop SPICE checks
-(§5.1, §5.2) with a behavioural PD/CP; the phase mux, sampler and transistor
-PD/CP are not built, and there is no fabricated or PEX-characterised DLL.
+with an external sampler interface (`rx_dll_tap`/`rx_smp`).  The sampler
+model now reads the line at the selected phase (the first version read it at
+the clk edge and did not test the phase selection).  With the boundary-add
+pipeline the 8-bit core is **~10.08 ns (~99.2 MHz) with the flow's 0.25 ns
+uncertainty**, i.e. 0.08 ns short of 100 MHz, and +0.31 ns better than the
+non-pipelined core in a matched A/B.  That 8-bit default is sufficient for
+PRBS at +-1000 ppm but **fails the +700 stress patterns**; 10/11 bits pass
+them and do not close (§3, §4).  The DLL is therefore a development path, not
+the default architecture.  The delay line has first-order and closed-loop
+SPICE checks (§5.1, §5.2) with a behavioural PD/CP; the phase mux, sampler
+and transistor PD/CP are not built, and there is no fabricated or
+PEX-characterised DLL.
 
 ## 1. Why the current loop stops at 12-13 ns
 
@@ -132,35 +137,73 @@ an RTL variant from pre-PnR depth alone.  The boundary-add pipeline is the
 variant that did survive: +1.03 ns pre-PnR and +0.31 ns routed in the matched
 A/B.
 
+Width cost after the pipeline.  The routed A/B above is at `FREQ_FRAC=8`.
+The corrected sampler (section 4) shows that 8 bits is not sufficient for the
++700 stress patterns, but the widths that fix it do not close: 9 bits still
+fails pattern 3 (462 errors), 10 and 11 pass it but measure **11.43 ns /
+10.46 ns pre-PnR** at 10 ns (slack -1.73 / -0.75), i.e. worse than the
+unpipelined 8-bit core.  The 16-bit phase add is the blocker: the boundary-add
+pipeline removed the frequency correction from the path, but the phase adder
+itself widens with the fraction bits.  The next step is a two-stage
+fine-frequency accumulator whose carry drives the 13-bit phase add, so the
+resolution bits never enter the phase adder.  The default stays 8 as the
+100 MHz experiment, with the pattern limitation recorded in section 4.
+
 ## 4. Functional verification
 
-`tb/tb_cdr_multiphase.sv` models the phase mux and sampler at
-`(tap + 0.5) * 1.25 ns`, i.e. taps in the middle of each 1.25 ns slot, and
-reads the result on the next clk.
+The sampler model is `tb/dll_sampler_model.sv`: it waits to
+`(tap + 0.5) * 1.25 ns` after the clk edge, reads the line at that instant,
+and the digital core reads the result on the next clk.  The order matters.  A
+nonblocking assignment with an intra-assignment delay
+(`smp <= #D data_in`) evaluates `data_in` at the edge, so `tap` changes only
+the output time, not the sampling instant; that was the model in the first
+version of this table and it made the phase selection untested.
+`tb/tb_dll_sampler.sv` is the guard: it steps the line 5 ns after an edge
+(taps 0-3 see the old bit, 4-7 the new one) and 8 ns after an edge (0-5 old,
+6-7 new) and fails under the old semantics.
 
-| check | result |
-|---|---|
-| 0 / +-700 / +-1000 ppm, 5000 bits | 0 errors |
-| patterns 0-3 (PRBS, 256-bit run, bursty, 6% density) at +-700 ppm | 0 errors |
-| phase_offset 0-3 at 0 and 700 ppm | 0 errors |
-| frequency steps 0->700, 700->-700, -1000->+1000 | 0 errors, relock 0 bits |
-| capture, 5000 bits | -4000..+4000 ppm pass; +5000 fails |
-| 100k bits at 0 / -1000 / +1000 ppm | 0 errors; freq span 6 / 32 / 32 LSB |
-| lint (`verilator -Wall`) | clean |
+The core testbench now defaults to `FREQ_FRAC=8`, the value the endpoint
+delivers; a `-Ptb_cdr_multiphase.FREQ_FRAC_DEF=11` build covers the historical
+bench setting.  The corrected matrix (5000 bits unless noted):
 
-Residual: at +3000 ppm the 5000-bit run shows 10 errors during acquisition.
-The -4000/+4000 points pass, so this is a pull-in transient in the capture
-sweep, not a hard capture edge; it was not re-run with a longer window.
-The capture sweep is unchanged by the boundary-add pipeline (+3000 still
-shows the same 10 acquisition errors), and the frequency dither grows by
-~2 LSB (6/32/32 vs 4/31/30) because the correction now lands one UI later.
+| check | FREQ_FRAC=8 (delivered) | FREQ_FRAC=11 |
+|---|---|---|
+| 0 / +-700 / +-1000 ppm, PRBS | 0 errors | 0 errors |
+| patterns 1 (256-bit zero run) / 3 (6% density) at **+700** | **FAIL 2110 / 390** | 0 errors |
+| patterns 1 / 3 at -700 | 0 errors | 0 errors |
+| phase_offset 0 / 1 at 0 and 700 ppm | 0 errors | 0 errors |
+| phase_offset 2 / 3 | **FAIL ~1200 at 0 ppm** | **FAIL ~1200 at 0 ppm** |
+| steps 0->700, 700->-700, -1000->+1000 | 0 errors | 0 errors |
+| capture | -4000..+3000 pass; +4000 and +-5000 fail | -3000..+2000 pass; +3000 12 errors; -4000/+4000 fail |
+| 100k bits at 0 / -1000 / +1000 | 0 errors; span 6 / 31 / 30 LSB | 0 errors; span 6 / 32 / 32 LSB |
+| sampler phase test (`tb_dll_sampler`) | PASS | PASS |
 
-`tb/tb_rx_endpoint_dll.sv` repeats the 0/+-700 ppm checks through the full
-`serdes_rx_digital` endpoint (`CDR_MODE=4`) with the same `(tap+0.5)*1.25 ns`
-sampler model, plus pattern 3 at +700 ppm.  All pass, and the endpoint probe
-confirms the delivered loop parameters (`PH_W=3`, `FREQ_FRAC=8`, `KI=1`,
-`KP_SHIFT=2`, `LEAK_UI_BITS=12`) rather than a hand-written set.  The
-generator does not emit a mode-4 package yet (section 6).
+Reading: the 8-bit default is sufficient for PRBS at +-1000 ppm and for the
+100k-bit runs, but it is **not** sufficient for the +700 stress patterns; the
+11-bit setting passes those but widens the phase adder and does not close
+10 ns (section 3).  The old "patterns 0-3, phase_offset 0-3, capture
++-4000 ppm, all 0 errors" row was measured with the fixed-edge sampler and
+the 11-bit bench; it is withdrawn for the delivered endpoint.
+
+The 2-bit `phase_offset` selects one of the four sample slots.  With a real
+sampler, offsets 0 and 1 stay inside the eye; 2 and 3 land on the eye
+boundary (0.5-0.75 UI) and are not data-recovery settings.  The training FSM
+still sweeps all four; only 0/1 can win.  This is a property of the phase
+grid, not of the frequency word: 2/3 fail identically at 8 and 11 bits.
+
+The +3000 ppm point changed with the corrected sampler: at 8 bits it now
+passes (0 errors); at 11 bits it shows 12 acquisition errors.  The capture
+sweep is no longer symmetric, so quote the measured interval, not "+-4000".
+
+`tb/tb_rx_endpoint_dll.sv` repeats the checks through the full
+`serdes_rx_digital` endpoint (`CDR_MODE=4`, `DLL_FREQ_FRAC` parameter):
+pattern 0 at 0/+-700 passes at both widths; pattern 3 at +700 **fails 390
+errors at 8 and passes at 11**, matching the core.  The endpoint probe
+confirms the delivered core parameters (`PH_W=3`, `FREQ_FRAC`, `KI=1`,
+`KP_SHIFT=2`, `LEAK_UI_BITS=12`).  The generator does not emit a mode-4
+package yet (section 6).  There is no jitter-injection bench for mode 4: the
+existing JTOL benches drive `rx_serial_in` and cannot exercise the phase mux,
+so the corrected matrix above is ideal-edge only.
 
 ## 5. Analog DLL specification
 
@@ -242,6 +285,12 @@ the charge pump must supply the 0.1925 uA drop across Rf; a mean CP current of
 path is a property of the first-order filter in this check, not of a real DLL
 filter; the residual there would be the PD's own offset.  At 83 ps = 0.008 UI
 it is far below one 1.25 ns tap and does not change the backend conclusion.
+It is still **above the <30 ps static-phase-error target** in section 5: the
+83 ps is a behavioural-filter artifact, but a real PD/CP offset is unmeasured,
+so the target is unproven rather than met.  Likewise the 1.28 mW in section
+5.1 is the delay line only; the PD, charge pump, mux, sampler and clock
+distribution are not in it, so neither the <2 mW DLL budget nor a full-PHY PPA
+comparison against the digital CDR is established.
 
 Two points about that number: the offset is a settling curve, not a constant
 (193 ps at 2 us, 143 ps at 4 us, 93 ps at 8 us, 83 ps at 20 us), so a short
@@ -275,6 +324,10 @@ during a sampling edge would corrupt a bit.
    `rx_smp` low and leave `rx_dll_tap` open; they run modes 0-3 only.
    `tb/tb_rx_endpoint_dll.sv` runs the full endpoint with a behavioural
    `(tap+0.5)*1.25 ns` sampler at 0/+-700 ppm and pattern 3.
+   `DLL_FREQ_FRAC` selects the frequency width (8 is the routed default; 11
+   is the stress-pattern bench).  The five wrappers **fail closed** for mode 4:
+   they instantiate an unresolved module, so Icarus, Verilator and Yosys stop
+   at elaboration instead of silently tying `rx_smp` low.
    Still needed for a chip: the DLL/mux/sampler macros, the muxed clock tree
    (8 generated clocks or one muxed clock) and a CDC/CTS review.
 2. **Sampler setup.**  With tap 7 the sample is taken at 9.375 ns and read at
@@ -291,24 +344,32 @@ during a sampling edge would corrupt a bit.
 4. **Jitter tolerance.**  The TB drives ideal edges.  The DLL phase noise and
    the sampler aperture are not in the closed loop, so no JTOL claim follows
    from the BER sweeps above.
-5. **Frequency resolution.**  `FREQ_FRAC=8` gives 122 ppm per LSB and is the
-   committed value; the boundary-add pipeline costs ~2 LSB of extra dither
-   (section 4).  `FREQ_FRAC=9` (61 ppm) was previously rejected because it put
-   the *unpipelined* correction add at 10.27 ns.  With `step_ui_q` in place
-   the correction is off the phase path, so 9 bits is worth re-trying if
-   quieter integral state is needed; judge it by the routed A/B, not pre-PnR.
+5. **Frequency resolution (open).**  8 bits (122 ppm/LSB) is the routed
+   100 MHz point but fails patterns 1/3 at +700 (section 4).  9 bits still
+   fails pattern 3 (462 errors); 10 and 11 pass but add 3.7 / 2.7 ns pre-PnR
+   (11.43 / 10.46 ns at 10 ns) and do not close.  A wider word is not the fix
+   by itself: decouple the fine-frequency accumulator from the phase adder
+   (two-stage carry) and then re-run the 8/10/11 matrix and the routed A/B.
+   The default stays 8 until that lands.
 
 ## 7. Reproduce
 
 ```bash
 iverilog -g2012 -o build/tb_cdr_multiphase \\
-    tb/tb_cdr_multiphase.sv rtl/cdr_multiphase.sv
+    tb/tb_cdr_multiphase.sv rtl/cdr_multiphase.sv tb/dll_sampler_model.sv
 vvp build/tb_cdr_multiphase +PPM=0
-vvp build/tb_cdr_multiphase +PPM=1000 +PATTERN=3
+vvp build/tb_cdr_multiphase +PPM=700 +PATTERN=1     # FF=8: fails (section 4)
+vvp build/tb_dll_sampler                            # phase-selection guard
 # 100k-bit run: N_CHECK is a compile-time parameter
 iverilog -g2012 -Ptb_cdr_multiphase.N_CHECK=100000 \\
-    -o build/tb_cdr_mp_100k tb/tb_cdr_multiphase.sv rtl/cdr_multiphase.sv
+    -o build/tb_cdr_mp_100k tb/tb_cdr_multiphase.sv rtl/cdr_multiphase.sv \\
+    tb/dll_sampler_model.sv
 vvp build/tb_cdr_mp_100k +PPM=-1000
+# explicit 11-bit comparison (the endpoint takes DLL_FREQ_FRAC)
+iverilog -g2012 -Ptb_cdr_multiphase.FREQ_FRAC_DEF=11 \\
+    -o build/tb_mp_ff11 tb/tb_cdr_multiphase.sv rtl/cdr_multiphase.sv \\
+    tb/dll_sampler_model.sv
+vvp build/tb_mp_ff11 +PPM=700 +PATTERN=1
 ```
 
 Synthesis/STA recipe is the same as `bang_bang_pipeline_study.md` section 6

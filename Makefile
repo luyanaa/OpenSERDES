@@ -108,7 +108,7 @@ $(BUILD)/tb_cdr_phase_offset: tb/tb_cdr_phase_offset.sv rtl/cdr_sync.sv rtl/cdr_
 $(BUILD)/tb_cdr_leak: tb/tb_cdr_leak.sv rtl/cdr_sync.sv rtl/cdr_bang_bang.sv | $(BUILD)
 	$(IVERILOG) -g2012 -Wall -o $@ $^
 
-$(BUILD)/tb_cdr_multiphase: tb/tb_cdr_multiphase.sv rtl/cdr_multiphase.sv | $(BUILD)
+$(BUILD)/tb_cdr_multiphase: tb/tb_cdr_multiphase.sv rtl/cdr_multiphase.sv tb/dll_sampler_model.sv | $(BUILD)
 	$(IVERILOG) -g2012 -Wall -o $@ $^
 
 # The endpoint test compiles the package the generator emits, not the hand-
@@ -122,7 +122,10 @@ $(BANG_BANG_GEN)/rtl/serdes_rx_digital.sv: spec/bang_bang_4x.yaml scripts/gen_ip
 $(BUILD)/tb_rx_endpoint_cdr: tb/tb_rx_endpoint_cdr.sv $(BANG_BANG_GEN)/rtl/serdes_rx_digital.sv | $(BUILD)
 	$(IVERILOG) -g2012 -Wall -I$(BANG_BANG_GEN)/rtl -o $@ tb/tb_rx_endpoint_cdr.sv $(BANG_BANG_GEN)/rtl/*.sv
 
-$(BUILD)/tb_rx_endpoint_dll: tb/tb_rx_endpoint_dll.sv $(RTL) | $(BUILD)
+$(BUILD)/tb_rx_endpoint_dll: tb/tb_rx_endpoint_dll.sv tb/dll_sampler_model.sv $(RTL) | $(BUILD)
+	$(IVERILOG) -g2012 -Wall -o $@ $^
+
+$(BUILD)/tb_dll_sampler: tb/tb_dll_sampler.sv tb/dll_sampler_model.sv | $(BUILD)
 	$(IVERILOG) -g2012 -Wall -o $@ $^
 
 $(BUILD)/tb_deserializer_half_rate: tb/tb_deserializer_half_rate.sv rtl/deserializer_half_rate.sv | $(BUILD)
@@ -274,7 +277,7 @@ SIM_BINS := $(BUILD)/tb_serializer_lsb $(BUILD)/tb_serializer_msb \
             $(BUILD)/tb_serializer_hier_2to1 $(BUILD)/tb_serializer_half_rate \
             $(BUILD)/tb_serializer_pingpong $(BUILD)/tb_cdr_bang_bang \
             $(BUILD)/tb_cdr_phase_offset $(BUILD)/tb_cdr_leak \
-            $(BUILD)/tb_cdr_multiphase \
+            $(BUILD)/tb_cdr_multiphase $(BUILD)/tb_dll_sampler \
             $(BUILD)/tb_rx_endpoint_cdr \
             $(BUILD)/tb_rx_endpoint_dll \
             $(BUILD)/tb_deserializer_half_rate $(BUILD)/tb_receiver_pair_sampler \
@@ -313,6 +316,7 @@ sim: $(SIM_BINS)
 	$(VVP) $(BUILD)/tb_cdr_leak
 	$(VVP) $(BUILD)/tb_cdr_multiphase
 	$(VVP) $(BUILD)/tb_cdr_multiphase +PPM=700
+	$(VVP) $(BUILD)/tb_dll_sampler
 	$(VVP) $(BUILD)/tb_rx_endpoint_cdr
 	$(VVP) $(BUILD)/tb_rx_endpoint_cdr +PPM=700
 	$(VVP) $(BUILD)/tb_rx_endpoint_cdr +PPM=-700

@@ -53,6 +53,10 @@ module serdes_rx_digital #(
     parameter int ADAPT_LOOP_GAIN = 8,
     // DLL tap width for CDR_MODE=4.  cdr_multiphase defaults to 3 (1/32 UI).
     parameter int DLL_PH_W        = 3,
+    // Frequency word fraction bits for CDR_MODE=4.  8 is the routed 100 MHz
+    // point; 10 is the smallest width that passed the +700 ppm stress
+    // patterns, but it does not close 10 ns (docs/dll_backend.md section 6).
+    parameter int DLL_FREQ_FRAC   = 8,
     /* verilator lint_off UNUSEDPARAM */
     parameter bit CLK_OUT_ENABLE = 1'b1,
     /* verilator lint_on UNUSEDPARAM */
@@ -198,6 +202,7 @@ module serdes_rx_digital #(
             cdr_multiphase #(
                 .OVERSAMPLE(OVERSAMPLE),
                 .PH_W(DLL_PH_W),
+                .FREQ_FRAC(DLL_FREQ_FRAC),
                 .LOCK_STALE_BITS(LOCK_STALE_BITS),
                 .PHASE_CTRL_W(PHASE_CTRL_W),
                 .FRAC_BITS(ADAPT_FRAC_BITS),
