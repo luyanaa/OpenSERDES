@@ -2,11 +2,13 @@
 
 Status: digital half implemented and verified (`rtl/cdr_multiphase.sv`,
 `tb/tb_cdr_multiphase.sv`), and wired into the RX endpoint as `CDR_MODE=4`
-with an external sampler interface (`rx_dll_tap`/`rx_smp`).  It closes 10 ns
-pre-PnR by 0.9 ns; routed it is **~10.5 ns (~95 MHz), not 100 MHz**.  The
-delay line has first-order and closed-loop SPICE checks (§5.1, §5.2) with a
-behavioural PD/CP; the phase mux, sampler and transistor PD/CP are not built,
-and there is no fabricated or PEX-characterised DLL.
+with an external sampler interface (`rx_dll_tap`/`rx_smp`).  With the
+boundary-add pipeline it closes 10 ns pre-PnR by 1.9 ns; routed it is
+**~10.08 ns (~99.2 MHz) with the flow's 0.25 ns uncertainty**, i.e. 0.08 ns
+short of 100 MHz, and +0.31 ns better than the non-pipelined core in a
+matched A/B.  The delay line has first-order and closed-loop SPICE checks
+(§5.1, §5.2) with a behavioural PD/CP; the phase mux, sampler and transistor
+PD/CP are not built, and there is no fabricated or PEX-characterised DLL.
 
 ## 1. Why the current loop stops at 12-13 ns
 
@@ -97,26 +99,38 @@ netlist, no PnR:
 | block | critical path | WNS at 10 ns | cells |
 |---|---:|---:|---:|
 | C2 `cdr_bang_bang` (pre-PnR) | 13.85 ns | -5.76 | 2109 (10 ns run) |
-| **`cdr_multiphase` core** | **9.10 ns** | **+0.90** | **512** |
+| `cdr_multiphase` core, as merged | 9.10 ns | +0.90 | 512 |
+| **`cdr_multiphase`, pipelined boundary add** | **7.77 ns** | **+1.93** | **544** |
 
-The core closes 100 MHz by 0.9 ns pre-PnR with ~4x fewer gates.  The cell
-count is the core only (no deserialiser, `cdr_sync` or sampler), so it is not a
-drop-in replacement for the C2 number; it is the loop arithmetic that changed.
+The pipelined row registers the UI step (`step_ui_q`) one UI ahead, so the
+phase adder's second operand is a register.  Before that, the path was
+`freq_q -> freq-kick -> phase add -> threshold compare -> centre_hit` at
+8.79 ns.  The cost is one extra UI of correction latency (two instead of
+one) and 13 more flops; the core is 544 cells.  The second-order loop does
+not care: 40 ns is far below its time constant, and the 100k-bit runs below
+still lock with 0 errors.  As before, the cell count is the core only (no
+deserialiser, `cdr_sync` or sampler), so it is not a drop-in replacement for
+the C2 number; it is the loop arithmetic that changed.
 
-Routed (LibreLane 3.0.17, sky130 ss_100C_1v60, 10 ns target, no custom SDC):
-**WNS -0.60 ns** with the flow's default 2 ns input delay on every port.  The
-`smp` and `rst_n` ports are internal signals in the integrated CDR (a sampler
-flop and a reset synchroniser, not board inputs), so re-running the same
-placed netlist with 0.3 ns on those two ports gives **WNS -0.46 ns** - a
-~10.5 ns data path, and the worst path is the fine adder, not the sampler
-hand-off.  That is still short of a 100 MHz signoff with the flow's 0.25 ns
-clock uncertainty.
+Routed (LibreLane 3.0.14, sky130 ss_100C_1v60, 10 ns target, 0.25 ns clock
+uncertainty, 2 ns input delay except 0.3 ns on `smp` and `rst_n`): the
+historical 3.0.17 run without the pipeline was **WNS -0.46 ns** (~10.5 ns).
+A matched A/B re-run in 3.0.14 with the same SDC gives **-0.143 ns** for the
+non-pipelined core and **+0.167 ns** for the pipelined one (that SDC omits
+the uncertainty); with the uncertainty the pipelined core is **-0.083 ns**,
+i.e. ~10.08 ns (~99.2 MHz) with one violating path.  So the boundary-add
+pipeline is worth **+0.31 ns routed** and takes the core from ~10.4 ns to
+within 0.1 ns of the target.  The remaining path is the phase add ->
+threshold compare (`ph_q` -> `ph_next_ui` -> `centre_hit`/`edge_hit`), not
+the frequency correction.
 
 `FREQ_FRAC=7` was tried as a way to lower the pre-PnR adder depth (8.84 ns vs
 9.10).  Routed it came out at -0.66 ns, worse than the -0.46 above, so the
 placement/CTS noise dominates the last adder bit and the committed value stays
 `FREQ_FRAC=8` (122 ppm per LSB).  This is the same lesson as C3: do not choose
-an RTL variant from pre-PnR depth alone.
+an RTL variant from pre-PnR depth alone.  The boundary-add pipeline is the
+variant that did survive: +1.03 ns pre-PnR and +0.31 ns routed in the matched
+A/B.
 
 ## 4. Functional verification
 
@@ -131,12 +145,15 @@ reads the result on the next clk.
 | phase_offset 0-3 at 0 and 700 ppm | 0 errors |
 | frequency steps 0->700, 700->-700, -1000->+1000 | 0 errors, relock 0 bits |
 | capture, 5000 bits | -4000..+4000 ppm pass; +5000 fails |
-| 100k bits at 0 / -1000 / +1000 ppm | 0 errors; freq span 4 / 31 / 30 LSB |
+| 100k bits at 0 / -1000 / +1000 ppm | 0 errors; freq span 6 / 32 / 32 LSB |
 | lint (`verilator -Wall`) | clean |
 
 Residual: at +3000 ppm the 5000-bit run shows 10 errors during acquisition.
 The -4000/+4000 points pass, so this is a pull-in transient in the capture
 sweep, not a hard capture edge; it was not re-run with a longer window.
+The capture sweep is unchanged by the boundary-add pipeline (+3000 still
+shows the same 10 acquisition errors), and the frequency dither grows by
+~2 LSB (6/32/32 vs 4/31/30) because the correction now lands one UI later.
 
 `tb/tb_rx_endpoint_dll.sv` repeats the 0/+-700 ppm checks through the full
 `serdes_rx_digital` endpoint (`CDR_MODE=4`) with the same `(tap+0.5)*1.25 ns`
@@ -275,11 +292,11 @@ during a sampling edge would corrupt a bit.
    the sampler aperture are not in the closed loop, so no JTOL claim follows
    from the BER sweeps above.
 5. **Frequency resolution.**  `FREQ_FRAC=8` gives 122 ppm per LSB and is the
-   committed value.  The integral path tracks +-1000 ppm with zero errors over
-   100k bits, but the frequency word dithers over ~30 LSB (section 4).  One
-   more bit (`FREQ_FRAC=9`, 61 ppm) puts the pre-PnR adder at 10.27 ns and
-   closes only at 11 ns; pipeline the boundary add if both quieter integral
-   state and 10 ns closure are needed.
+   committed value; the boundary-add pipeline costs ~2 LSB of extra dither
+   (section 4).  `FREQ_FRAC=9` (61 ppm) was previously rejected because it put
+   the *unpipelined* correction add at 10.27 ns.  With `step_ui_q` in place
+   the correction is off the phase path, so 9 bits is worth re-trying if
+   quieter integral state is needed; judge it by the routed A/B, not pre-PnR.
 
 ## 7. Reproduce
 
@@ -298,3 +315,14 @@ Synthesis/STA recipe is the same as `bang_bang_pipeline_study.md` section 6
 with `cdr_multiphase` as the top.  The analog checks are
 `make dll-feasibility` and `make dll-lock`; both emit JSON under
 `build/verify/`.
+
+The routed A/B in section 3 is an open-source-flow measurement (`sv2v` +
+LibreLane 3.0.14, `sky130A` / `sky130_fd_sc_hd`, `nom_ss_100C_1v60`,
+10 ns): convert `rtl/cdr_multiphase.sv` with `sv2v`, then set
+`DESIGN_NAME: cdr_multiphase`, `CLOCK_PORT: clk`, `CLOCK_PERIOD: 10`,
+`PDK: sky130A`, `STD_CELL_LIBRARY: sky130_fd_sc_hd`,
+`DEFAULT_CORNER`/`STA_CORNERS: nom_ss_100C_1v60`, and an SDC with
+`create_clock -period 10 [get_ports clk]`, `set_clock_uncertainty 0.25 clk`,
+2 ns input delay on `enable`/`flush`/`phase_offset`, 0.3 ns on
+`smp`/`rst_n`, and 2 ns output delay.  The non-pipelined baseline is the same
+file at commit `7cfaa76`.

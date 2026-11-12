@@ -171,9 +171,12 @@ recorded separately as intentional design policy, not an open item.
    re-run across the four PDKs at a closing constraint.  Closing 100 MHz needs
    an architectural change (multiphase/DLL/phase-interpolator backend), not a
    constraint change: the DLL phase-select prototype in
-   `docs/dll_backend.md` recovers ~1.5 ns (routed ~10.5 ns, ~95 MHz) but is
-   not integrated or re-run across the PDKs.  The tables above are the pre-A numbers and are kept as
-   the baseline reference.
+   `docs/dll_backend.md` recovers ~1.5 ns over C2; with its boundary-add
+   pipeline it routed at ~10.08 ns (~99 MHz) in a matched LibreLane A/B,
+   0.31 ns better than the non-pipelined core, but it is not re-run across
+   the PDKs.  The digital core is integrated as `CDR_MODE=4`; the analog DLL
+   is still a specification.  The tables above are the pre-A numbers and are
+   kept as the baseline reference.
 2. **ihp-sg13g2 is not signoff-clean.**  Magic DRC 37893, KLayout DRC 4739,
    LVS 115 errors; the LVS failure is a `VPWR`/`VGND` vs `VDD`/`VSS` power-pin
    mapping mismatch.  This is a PDK signoff-deck / flow integration gap that

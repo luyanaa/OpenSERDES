@@ -114,6 +114,7 @@ module cdr_multiphase #(
     logic signed [FW-1:0]     kick_q;
     logic signed [FW-1:0]     freq_next;
     logic [W-1:0]             ph_step;
+    logic [W-1:0]             step_ui_q;
     logic [W-1:0]             ph_next;
     logic signed [1:0]        vote;
     logic                     trans;
@@ -168,10 +169,15 @@ module cdr_multiphase #(
     // signed; sign-extend into the phase width.  Same sign as cdr_bang_bang:
     // an early vote lowers the increment (and kicks the phase back) so the
     // sampling grid waits for the data.
+    // The fine correction is registered one UI ahead of the boundary it applies
+    // to.  Forming STEP + freq - kick in the same cycle as the phase add made
+    // freq_q -> add -> compare -> centre_hit the critical path (8.79 ns
+    // pre-PnR).  The correction now settles in step_ui_q, and the phase add is
+    // a single registered-operand add.  The loop already applies a vote one UI
+    // later; this makes it two, which is 40 ns at the 25 Mb/s target and far
+    // inside the loop's time constant.
     always_comb begin
-        ph_step = STEP;
-        if (at_ui)
-            ph_step = STEP + W'($signed(freq_q) - $signed(kick_q));
+        ph_step = at_ui ? step_ui_q : STEP;
         ph_next = ph_q + ph_step;
     end
 
@@ -204,14 +210,14 @@ module cdr_multiphase #(
 
     always_ff @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
-            ph_q <= '0; freq_q <= '0; kick_q <= '0;
+            ph_q <= '0; freq_q <= '0; kick_q <= '0; step_ui_q <= STEP;
             centre_hit <= 1'b0; edge_hit <= 1'b0;
             d_q <= 1'b0; d_prev_q <= 1'b0; e_q <= 1'b0; d_out_q <= 1'b0;
             strobe_q <= 1'b0; clk_hi_q <= 1'b0;
             leak_cnt_q <= '0; trans_ui_q <= 1'b0;
             edge_cnt_q <= '0; stale_cnt_q <= '0; lock_q <= 1'b0; stale_q <= 1'b0;
         end else if (flush) begin
-            ph_q <= '0; freq_q <= '0; kick_q <= '0;
+            ph_q <= '0; freq_q <= '0; kick_q <= '0; step_ui_q <= STEP;
             centre_hit <= 1'b0; edge_hit <= 1'b0;
             d_q <= 1'b0; d_prev_q <= 1'b0; e_q <= 1'b0; d_out_q <= 1'b0;
             strobe_q <= 1'b0; clk_hi_q <= 1'b0;
@@ -219,6 +225,11 @@ module cdr_multiphase #(
             edge_cnt_q <= '0; stale_cnt_q <= '0; lock_q <= 1'b0; stale_q <= 1'b0;
         end else if (enable) begin
             ph_q <= ph_next;
+            // Capture the step that the *next* UI boundary will use.  It is
+            // formed from the registers, not from this cycle's vote, so the
+            // sampler-to-PD path never feeds the phase adder.
+            if (at_ui)
+                step_ui_q <= STEP + W'($signed(freq_q) - $signed(kick_q));
             centre_hit <= centre_x;
             edge_hit   <= edge_x;
             strobe_q <= 1'b0;
