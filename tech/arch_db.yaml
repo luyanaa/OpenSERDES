@@ -103,7 +103,7 @@ rx:
       ihp-sg13g2:   {max_line_rate_mbps: 50}
       icsprout55:   {max_line_rate_mbps: 200}
     confidence: modeled_yosys_cells
-    note: "4x BBPD + 2nd-order loop + fractional NCO; verified 0/+-700/+-1000 ppm on tb_cdr_bang_bang and 0/+-700 ppm on the generated endpoint. About half the clock load of the 8x adaptive loop. Re-measured after the exact-width NCO change (commit 63c9f6d): 1159 cells at RATIO=32 vs 238 fixed and 851 adaptive (4.9x fixed, 1.36x adaptive); the old 1411-vs-218 note compared against fixed, not adaptive, and predates that change."
+    note: "4x BBPD + 2nd-order loop + fractional NCO; verified 0/+-700/+-1000 ppm on tb_cdr_bang_bang and 0/+-700 ppm on the generated endpoint. About half the clock load of the 8x adaptive loop. Re-measured after C2 (registered NCO control word, commit a587565): 1158 cells / 139 DFF at RATIO=32 vs 218 fixed and 847 adaptive (5.3x fixed, 1.37x adaptive); clock load is 0.60x the adaptive loop.  The 1411-cell figure this note used to quote came from a CELL_MODEL tuple that commit 2445439 never refit."
   adaptive_oversampling:
     module: serdes_rx_digital
     cdr_mode: 1

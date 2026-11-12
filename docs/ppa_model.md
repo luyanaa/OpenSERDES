@@ -40,14 +40,20 @@ from the generated `pnr/librelane.yaml` `SYNTH_PARAMETERS`, not RTL defaults):
 | `fixed_oversampling` OS=8 | 228 / 68 | 767 / 320 | (same model) | |
 | `adaptive_oversampling` OS=8 | 847 / 115 | 1382 / 367 | 770.7 | 2.384 |
 | `source_sync` | 120 / 50 | 656 / 302 | 43.4 | 2.393 |
-| `bang_bang_oversampling` OS=4 | 1411 / 126 | 1956 / 378 | 1333.1 | 2.433 |
+| `bang_bang_oversampling` OS=4 | 1158 / 139 | 1768 / 391 | 1070.9 | 2.723 |
 
 
-`bang_bang_oversampling` is the 24/25-bit BBPD + NCO loop, whose signed
-arithmetic dominates: it is about 6.5x the cells of `fixed_oversampling` at the
-same RATIO.  Its advantage is clock load (`DFF x f_clock`: 126 x 1x versus 115
-x 2x for the 8x adaptive loop), not area.  The earlier `(150, 2.42, 34, 1.124)`
-entry was a placeholder and understated area by an order of magnitude.
+`bang_bang_oversampling` is the exact-width BBPD + NCO loop (C2: the NCO control
+word is registered, sampling events unchanged).  Its signed arithmetic still
+dominates: **5.3x** the cells of `fixed_oversampling` and 1.37x
+`adaptive_oversampling` at the same RATIO, while its clock load
+(`DFF x f_clock`: 139 x 4x versus 115 x 8x for the adaptive loop) is 0.60x.
+Its advantage is clock load, not area.
+
+Provenance note: commit 2445439 updated the number in `scripts/ppa_model.py`'s
+docstring but not the `CELL_MODEL` tuple, so the selector kept reporting the
+pre-exact-width 1411 cells.  Both are now refit from the same two measured
+points (1158/139 at 8x4, 1768/391 at 32x8).
 
 Normalisation: TX against `parallel_mux`, RX against `fixed_oversampling`
 OS=4, all at the same RATIO and line rate.  `latency_factor` comes from the

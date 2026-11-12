@@ -27,7 +27,7 @@ Measured cells / DFF:
   rx fixed_oversampling OS8   228 / 68  @32      767 / 320  @256
   rx adaptive_oversampling    847 / 115 @32     1382 / 367  @256
   rx source_sync              120 / 50  @32      656 / 302  @256
-  rx bang_bang_oversampling  1159 / 242 @32     1695 / 746  @256   (exact-width)
+  rx bang_bang_oversampling  1158 / 139 @32     1768 / 391  @256   (C2)
 
 Scope and limits (do not overclaim):
 
@@ -38,16 +38,18 @@ Scope and limits (do not overclaim):
   It is the correct quantity for comparing oversampling factors, and is NOT
   a power measurement. Real power needs SAIF + report_power.
 * rel_latency comes from the documented handshake behaviour, not from STA.
-* bang_bang_oversampling is measured, not modelled.  The bang-bang row was
-  re-measured after the exact-width NCO change (commit 63c9f6d: phase_q
-  FR+PH_W bits, phase_next +1, loop state FR+2, folded wrap/centre
-  constants).  It is now **4.9x** the cells of fixed_oversampling and
-  **1.36x** adaptive at RATIO=32 (previously quoted as ~7x / 1411 cells).
+* bang_bang_oversampling is measured, not modelled.  Re-measured after C2
+  (registered NCO control word, commit a587565): **1158 cells / 139 DFF at
+  RATIO=32** and 1768 / 391 at RATIO=256.  That is **5.3x** the cells of
+  fixed_oversampling and **1.37x** adaptive at RATIO=32, while its clock load
+  (139 DFF x 4x) is **0.60x** the 8x adaptive loop.  Its advantage is clock
+  load, not area.
   Method: yosys 0.52, all package `sv2v` sources, `synth -top
-  serdes_rx_digital -flatten`, DFF column counts `$_DFF*` including enable
-  flops (the older 126/378 figures counted only plain DFFs, which is why they
-  are smaller than the numbers here).  Its advantage is clock load
-  (DFF x f_clock), not area.
+  serdes_rx_digital -flatten`; DFF is the sum of all `$_DFF*` single-bit
+  cells (enable flops included).  Note: commit 2445439 updated this docstring
+  to 1159/242 and 1695/746 but left CELL_MODEL at the pre-exact-width tuple,
+  so the model kept reporting 1411 cells.  Both are now refit from the
+  same two measured points.
 * confidence is modeled_yosys_cells -- never measured_post_route.
   A measured ppa_measured.yaml entry always overrides this model.
 """
@@ -60,7 +62,7 @@ CELL_MODEL: dict[str, tuple[float, float, float, float]] = {
     "word_streaming":         (69.6, 7.451, 11.4, 1.018),
     "fixed_oversampling":    (140.8, 2.411, 31.0, 1.124),
     "fixed_oversampling_os2": (140.8, 2.411, 31.0, 1.124),
-    "bang_bang_oversampling": (1333.1, 2.433, 90.0, 1.125),
+    "bang_bang_oversampling": (1070.9, 2.723, 103.0, 1.125),
     "adaptive_oversampling": (770.7, 2.384, 79.0, 1.124),
     "source_sync":            (43.4, 2.393, 14.0, 1.124),
 }

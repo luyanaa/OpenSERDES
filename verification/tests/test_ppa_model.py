@@ -25,7 +25,7 @@ class TestPpaModel(unittest.TestCase):
             "fixed_oversampling": (218, 758),
             "adaptive_oversampling": (847, 1382),
             "source_sync": (120, 656),
-            "bang_bang_oversampling": (1411, 1956),
+            "bang_bang_oversampling": (1158, 1768),
         }
         for arch, (at32, at256) in measured.items():
             est32 = ppa_model.estimate(arch, 32, 4, 25.0, "rx")["cells"]
@@ -36,8 +36,8 @@ class TestPpaModel(unittest.TestCase):
 
     def test_bang_bang_costs_more_area_than_fixed(self) -> None:
         # The placeholder (150 cells) claimed the 4x bang-bang loop was the
-        # cheapest option.  Measured: 1567 cells at RATIO=32, ~7x the fixed
-        # 4x loop, because of the 24/25-bit signed loop filter.  Its only win
+        # cheapest option.  Measured: 1158 cells at RATIO=32, ~5.3x the fixed
+        # 4x loop, because of the signed loop filter.  Its only win
         # is clock load (DFF x f_clock).  Guard against reintroducing the
         # claim that 4x sampling is also cheaper in area.
         fixed = ppa_model.relative_metrics("rx", "fixed_oversampling", 32, 4, 25.0)
