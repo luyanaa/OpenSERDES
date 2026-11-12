@@ -2,8 +2,9 @@
 
 Status: digital half implemented and verified (`rtl/cdr_multiphase.sv`,
 `tb/tb_cdr_multiphase.sv`).  It closes 10 ns pre-PnR by 0.9 ns; routed it is
-**~10.5 ns (~95 MHz), not 100 MHz**.  The DLL, phase mux and sampler are
-specified here but are not built yet; there is no fabricated or
+**~10.5 ns (~95 MHz), not 100 MHz**.  The delay line has first-order and
+closed-loop SPICE checks (§5.1, §5.2) with a behavioural PD/CP; the phase mux,
+sampler and transistor PD/CP are not built, and there is no fabricated or
 PEX-characterised DLL.
 
 ## 1. Why the current loop stops at 12-13 ns
@@ -187,6 +188,46 @@ What this run does **not** cover: foundry BSIM4 accuracy, tap mismatch
 (identical stages assumed), jitter (no noise analysis), the phase detector /
 charge pump / loop filter, lock acquisition, and the phase mux.
 
+### 5.2 Closed-loop lock check (measured)
+
+`verification/analog/dll_lock.py` closes the loop around the same 8-tap line:
+a track-and-hold phase detector samples the last tap at ref + 10.3 ns, an
+ideal charge pump (+-Icp) drives an R/C filter, and the filter voltage is the
+line bias.  The PD/CP/filter are behavioural; the line is the SPICE line.
+Default run (`make dll-lock`): 20 us transient, Icp = 5 uA, Rf = 100 k,
+Cf = 100 pF, start 0.670 V.
+
+| quantity | result |
+|---|---|
+| bias, settled | 0.6893 V (start 0.670 V) |
+| bias drift, last 20% | 0.033 mV (tail ripple 0.017 mV) |
+| line delay | 10.383 ns (sample instant 10.300) |
+| held value at PD instant | 0.822 V (0.900 V = zero error) |
+| static offset | +83 ps |
+| phase lock, 50 ps | 3.80 us |
+| bias settle, 1 mV | 7.16 us |
+| converged | yes |
+
+Reading: the loop converges and holds the tap edge constant (min = max over
+the last 200 UIs).  The 83 ps offset is the **loop filter**, not the phase
+detector.  `Rf` returns the filter node to the fixed pre-lock bias, so at lock
+the charge pump must supply the 0.1925 uA drop across Rf; a mean CP current of
+0.19 uA needs a held value of 0.830 V at the PD, and the simulation gives
+0.822 V.  Doubling Rf halves the offset (measured 43 ps at 200 k).  This DC
+path is a property of the first-order filter in this check, not of a real DLL
+filter; the residual there would be the PD's own offset.  At 83 ps = 0.008 UI
+it is far below one 1.25 ns tap and does not change the backend conclusion.
+
+Two corrections to an earlier draft of this section: the 93 ps figure was a
+run at 8 us, before the bias had settled (the offset is 193 ps at 2 us, 143 ps
+at 4 us, 93 ps at 8 us, 83 ps at 20 us), and it is not a PD sample delay.
+The default is now 20 us, which is converged.
+
+The lock check does not cover: PD/CP transistor design, supply/reference
+noise, tap mismatch, or the phase mux.  It also does not prove a 10.000 ns
+line delay - it proves the loop servos the tap's 0.9 V crossing to the PD's
+sample instant (plus the filter offset above).
+
 Tooling note: the installed sky130 PM3 cards use `.model name.N` binning plus
 `agauss` mismatch terms; direct `.include` fails ngspice's model-name and
 parameter checks, and `.lib sky130.lib.spice` blocks on an OSDI load in this
@@ -208,12 +249,13 @@ during a sampling edge would corrupt a bit.
    10 ns - 0.625 ns of setup.  Either retime the sample one extra cycle (the
    loop already tolerates a cycle of latency) or restrict the usable tap range
    to 0..6.  Do this before claiming a 100 MHz sampler path.
-3. **Transistor DLL.**  The delay line has a first-order SPICE check (§5.1:
-   level-1 model, 1.22 ns/tap, 1.28 mW, ~445 um^2, 9.7 ns span at Vb = 0.67 V).
-   There is still no phase detector, charge pump or loop filter, no lock
-   acquisition, no jitter/noise analysis, no tap-mismatch or Monte Carlo, no
-   layout/PEX, and no run with the foundry BSIM card (the installed PM3 cards
-   cannot be loaded by ngspice in this container).
+3. **Transistor DLL.**  The line has a first-order SPICE check (§5.1: level-1
+   model, 1.22 ns/tap, 1.28 mW, ~445 um^2, 9.7 ns span at Vb = 0.67 V) and a
+   behavioural closed-loop lock check (§5.2: locks to 10.38 ns, 83 ps filter
+   offset, 3.8 us).  There is still no transistor phase detector, charge pump
+   or loop filter, no jitter/noise analysis, no tap-mismatch or Monte Carlo,
+   no layout/PEX, and no run with the foundry BSIM card (the installed PM3
+   cards cannot be loaded by ngspice in this container).
 4. **Jitter tolerance.**  The TB drives ideal edges.  The DLL phase noise and
    the sampler aperture are not in the closed loop, so no JTOL claim follows
    from the BER sweeps above.
@@ -238,4 +280,6 @@ vvp build/tb_cdr_mp_100k +PPM=-1000
 ```
 
 Synthesis/STA recipe is the same as `bang_bang_pipeline_study.md` section 6
-with `cdr_multiphase` as the top.
+with `cdr_multiphase` as the top.  The analog checks are
+`make dll-feasibility` and `make dll-lock`; both emit JSON under
+`build/verify/`.
