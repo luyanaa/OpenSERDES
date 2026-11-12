@@ -51,9 +51,12 @@ via `make magic-pex`) would upgrade it.
 
 Packaging does not upgrade status: a macro is only `SIGNOFF_ELIGIBLE` when the
 referenced DRC/LVS/PEX artifacts actually exist and were verified by its own
-builder.  `macro_generation` for gf180/ihp remains `false` in the tech YAMLs —
-these are *bespoke verified* macros packaged into the unified schema, not
-newly-generated signoff macros.
+builder.  `macro_generation` for gf180/ihp is now `true` for the **schematic**
+generator (`docs/macro_generator.md`), but the packaged gf180/ihp macros are
+still the bespoke verified physical macros; the generic generator emits
+`SCHEMATIC_ONLY` netlists and is not the source of the packaged GDS/LVS/PEX.
+Packaging does not upgrade either source: only the bespoke macros with real
+DRC/LVS/PEX artifacts remain `SIGNOFF_ELIGIBLE`.
 
 ### Host-dependent verdicts
 

@@ -618,10 +618,12 @@ analog-stdcell-gen:
 		--out $(BUILD)/verify/analog_stdcell_gen/rx_res_fb_inv
 
 analog-macro-gen:
-	$(PYTHON) verification/analog/macro_gen.py --tech sky130 --topology tx_inv_chain \
-		--out $(BUILD)/verify/analog_gen/tx_inv_chain
-	$(PYTHON) verification/analog/macro_gen.py --tech sky130 --topology rx_res_fb_inv \
-		--out $(BUILD)/verify/analog_gen/rx_res_fb_inv
+	@set -e; for T in sky130 gf180mcu ihp_sg13g2 icsprout55 etri050; do \
+	  $(PYTHON) verification/analog/macro_gen.py --tech $$T --topology tx_inv_chain \
+		--out $(BUILD)/verify/analog_gen/$$T/tx_inv_chain; \
+	  $(PYTHON) verification/analog/macro_gen.py --tech $$T --topology rx_res_fb_inv \
+		--out $(BUILD)/verify/analog_gen/$$T/rx_res_fb_inv; \
+	done
 
 dll-feasibility:
 	$(PYTHON) verification/analog/dll_feasibility.py --out $(BUILD)/verify/dll_feasibility.json

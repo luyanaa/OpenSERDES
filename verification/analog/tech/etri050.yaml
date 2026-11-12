@@ -4,13 +4,21 @@ pdk: ETRI050
 vdd_v: 5.0
 default_corner: typical
 devices:
-  style: subckt
+  style: mos
   nmos: nmos4
   pmos: pmos4
 sizing_um:
   wn: 5.0
   wp: 10.0
   l: 0.6
+macro_defaults:
+  stages: "1,3,9"
+  n_parallel: 3
+  p_parallel: 6
+  w_finger_um: 5.0
+  l_um: 0.6
+  fb_w_um: 1.0
+  fb_l_um: 5.0
 model:
   mode: ngspice
   root_search:
@@ -30,3 +38,17 @@ probe:
   runner: verification/analog/etri050_probe.py
   status: model_smoke_verified
   note: nmos4/pmos4 inverter DC transfer is inverting at VDD=5 V.
+
+capabilities:
+  schematic: true
+  macro_generation: true
+  pcell_layout: false
+  drc: false
+  lvs: false
+  pex: false
+  post_pex_analog: false
+  macro_package: false
+note: >-
+  Model-level schematic generation only.  nmos4/pmos4 are .model cards used by
+  the verified inverter smoke probe; there is no ETRI050 PCell, DRC/LVS/PEX,
+  or vendor signoff in this repository.

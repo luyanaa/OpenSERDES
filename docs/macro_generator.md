@@ -18,14 +18,38 @@ abstract/pin-only GDS is rejected instead of being advertised as signoff.
 ## Supported now
 
 ```bash
-python3 verification/analog/macro_gen.py \
-  --tech sky130 --topology tx_inv_chain \
-  --stages 1,3,9 --out generated/sky130/tx_inv_chain
+python3 verification/analog/macro_gen.py --list-tech
+python3 verification/analog/macro_gen.py --tech gf180mcu \
+  --topology tx_inv_chain --out generated/gf180mcu/tx_inv_chain
 ```
 
-- sky130: supported schematic + black-box Verilog generation
-- gf180mcu / IHP SG13G2: `status: scaffold`; generation fails closed until
-  device model names, W/L ranges and layout templates are verified.
+| tech | device style | devices | macro defaults (W/L, fb W/L) | macro generation |
+|---|---|---|---|---|
+| sky130 | subckt | `sky130_fd_pr__nfet/pfet_01v8` | 5/0.15, 0.55/8 | schematic |
+| gf180mcu | subckt | `nfet_03v3` / `pfet_03v3` | 5/0.28, 0.55/8 | schematic |
+| ihp_sg13g2 | subckt | `sg13_lv_nmos` / `sg13_lv_pmos` (`ng`) | 5/0.13, 0.55/2 | schematic |
+| icsprout55 | subckt | `nm1p2_svt_lp` / `pm1p2_svt_lp` (`nf`) | 2/0.06, 0.55/1 | schematic |
+| etri050 | `mos` model cards | `nmos4` / `pmos4` | 5/0.6, 1/5 | schematic |
+| freepdk45 | — | `NMOS_VTG` / `PMOS_VTG` not verified | — | **fail closed** |
+
+All generated macros are `SCHEMATIC_ONLY`: `circuit.spice`, `macro.v` and a
+manifest; layout/LEF/Liberty/PEX stay `missing` unless an explicit
+`--layout-gds`/`--lef`/`--cdl`/`--pex` with clean DRC/LVS is attached.  The
+verified gf180mcu/IHP `rx_fb_pcell` macros are a different, three-inverter
+topology built by their bespoke builders, not by this generator; the generic
+RX topology here is the single inverter plus series PMOS feedback
+(`rx_res_fb_inv`).  freepdk45 has no verified discrete device binding (its
+ngspice library exposes Nangate cells), so it stays fail-closed.
+
+W/L defaults come from `verification/analog/tech/<tech>.yaml`
+`macro_defaults`; override them with `--w-finger-um`, `--l-um`, `--fb-w-um`,
+`--fb-l-um`, `--n-parallel`, `--p-parallel` and `--stages`.
+
+A model-level DC check of the generated inverter chains (VIN=0) was run for
+gf180mcu (3.3 V), ihp_sg13g2 (1.2 V, OSDI PSP103; the optional cap OSDI libs
+are absent), icsprout55 (1.2 V) and etri050 (5.0 V): all converge with
+`VOUT=VDD`.  This is a connectivity/model-load check, not DRC/LVS/PEX or a
+speed claim.
 
 The TX generator preserves the 1/3/9 NMOS and 2/6/18 PMOS stage ratios.
 The RX generator preserves the three-parallel NMOS / six-parallel PMOS

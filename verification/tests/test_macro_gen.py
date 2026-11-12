@@ -98,12 +98,15 @@ class TestMacroGen(unittest.TestCase):
             self.assertIn("not a physical transistor layout", p.stderr + p.stdout)
 
     def test_scaffold_pdk_fails_closed(self):
+        # gf180mcu/IHP/icsprout55/etri050 now have schematic device bindings;
+        # freepdk45 has no verified discrete-device binding and must stay
+        # fail-closed.
         with tempfile.TemporaryDirectory() as td:
-            p = self.run_gen("--tech", "gf180mcu", "--topology", "tx_inv_chain",
-                             "--out", td + "/gf")
+            p = self.run_gen("--tech", "freepdk45", "--topology", "tx_inv_chain",
+                             "--out", td + "/fp45")
             self.assertNotEqual(p.returncode, 0)
             self.assertIn("fail-closed", (p.stderr + p.stdout).lower())
-            self.assertFalse(Path(td, "gf/circuit.spice").exists())
+            self.assertFalse(Path(td, "fp45/circuit.spice").exists())
 
 
 if __name__ == "__main__":

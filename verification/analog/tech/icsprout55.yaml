@@ -5,12 +5,22 @@ vdd_v: 1.2
 default_corner: nom_tt_025C_1v20
 devices:
   style: subckt
-  nmos: TBD_ics55_nmos
-  pmos: TBD_ics55_pmos
+  nmos: nm1p2_svt_lp
+  pmos: pm1p2_svt_lp
+  finger_param: nf
+  source: libs.tech/spice/foundry/ngspice/model_wrapper1_hsp.lib
 sizing_um:
   wn: 1.0
   wp: 1.0
   l: 0.06
+macro_defaults:
+  stages: "1,3,9"
+  n_parallel: 3
+  p_parallel: 6
+  w_finger_um: 2.0
+  l_um: 0.06
+  fb_w_um: 0.55
+  fb_l_um: 1.0
 pcell:
   backend: klayout_pya
   library: ICsprout55
@@ -23,3 +33,19 @@ pcell:
     Provisional PDK geometry generators. RF MOS is clean under the partial
     KLayout DRC port; the analog MOS has one poly-spacing violation at
     fingers=2 and is clean at fingers=1. No device LVS or Calibre signoff.
+
+capabilities:
+  schematic: true
+  macro_generation: true
+  pcell_layout: geometry_only
+  drc: partial
+  lvs: false
+  pex: false
+  post_pex_analog: false
+  macro_package: false
+note: >-
+  Schematic macro generation only.  The device subckt names come from the
+  PDK wrapper and are loadable by ngspice; the KLayout PCell is a provisional
+  geometry generator with one known poly-spacing violation at fingers=2, and
+  no device or macro LVS/PEX signoff exists.  Do not treat generated macros
+  as physical evidence.

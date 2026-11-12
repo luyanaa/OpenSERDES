@@ -6,8 +6,10 @@ Layers:
   device     : tech YAML device names, W/L, supply
   physical   : only emitted when a PDK layout template/GDS is supplied
 
-This generator does not invent GDS/LEF.  sky130 has a supported schematic view;
-gf180mcu and IHP are scaffolds and fail closed for generated physical macros.
+This generator does not invent GDS/LEF.  sky130, gf180mcu, ihp_sg13g2,
+icsprout55 and etri050 emit SCHEMATIC_ONLY circuits/black boxes with the
+verified device binding from verification/analog/tech; freepdk45 has no
+verified discrete device binding and fails closed.
 
 Supported topologies:
   tx_inv_chain   : odd CMOS inverter chain with N/P parallel fingers
@@ -52,10 +54,18 @@ def load_tech(name: str) -> dict:
 
 
 def _mos(xname: str, d: str, g: str, s: str, b: str, model: str,
-         w: float, l: float, nf: int = 1, finger_param: str = "nf") -> str:
-    # IHP's SG13G2 subcircuit uses ``ng`` for the finger count; sky130 and
-    # gf180mcu use ``nf``.  Keep this PDK-specific instead of hardcoding nf.
-    return f"X{xname} {d} {g} {s} {b} {model} w={w:g}u l={l:g}u {finger_param}={nf}"
+         w: float, l: float, nf: int = 1, finger_param: str = "nf",
+         style: str = "subckt") -> str:
+    # Two device bindings are supported:
+    #   subckt : PDK device is a .subckt with w/l + a finger parameter
+    #            (sky130/gf180mcu/icsprout55 use nf; IHP uses ng).
+    #   mos    : PDK device is a .model card; use an M device with W/L
+    #            (ETRI050 nmos4/pmos4).  Multiplicity is m= when nf > 1.
+    if style == "mos":
+        extra = f" m={nf}" if nf > 1 else ""
+        return f"M{xname} {d} {g} {s} {b} {model} W={w:g}u L={l:g}u{extra}"
+    return (f"X{xname} {d} {g} {s} {b} {model} w={w:g}u l={l:g}u "
+            f"{finger_param}={nf}")
 
 
 def tx_chain(tech: dict, stages: list[int], w_finger_um: float,
@@ -63,6 +73,7 @@ def tx_chain(tech: dict, stages: list[int], w_finger_um: float,
     nmos = tech["devices"]["nmos"]
     pmos = tech["devices"]["pmos"]
     fp = tech.get("devices", {}).get("finger_param", "nf")
+    style = tech.get("devices", {}).get("style", "subckt")
     lines = [f"* Generated {tech['name']} TX inverter chain", f".subckt {name} VDD VSS IN OUT"]
     prev = "IN"
     for i, npar in enumerate(stages):
@@ -70,10 +81,10 @@ def tx_chain(tech: dict, stages: list[int], w_finger_um: float,
         out = "OUT" if i == len(stages) - 1 else f"n{i}"
         for k in range(npar):
             lines.append(_mos(f"MN{i}_{k}", out, prev, "VSS", "VSS", nmos,
-                              w_finger_um, l_um, finger_param=fp))
+                              w_finger_um, l_um, finger_param=fp, style=style))
         for k in range(ppar):
             lines.append(_mos(f"MP{i}_{k}", out, prev, "VDD", "VDD", pmos,
-                              w_finger_um, l_um, finger_param=fp))
+                              w_finger_um, l_um, finger_param=fp, style=style))
         prev = out
     lines.append(".ends")
     meta = {
@@ -94,19 +105,20 @@ def rx_feedback(tech: dict, n_parallel: int, p_parallel: int,
     nmos = tech["devices"]["nmos"]
     pmos = tech["devices"]["pmos"]
     fp = tech.get("devices", {}).get("finger_param", "nf")
+    style = tech.get("devices", {}).get("style", "subckt")
     lines = [f"* Generated {tech['name']} RX feedback inverter",
              f".subckt {name} VDD VSS IN OUT"]
     for k in range(n_parallel):
         lines.append(_mos(f"MN{k}", "OUT", "IN", "VSS", "VSS", nmos,
-                          w_finger_um, l_um, finger_param=fp))
+                          w_finger_um, l_um, finger_param=fp, style=style))
     for k in range(p_parallel):
         lines.append(_mos(f"MP{k}", "OUT", "IN", "VDD", "VDD", pmos,
-                          w_finger_um, l_um, finger_param=fp))
+                          w_finger_um, l_um, finger_param=fp, style=style))
     # Two series diode-connected long-channel PMOS: OUT -> net06 -> IN.
     lines.append(_mos("MFB1", "OUT", "OUT", "fb", "VDD", pmos, fb_w_um, fb_l_um,
-                      finger_param=fp))
+                      finger_param=fp, style=style))
     lines.append(_mos("MFB0", "fb", "fb", "IN", "VDD", pmos, fb_w_um, fb_l_um,
-                      finger_param=fp))
+                      finger_param=fp, style=style))
     lines.append(".ends")
     meta = {
         "topology": "rx_res_fb_inv",
@@ -305,16 +317,19 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--tech", default="sky130")
     ap.add_argument("--topology", choices=("tx_inv_chain", "rx_res_fb_inv"),
-                    required=True)
+                    default=None)
     ap.add_argument("--name", default=None)
-    ap.add_argument("--out", required=True)
-    ap.add_argument("--stages", default="1,3,9")
-    ap.add_argument("--n-parallel", type=int, default=3)
-    ap.add_argument("--p-parallel", type=int, default=6)
-    ap.add_argument("--w-finger-um", type=float, default=5.0)
-    ap.add_argument("--l-um", type=float, default=0.15)
-    ap.add_argument("--fb-w-um", type=float, default=0.55)
-    ap.add_argument("--fb-l-um", type=float, default=8.0)
+    ap.add_argument("--out", default=None)
+    ap.add_argument("--stages", default=None,
+                    help="comma-separated N-parallel stages (default from tech)")
+    ap.add_argument("--n-parallel", type=int, default=None)
+    ap.add_argument("--p-parallel", type=int, default=None)
+    ap.add_argument("--w-finger-um", type=float, default=None)
+    ap.add_argument("--l-um", type=float, default=None)
+    ap.add_argument("--fb-w-um", type=float, default=None)
+    ap.add_argument("--fb-l-um", type=float, default=None)
+    ap.add_argument("--list-tech", action="store_true",
+                    help="print the macro_generation capability and defaults per tech")
     ap.add_argument("--layout-gds", default=None,
                     help="explicit PDK layout template; omitted means physical views are missing")
     ap.add_argument("--lef", default=None, help="explicit LEF view for the layout")
@@ -325,7 +340,33 @@ def main() -> int:
     ap.add_argument("--drc-report", default=None,
                     help="explicit DRC report for the attached GDS")
     args = ap.parse_args()
+    if args.list_tech:
+        for path in sorted(TECH_DIR.glob("*.yaml")):
+            data = yaml.safe_load(path.read_text()) or {}
+            caps = data.get("capabilities") or {}
+            dev = data.get("devices") or {}
+            defaults = data.get("macro_defaults") or {}
+            print(f"{data.get('name', path.stem)}: status={data.get('status', '?')} "
+                  f"macro_generation={caps.get('macro_generation', False)} "
+                  f"style={dev.get('style', 'subckt')} "
+                  f"nmos={dev.get('nmos', '?')} pmos={dev.get('pmos', '?')} "
+                  f"defaults={defaults}")
+        return 0
+    if not args.topology:
+        ap.error("--topology is required unless --list-tech is used")
+    if not args.out:
+        ap.error("--out is required unless --list-tech is used")
     tech = load_tech(args.tech)
+    defaults = tech.get("macro_defaults") or {}
+    def _pick(value, key, fallback):
+        return value if value is not None else defaults.get(key, fallback)
+    args.stages = args.stages if args.stages is not None else defaults.get("stages", "1,3,9")
+    args.n_parallel = int(_pick(args.n_parallel, "n_parallel", 3))
+    args.p_parallel = int(_pick(args.p_parallel, "p_parallel", 6))
+    args.w_finger_um = float(_pick(args.w_finger_um, "w_finger_um", 5.0))
+    args.l_um = float(_pick(args.l_um, "l_um", 0.15))
+    args.fb_w_um = float(_pick(args.fb_w_um, "fb_w_um", 0.55))
+    args.fb_l_um = float(_pick(args.fb_l_um, "fb_l_um", 8.0))
     layout = Path(args.layout_gds) if args.layout_gds else None
     if args.name:
         name = args.name

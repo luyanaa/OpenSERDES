@@ -34,3 +34,18 @@ probe:
   runner: verification/analog/freepdk45_probe.py
   status: model_smoke_verified
   note: Nangate INV DC transfer is inverting; this does not assert DRC/LVS.
+
+capabilities:
+  schematic: true
+  macro_generation: false
+  pcell_layout: false
+  drc: false
+  lvs: false
+  pex: false
+  post_pex_analog: false
+  macro_package: false
+note: >-
+  FreePDK45/Nangate45 has no installed discrete-device PCell and the ngspice
+  library exposes the standard cells, not NMOS_VTG/PMOS_VTG as verified
+  devices.  Macro generation stays fail-closed; the model smoke uses the
+  Nangate INV cell and is not a device binding.

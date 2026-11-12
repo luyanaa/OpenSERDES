@@ -28,6 +28,14 @@ sizing_um:
   wn: 0.15
   wp: 0.3
   l: 0.13
+macro_defaults:
+  stages: "1,3,9"
+  n_parallel: 3
+  p_parallel: 6
+  w_finger_um: 5.0
+  l_um: 0.13
+  fb_w_um: 0.55
+  fb_l_um: 2.0
 model:
   mode: osdi_psp103
   lib_rel: libs.tech/ngspice/models/cornerMOSlv.lib
@@ -165,7 +173,7 @@ macro:
 
 capabilities:
   schematic: true
-  macro_generation: false
+  macro_generation: true
   pcell_layout: verified
   drc: verified
   lvs: verified

@@ -29,6 +29,12 @@ Netlists use a 1.8 V inverter with default sky130 sizing
 | `tech/ihp_sg13g2.yaml` | scaffold | same |
 | `tech/generic_demo.yaml` | demo | ngspice level-1 MOSFETs; never PDK evidence |
 
+Macro generation is a separate capability from the LUT extractor:
+`verification/analog/macro_gen.py --list-tech` reports which profiles have a
+verified device binding.  sky130, gf180mcu, ihp_sg13g2, icsprout55 and etri050
+emit `SCHEMATIC_ONLY` netlists; freepdk45 stays fail-closed.  See
+`docs/macro_generator.md` for the per-PDK device style and sizing defaults.
+
 Inspect and check the resolved paths/tools:
 
 ```bash

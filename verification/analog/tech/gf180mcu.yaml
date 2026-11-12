@@ -12,6 +12,14 @@ sizing_um:
   wn: 1.0
   wp: 1.0
   l: 0.28
+macro_defaults:
+  stages: "1,3,9"
+  n_parallel: 3
+  p_parallel: 6
+  w_finger_um: 5.0
+  l_um: 0.28
+  fb_w_um: 0.55
+  fb_l_um: 8.0
 model:
   mode: subckt
   root_search:
@@ -186,7 +194,7 @@ macros:
 
 capabilities:
   schematic: true
-  macro_generation: false
+  macro_generation: true
   pcell_layout: verified
   drc: verified
   lvs: verified
