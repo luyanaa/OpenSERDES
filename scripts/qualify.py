@@ -17,13 +17,15 @@ LEVELS = [
     ("RTL_FUNCTIONAL", ["lint", "sim", "synth"]),
     ("PRE_PNR_TIMING", ["pre_pnr_setup_wns", "pre_pnr_hold_wns"]),
     ("POST_ROUTE_TIMING", ["post_route_setup_wns", "post_route_hold_wns"]),
-    ("PHYSICAL_SIGNOFF", ["drc_clean", "lvs_clean", "antenna_clean", "cdc_clean"]),
+    ("PHYSICAL_SIGNOFF", ["drc_clean", "lvs_clean", "antenna_clean", "cdc_clean",
+                         "clock_evidence_physical_signoff"]),
     ("LINK_VALIDATED", ["ber", "jtol_pass", "eye_margin_ui"]),
 ]
 
 RANK = [name for name, _ in LEVELS]
 BOOLEAN_CHECKS = {"lint", "sim", "synth", "drc_clean", "lvs_clean",
-                  "antenna_clean", "cdc_clean", "jtol_pass"}
+                  "antenna_clean", "cdc_clean", "jtol_pass",
+                  "clock_evidence_physical_signoff"}
 WNS_CHECKS = {"pre_pnr_setup_wns", "pre_pnr_hold_wns",
               "post_route_setup_wns", "post_route_hold_wns"}
 

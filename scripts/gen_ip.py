@@ -1173,6 +1173,10 @@ def build_plan(cfg: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
         tier = clock_tier(clock_evidence, cfg["sample_clock_mhz"])
         cfg["clock_evidence"] = {
             "tier": tier,
+            # modeled=False means this architecture has no clock-closure
+            # evidence model (fixed/source-sync); physical signoff is then a
+            # DRC/LVS claim, not a CDR-frequency claim.
+            "modeled": clock_evidence is not None,
             "requested_mhz": cfg["sample_clock_mhz"],
             "timing_closed_mhz": (clock_evidence or {}).get("timing_closed_mhz"),
             "physical_signoff_mhz": (clock_evidence or {}).get("physical_signoff_mhz"),

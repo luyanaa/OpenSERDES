@@ -82,6 +82,7 @@ def parse_timing(reports: Path, stage: str, kind: str) -> float | None:
 
 SIGNOFF_CHECKS = {
     "drc_clean", "lvs_clean", "antenna_clean", "cdc_clean",
+    "clock_evidence_physical_signoff",
     "pre_pnr_setup_wns", "pre_pnr_hold_wns",
     "post_route_setup_wns", "post_route_hold_wns",
     "ber", "jtol_pass", "eye_margin_ui",
@@ -291,6 +292,49 @@ def collect(package: Path, reports: Path) -> dict:
     }
 
     manifest = load_json(package / "manifest.json")
+
+    # A PHYSICAL_SIGNOFF claim is also a claim about the sample clock: a
+    # frequency that is not in the physical-signoff tier must not inherit the
+    # DRC/LVS result.  The package manifest carries the tier; old packages
+    # predating the field fail closed for the CDR that makes a closure claim.
+    clocking = manifest.get("clocking") if isinstance(manifest.get("clocking"), dict) else {}
+    clock_ev = clocking.get("evidence") if isinstance(clocking, dict) else None
+    architecture = manifest.get("architecture") if isinstance(manifest.get("architecture"), dict) else {}
+    rx_arch = ((architecture.get("rx") or {}).get("name")
+               if isinstance(architecture.get("rx"), dict) else None)
+    clock_ok: bool | None
+    clock_status: str
+    if isinstance(clock_ev, dict) and "modeled" in clock_ev:
+        modeled = bool(clock_ev["modeled"])
+        clock_ok = (clock_ev.get("tier") == "physical_signoff") if modeled else True
+        clock_status = "pass" if clock_ok else "fail"
+    elif rx_arch == "bang_bang_oversampling":
+        clock_ok = None
+        clock_status = "missing"
+    else:
+        # fixed/source-sync: no clock-closure model; physical signoff is a
+        # DRC/LVS claim at the declared clock.
+        clock_ok = True
+        clock_status = "parsed"
+    if clock_ok is not None:
+        checks["clock_evidence_physical_signoff"] = clock_ok
+    evidence["clock_evidence"] = {
+        "source": str(package / "manifest.json"),
+        "source_sha256": _sha256(package / "manifest.json"),
+        "input_sha256": _sha256(package / "manifest.json"),
+        "status": clock_status,
+        "run_status": clock_status,
+        "tool_version": (clock_ev or {}).get("tool"),
+        "corner": (clock_ev or {}).get("corner"),
+        "gds_sha256": None,
+        "netlist_sha256": None,
+        "log": str(package / "manifest.json"),
+        "tier": (clock_ev or {}).get("tier"),
+        "modeled": (clock_ev or {}).get("modeled"),
+        "required": (clock_ev or {}).get("required"),
+        "satisfied": (clock_ev or {}).get("satisfied"),
+    }
+
     return {
         "package": str(package),
         "design": manifest.get("design"),

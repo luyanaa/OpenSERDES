@@ -9,7 +9,7 @@ from a lower one.
 | RTL_FUNCTIONAL | lint, sim, synth | RTL parses, self-checking tests pass, generic synthesis has no latches/memories |
 | PRE_PNR_TIMING | pre-PnR setup/hold WNS >= 0 | digital data path is plausible at the target period |
 | POST_ROUTE_TIMING | post-route setup/hold WNS >= 0 | placed/routed digital timing closes at the target corner |
-| PHYSICAL_SIGNOFF | DRC, LVS, antenna, CDC clean | physical implementation passes the PDK checks |
+| PHYSICAL_SIGNOFF | DRC, LVS, antenna, CDC clean, and `clock_evidence_physical_signoff` | physical implementation passes the PDK checks **and** the sample clock has a physical-signoff evidence tier |
 | LINK_VALIDATED | BER, jitter tolerance, eye margin | the link meets a stated BER under a stated channel/stress profile |
 
 ## 1. Report format
@@ -29,6 +29,7 @@ from a lower one.
     "lvs_clean": true,
     "antenna_clean": true,
     "cdc_clean": true,
+    "clock_evidence_physical_signoff": true,
     "ber": 1e-13,
     "jtol_pass": true,
     "eye_margin_ui": 0.18
@@ -68,7 +69,16 @@ Expected report names:
 | `antenna.rpt` | exact integer violation count; must be zero |
 | `cdc.rpt` | exact integer violation count; must be zero |
 | `ber.json` | `ber`, `jtol_pass`, `eye_margin_ui`, optional `ber_target` |
+| `manifest.json` | source of `clock_evidence_physical_signoff`: true when the selected RX arch has no clock-closure model (fixed/source-sync) or its tier is `physical_signoff`; a bang-bang package without the field fails closed |
 | `metrics.json` | supplementary metrics only; formal signoff checks are never overridden |
+
+The `clock_evidence_physical_signoff` check is derived from the package
+manifest, not from a report file.  A bang-bang package whose selected sample
+clock is only `timing_closed` (or has no closing run) cannot reach
+PHYSICAL_SIGNOFF, even when DRC/LVS are clean; the manifest records the tier,
+corner, tool, commit and source.  A fixed/source-sync package has no
+clock-closure model and the check is true (physical signoff there is a DRC/LVS
+claim at the declared clock).  A `metrics.json` entry cannot override it.
 
 The collector leaves a check absent when it cannot parse it; it never converts a
 missing or ambiguous report into a pass.  It records per-check evidence
