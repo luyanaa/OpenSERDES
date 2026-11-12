@@ -157,6 +157,43 @@ phase detector and charge pump.  Because the total delay is one 10 ns period
 and each tap is 1.25 ns, tap mismatch is the dominant error term; a
 dummy/replica biasing scheme and symmetric tap loading are required.
 
+### 5.1 First-order delay-line feasibility (measured)
+
+`verification/analog/dll_feasibility.py` builds an 8-tap current-starved NMOS
+line (two inverters per tap), biases it, and runs a transient.  A level-1 MOS
+model is calibrated to sky130 core parameters from the PDK card (toxm =
+4.148 nm -> Cox ~ 8.3 fF/um^2, u0 = 0.0896 m^2/Vs -> kp_n ~ 745 uA/V^2,
+Vth ~ 0.45 V).  It is **not** the foundry BSIM4 card - see the tooling note
+below - so treat the absolute numbers as +-30%.
+
+| quantity | result |
+|---|---|
+| bias for 1.25 ns/tap | Vb = 0.67 V (sink W/L = 3/0.5) |
+| tap spacing, 8 taps | 1.216 ns each, spread < 1 ps (identical stages) |
+| span (reference to tap 8) | 9.73 ns (target 10 ns, -2.7%) |
+| supply current | ~0.71 mA from 1.8 V |
+| power, line only | 1.28 mW |
+| area, line only | ~445 um^2 (8 x ~56 um^2; Rp, two devices, 50 fF) |
+| open-loop span vs VDD -10% / +10% | 9.32 ns / 10.41 ns (-4% / +7%) |
+
+Reading: a 1.25 ns tap is achievable in sky130 1.8 V at about 1.3 mW and
+~445 um^2 (0.00045 mm^2) for the line, i.e. comfortably inside the 2 mW /
+0.02 mm^2 targets once PD, charge pump and bias are added.  The open-loop
+supply sensitivity is the risk: +-10% VDD moves the span by 4-7%, so the DLL
+loop and a supply-referenced replica bias are mandatory, and high-frequency
+supply noise still passes through.
+
+What this run does **not** cover: foundry BSIM4 accuracy, tap mismatch
+(identical stages assumed), jitter (no noise analysis), the phase detector /
+charge pump / loop filter, lock acquisition, and the phase mux.
+
+Tooling note: the installed sky130 PM3 cards use `.model name.N` binning plus
+`agauss` mismatch terms; direct `.include` fails ngspice's model-name and
+parameter checks, and `.lib sky130.lib.spice` blocks on an OSDI load in this
+container (the repo's own `extract_lut.py --tech sky130` also times out).  The
+level-1 model is the workaround, not a substitute for running the foundry card
+on a working PDK install.
+
 The phase mux must be glitch-free: switch only while both the old and the new
 phase are low, and hold the selection for at least one period.  A phase step
 during a sampling edge would corrupt a bit.
@@ -171,9 +208,12 @@ during a sampling edge would corrupt a bit.
    10 ns - 0.625 ns of setup.  Either retime the sample one extra cycle (the
    loop already tolerates a cycle of latency) or restrict the usable tap range
    to 0..6.  Do this before claiming a 100 MHz sampler path.
-3. **Transistor DLL.**  No schematic, layout or PEX yet.  Jitter, lock range,
-   supply sensitivity and tap mismatch are unmeasured; the table above is a
-   spec, not evidence.
+3. **Transistor DLL.**  The delay line has a first-order SPICE check (§5.1:
+   level-1 model, 1.22 ns/tap, 1.28 mW, ~445 um^2, 9.7 ns span at Vb = 0.67 V).
+   There is still no phase detector, charge pump or loop filter, no lock
+   acquisition, no jitter/noise analysis, no tap-mismatch or Monte Carlo, no
+   layout/PEX, and no run with the foundry BSIM card (the installed PM3 cards
+   cannot be loaded by ngspice in this container).
 4. **Jitter tolerance.**  The TB drives ideal edges.  The DLL phase noise and
    the sampler aperture are not in the closed loop, so no JTOL claim follows
    from the BER sweeps above.
