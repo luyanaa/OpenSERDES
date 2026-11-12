@@ -133,12 +133,21 @@ Rules:
   - no timing closure: "no verified post-route timing closure; CP-implied X is
     an estimate".
 
-  It still does not fail: the gate says which evidence exists, not that the
-  experiment is forbidden.  The legacy scalar
+  It still does not fail by default: the gate says which evidence exists, not
+  that the experiment is forbidden.  The legacy scalar
   `signoff_sample_clock_mhz_by_arch` is read as a fallback with
   `physical_signoff_mhz: null`.  Note that `spec/phy_ip.yaml` was corrected
   from 100 Mb/s / OS=8 (800 MHz, unclosable) to 50 Mb/s / OS=8 (400 MHz) when
   the second-tier gate was added.
+
+  `constraints.require_clock_evidence: none | timing_closed |
+  physical_signoff` (default `none`) turns the warning into a fail-closed
+  generation gate.  For example, a physical-signoff deliverable on gf180mcuD at
+  30 MHz is rejected because it has no closing post-route run, only a
+  CP-implied estimate; on sky130 at 40 MHz it passes, and at 50 MHz it fails.
+  The requirement is recorded in `manifest.clocking.evidence.required` and
+  `.satisfied`.  It only applies to `target: link` or `rx`; asking for it on a
+  TX-only spec is a spec error rather than silent no-op.
 - `constraints` also accepts `io_delay_ns` (0.200), `output_load_pf` (0.010),
   `sync_stages` (3), `lock_thresh` (8), `lock_stale_bits` (16) and
   `fifo_depth` (16, must be a power of two).  These used to be hard-coded;

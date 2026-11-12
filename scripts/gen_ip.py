@@ -1182,6 +1182,20 @@ def build_plan(cfg: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
             "git_commit": (clock_evidence or {}).get("commit"),
             "source": (clock_evidence or {}).get("source"),
         }
+        required = cfg.get("require_clock_evidence", "none")
+        rank = {"none": 0, "timing_closed": 1, "physical_signoff": 2}
+        cfg["clock_evidence"]["required"] = required
+        cfg["clock_evidence"]["satisfied"] = rank[required] <= rank[tier]
+        if not cfg["clock_evidence"]["satisfied"]:
+            ev = clock_evidence or {}
+            fail(
+                f"RX sample clock {cfg['sample_clock_mhz']:g} MHz has clock "
+                f"evidence tier {tier!r} for {cfg['tech'].name}/"
+                f"{cfg['tech'].scl} {rx_arch['name']}, below "
+                f"constraints.require_clock_evidence={required!r} "
+                f"(timing_closed={ev.get('timing_closed_mhz')}, "
+                f"physical_signoff={ev.get('physical_signoff_mhz')}, "
+                f"source={ev.get('source', 'none')})")
         warning = clock_evidence_warning(cfg["tech"], rx_arch["name"],
                                          clock_evidence, cfg["sample_clock_mhz"])
         if warning:
@@ -1951,6 +1965,16 @@ def main() -> int:
                                         "constraints.lock_stale_bits")
         cfg["fifo_depth"] = as_int(cons.get("fifo_depth", 16),
                                    "constraints.fifo_depth")
+        cfg["require_clock_evidence"] = str(
+            cons.get("require_clock_evidence", "none")).lower()
+        if cfg["require_clock_evidence"] not in (
+                "none", "timing_closed", "physical_signoff"):
+            fail("constraints.require_clock_evidence must be none, "
+                 "timing_closed or physical_signoff")
+        if (cfg["target"] == "tx" and
+                cfg["require_clock_evidence"] != "none"):
+            fail("constraints.require_clock_evidence only applies to "
+                 "target: link or rx")
         if cfg["sync_stages"] < 2:
             fail("constraints.sync_stages must be >= 2")
         if cfg["lock_thresh"] < 1 or cfg["lock_stale_bits"] < 1:
