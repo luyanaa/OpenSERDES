@@ -161,9 +161,17 @@ recorded separately as intentional design policy, not an open item.
    closure from **25 ns to 22 ns** (45.5 MHz sample clock; WNS 0, DRC 0,
    LVS 0, `build/pnr/cross_pdk_close22_A.json`).  It also cuts routed depth by
    12.7% at the 10 ns target and area/power by 7%/20% at an equal target.
-   **100 MHz is still not reachable**: closing it needs an architectural
-   change to the loop, not a constraint change.  The tables above are the
-   pre-A numbers and are kept as the baseline reference.
+   A further change is now merged: registering only the NCO control word
+   (C2, `a587565`) leaves the sampling pipeline untouched and moves the routed
+   depth to **12.04 ns / WNS -1.32 at the 10 ns target** (A: 16.48 / -5.76),
+   with capture -3000..+4000 ppm and 0 bit errors across +-1000 ppm steps.
+   **100 MHz is still not reachable**: C2's best WNS is -0.91 at the 12 ns
+   target, so its honest position is 12-13 ns (77-83 MHz), and the signoff
+   tier below stays anchored to the A 22 ns closure because C2 was not
+   re-run across the four PDKs at a closing constraint.  Closing 100 MHz needs
+   an architectural change (multiphase/DLL/phase-interpolator backend), not a
+   constraint change.  The tables above are the pre-A numbers and are kept as
+   the baseline reference.
 2. **ihp-sg13g2 is not signoff-clean.**  Magic DRC 37893, KLayout DRC 4739,
    LVS 115 errors; the LVS failure is a `VPWR`/`VGND` vs `VDD`/`VSS` power-pin
    mapping mismatch.  This is a PDK signoff-deck / flow integration gap that

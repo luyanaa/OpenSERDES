@@ -338,24 +338,30 @@ or a different PD/NCO partition, not more local arithmetic.  See §5.
 
 ## 5. Recommendation
 
-1. **A is landed on master** (`rtl/cdr_bang_bang.sv`): -34% pre-PnR depth,
-   -7% cells, -20% power at an equal target, -12.7% routed depth at the 10 ns
-   target, verified routed closure at **22 ns instead of 25 ns** (45.5 MHz).
-   105/105 regression, lint clean.  Keep it as the reference.
-2. **C2 is the leading candidate for 100 MHz** and lives on
-   `exp/cdr-control-delay`: routed **12.04 ns / WNS -1.32** at the 10 ns
-   target (A: 16.48 / -5.76; baseline: 18.87 / -8.27), full functional suite
-   and 105/105 regression.  It is **not merged**: the extra control-cycle
-   latency still needs capture-range / frequency-step / limit-cycle
-   characterisation, and the last 1.3 ns needs another cut.
-3. **Do not pursue B or D.**  B breaks the sampling pipeline (50-93% bit
+1. **A and C2 are both on master.**  A (`63c9f6d`) is the reference
+   implementation: -34% pre-PnR depth, -7% cells, -20% power at an equal
+   target, -12.7% routed depth at the 10 ns target, and the verified routed
+   closure at **22 ns instead of 25 ns** (45.5 MHz).
+2. **C2 is merged as the default** (`git merge exp/cdr-control-delay`): routed
+   **12.04 ns / WNS -1.32** at the 10 ns target (A: 16.48 / -5.76; baseline:
+   18.87 / -8.27), full functional suite, 105/105 regression, lint clean.
+   Stability is characterised in §4.6: capture -3000..+4000 ppm, three
+   frequency steps with **0 bit errors**, and a bounded 3-29 LSB limit cycle
+   over 100k bits.  The one extra cycle of control latency is therefore
+   accepted at the +-1000 ppm spec (2-4x margin).
+3. **C2's honest position is 12-13 ns (77-83 MHz) on sky130.**  It is not a
+   100 MHz closure: best WNS is -0.91 at the 12 ns target and -1.32 at 10 ns,
+   and the two further cuts tried (§4.7) were rejected.  The per-architecture
+   signoff tier in `tech/*/tech.yaml` stays at the **A 22 ns closure (45 MHz)**
+   because C2 has not been re-run across the four PDKs at a closing
+   constraint.
+4. **Do not pursue B or D.**  B breaks the sampling pipeline (50-93% bit
    errors at 0 ppm) for only 9% over A; D needs FR<=6 and therefore cannot
    track +-1000 ppm.
-4. **Next for C2**: (a) closed-loop stability characterisation, not just
-   BER; (b) shave the last 1.3 ns in `inc_r -> phase_next -> compare -> PD`
-   (e.g. a second control stage, or a hierarchical comparator); (c) only then
-   consider merging to master and re-running the four PDKs.
-5. Records: baseline 25 ns `build/pnr/cross_pdk_close25_sky130.json`, A 22 ns
+5. **Reaching 100 MHz** needs the multiphase/DLL/phase-interpolator backend
+   or a different PD/NCO partition, not more local arithmetic in
+   `inc_r -> phase_next -> compare -> PD`.
+6. Records: baseline 25 ns `build/pnr/cross_pdk_close25_sky130.json`, A 22 ns
    `build/pnr/cross_pdk_close22_A.json`, C2 10 ns
    `build/pnr/cross_pdk_c2_10ns.json` (portable/local, not committed).
 
@@ -382,7 +388,7 @@ EOF
 sta -no_init -no_splash -exit /tmp/cdr.tcl   # cmd_file is positional
 ```
 
-A is on `master` (`rtl/cdr_bang_bang.sv`).  C2 is on `exp/cdr-control-delay`
-(one extra register on the NCO control word, sampling pipeline unchanged).
-The P1/P2/B prototypes were scratch-tree only and were **not** kept: they fail
-the functional suite.  C2 is the only pipeline-style change that passes it.
+A and C2 are on `master` (`rtl/cdr_bang_bang.sv`); C2 is one extra register
+on the NCO control word with the sampling pipeline unchanged.  The P1/P2/B
+prototypes were scratch-tree only and were **not** kept: they fail the
+functional suite.  C2 is the only pipeline-style change that passes it.
