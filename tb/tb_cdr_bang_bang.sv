@@ -157,6 +157,32 @@ module tb_cdr_bang_bang #(
             $display("ERROR: lock_stale asserted");
             errors++;
         end
+
+        // Steady-state ripple on the integral path (limit-cycle check).  The
+        // first half is still settling, so summarise the second half.
+        begin
+            int fmin, fmax, k;
+            longint fsum;
+            fmin = 32'sh7fffffff; fmax = -32'sh7fffffff; fsum = 0;
+            for (k = N_CHECK/2; k < N_CHECK; k++) begin
+                if (fq_hist[k] < fmin) fmin = fq_hist[k];
+                if (fq_hist[k] > fmax) fmax = fq_hist[k];
+                fsum += fq_hist[k];
+            end
+            $display("INFO: steady freq_q min=%0d max=%0d span=%0d mean=%0d over %0d bits",
+                     fmin, fmax, fmax - fmin,
+                     int'(fsum / (N_CHECK - N_CHECK/2)), N_CHECK - N_CHECK/2);
+        end
+
+        // Frequency-step recovery: how long after the step the last error lands.
+        if (step_at > 0) begin
+            int last_err, k;
+            last_err = -1;
+            for (k = 0; k < N_CHECK; k++)
+                if (rx_bits[k] !== tx_bits[offset + k]) last_err = k;
+            $display("INFO: step at bit %0d (PPM=%0.1f -> %0.1f), last error at %0d, relock=%0d bits",
+                     step_at, ppm, ppm2, last_err, (last_err < 0) ? 0 : last_err - step_at);
+        end
         if (errors != 0) begin
             begin : show_first
                 int shown; shown = 0;

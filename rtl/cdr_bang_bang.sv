@@ -110,7 +110,8 @@ module cdr_bang_bang #(
     logic signed [FW-1:0]     freq_q;
     logic signed [FW-1:0]     kick_q;
     logic signed [FW-1:0]     delta;
-    logic [PWN-1:0]           inc_v;
+    logic [PWN-1:0]           inc_c;   // control path (freq_q/kick_q)
+    logic [PWN-1:0]           inc_r;   // NCO control word, registered
     logic signed [FW-1:0]     freq_next;
     logic [PWN-1:0]           phase_next;
     logic [PWQ-1:0]           phase_w;
@@ -157,12 +158,14 @@ module cdr_bang_bang #(
         // compare instead of two 20-bit ones on the loop path.
         delta = freq_q - kick_q;
         if (delta > FMAX) delta = FMAX;
-        inc_v = PWN'(CLKINC) + PWN'(delta);
+        inc_c = PWN'(CLKINC) + PWN'(delta);
 
         // phase_next carries one extra bit: bit PWQ is the wrap, and the low
         // PWQ bits equal phase_next - ONE when it wrapped.  The wrap is a bit
         // test and the wrap subtraction is a truncation, no comparator or mux.
-        phase_next = PWN'(phase_q) + PWN'(inc_v);
+        // Fast path: phase += the registered NCO control word, so freq_q
+        // is not in this loop.  inc_r is produced by the control path.
+        phase_next = PWN'(phase_q) + PWN'(inc_r);
         wrap       = phase_next[PWQ];
         phase_w    = phase_next[PWQ-1:0];
 
@@ -253,6 +256,7 @@ module cdr_bang_bang #(
     always_ff @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             phase_q <= '0; freq_q <= '0; kick_q <= '0;
+            inc_r <= PWN'(CLKINC);
             d_q <= 1'b0; d_prev_q <= 1'b0; e_q <= 1'b0; d_out_q <= 1'b0;
             strobe_q <= 1'b0; clk_hi_q <= 1'b0;
             c_done_q <= 1'b0; e_done_q <= 1'b0; leak_cnt_q <= '0;
@@ -260,12 +264,14 @@ module cdr_bang_bang #(
             edge_cnt_q <= '0; stale_cnt_q <= '0; lock_q <= 1'b0; stale_q <= 1'b0;
         end else if (flush) begin
             phase_q <= '0; freq_q <= '0; kick_q <= '0;
+            inc_r <= PWN'(CLKINC);
             d_q <= 1'b0; d_prev_q <= 1'b0; e_q <= 1'b0; d_out_q <= 1'b0;
             strobe_q <= 1'b0; clk_hi_q <= 1'b0;
             c_done_q <= 1'b0; e_done_q <= 1'b0; leak_cnt_q <= '0;
             trans_ui_q <= 1'b0;
             edge_cnt_q <= '0; stale_cnt_q <= '0; lock_q <= 1'b0; stale_q <= 1'b0;
         end else if (enable) begin
+            inc_r   <= inc_c;
             phase_q <= phase_w;
             strobe_q <= 1'b0;
             // The proportional kick is a single-clock increment offset, so it
