@@ -106,6 +106,10 @@ module tb_serdes_channel;
         .rx_align(rx_align),
         .rx_serial_in(channel_out),
         .phase_offset('0),
+        .rx_smp(channel_out),
+        /* verilator lint_off PINCONNECTEMPTY */
+        .rx_dll_tap(),
+        /* verilator lint_on PINCONNECTEMPTY */
         .rx_par_data(rx_data),
         .rx_par_valid(rx_par_valid),
         .rx_busy(rx_busy),

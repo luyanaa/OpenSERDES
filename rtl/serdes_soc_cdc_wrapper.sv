@@ -603,6 +603,10 @@ module serdes_soc_cdc_wrapper #(
         .rx_align(1'b0),
         .rx_serial_in(rx_core_serial_in),
         .phase_offset(phase_offset),
+        .rx_smp(1'b0),  // mode 4 needs an external sampler; modes 0-3 ignore it
+        /* verilator lint_off PINCONNECTEMPTY */
+        .rx_dll_tap(),
+        /* verilator lint_on PINCONNECTEMPTY */
         .rx_par_data(rx_par_data),
         .rx_par_valid(rx_par_valid),
         .rx_busy(rx_busy),

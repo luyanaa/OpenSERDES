@@ -239,7 +239,10 @@ module serdes_8b10b_top #(
     ) u_rx (
         .rx_clk(rx_clk), .rx_rst_n(rx_rst_n), .rx_enable(rx_enable),
         .rx_flush(rx_flush), .rx_align(rx_align), .rx_serial_in(rx_serial_in),
-        .phase_offset('0),
+        .phase_offset('0), .rx_smp(1'b0),  // mode 4 needs an external sampler; modes 0-3 ignore it
+        /* verilator lint_off PINCONNECTEMPTY */
+        .rx_dll_tap(),
+        /* verilator lint_on PINCONNECTEMPTY */
         .rx_par_data(rx_core_line), .rx_par_valid(rx_core_par_valid),
         .rx_busy(rx_core_busy), .rx_lock(rx_lock), .rx_lock_stale(rx_lock_stale),
         .rx_sample_strobe(rx_sample_strobe), .rx_clk_out(rx_clk_out),

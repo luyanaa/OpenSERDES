@@ -88,6 +88,10 @@ module tb_rx_frame_jtol #(
         .rx_align(1'b0),
         .rx_serial_in(data_in),
         .phase_offset('0),
+        .rx_smp(data_in),
+        /* verilator lint_off PINCONNECTEMPTY */
+        .rx_dll_tap(),
+        /* verilator lint_on PINCONNECTEMPTY */
         .rx_par_data(par_data),
         .rx_par_valid(par_valid),
         .rx_busy(busy),

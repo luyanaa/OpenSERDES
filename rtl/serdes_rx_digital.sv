@@ -9,6 +9,13 @@
 //   2 / source_sync: external rx_clk is the bit clock; receiver_sampler only
 //   3 / bang_bang  : 4x Alexander BBPD + 2nd-order digital loop + fractional
 //                    NCO (cdr_bang_bang); tracks +-700 ppm at OS=4
+//   4 / dll_phase  : 4x Alexander BBPD + 2^PH_W DLL phases (cdr_multiphase).
+//                    rx_dll_tap selects the external phase mux and rx_smp is
+//                    the bit sampled at that phase; see docs/dll_backend.md.
+//                    The DLL, mux and sampler are analog and live outside
+//                    this module, so the wrappers that hardwire a sampler
+//                    (serdes_digital_top, serdes_rx_axis_digital) only run
+//                    modes 0-3.
 //
 // ALIGN_MODE:
 //   0: external rx_align input controls the deserializer bit boundary.
@@ -44,6 +51,8 @@ module serdes_rx_digital #(
     parameter logic [SYNC_LEN-1:0] SYNC_PATTERN = 'hBC,
     parameter int ADAPT_FRAC_BITS = 12,
     parameter int ADAPT_LOOP_GAIN = 8,
+    // DLL tap width for CDR_MODE=4.  cdr_multiphase defaults to 3 (1/32 UI).
+    parameter int DLL_PH_W        = 3,
     /* verilator lint_off UNUSEDPARAM */
     parameter bit CLK_OUT_ENABLE = 1'b1,
     /* verilator lint_on UNUSEDPARAM */
@@ -54,10 +63,20 @@ module serdes_rx_digital #(
     input  logic                              rx_enable,
     input  logic                              rx_flush,
     input  logic                              rx_align,
+    /* verilator lint_off UNUSEDSIGNAL */
+    // Unused in CDR_MODE=4: the sampler takes the data at the selected phase.
     input  logic                              rx_serial_in,
+    /* verilator lint_on UNUSEDSIGNAL */
     /* verilator lint_off UNUSEDSIGNAL */
     input  logic [PHASE_CTRL_W-1:0]           phase_offset,
     /* verilator lint_on UNUSEDSIGNAL */
+    // Mode 4 sampler interface.  rx_smp is the bit already sampled at
+    // rx_dll_tap (one clk before cdr_multiphase reads it); modes 0-3 ignore
+    // both.  The mux and sampler are analog macros, not part of this module.
+    /* verilator lint_off UNUSEDSIGNAL */
+    input  logic                              rx_smp,
+    /* verilator lint_on UNUSEDSIGNAL */
+    output logic [DLL_PH_W-1:0]               rx_dll_tap,
     output logic [WORDS-1:0][DATA_WIDTH-1:0]  rx_par_data,
     output logic                              rx_par_valid,
     output logic                              rx_busy,
@@ -122,6 +141,7 @@ module serdes_rx_digital #(
             assign cdr_lock_stale    = 1'b0;
             assign cdr_clk_out       = rx_clk;
             assign cdr_freq_trim     = '0;
+            assign rx_dll_tap        = '0;
         end else if (MODE == 1) begin : g_adaptive
             cdr_adaptive #(
                 .OVERSAMPLE(OVERSAMPLE),
@@ -144,6 +164,7 @@ module serdes_rx_digital #(
                 .lock_stale(cdr_lock_stale),
                 .freq_trim(cdr_freq_trim)
             );
+            assign rx_dll_tap = '0;
         end else if (MODE == 3) begin : g_bang_bang
             // 4x BBPD + 2nd-order digital loop filter + fractional NCO.
             cdr_bang_bang #(
@@ -159,6 +180,36 @@ module serdes_rx_digital #(
                 .flush(rx_flush),
                 .data_in(rx_serial_in),
                 .phase_offset(phase_offset),
+                .data_out(cdr_data_out),
+                .sample_strobe(cdr_sample_strobe),
+                .clk_out(cdr_clk_out),
+                .lock(cdr_lock),
+                .lock_stale(cdr_lock_stale),
+                .freq_trim(cdr_freq_trim)
+            );
+            assign rx_dll_tap = '0;
+        end else if (MODE == 4) begin : g_dll
+            // 4x BBPD with the fine phase supplied by the DLL.  The phase mux
+            // and sampler are analog macros outside this module: rx_dll_tap
+            // selects the phase, and rx_smp is the bit sampled at that phase,
+            // read on the following clk.  Delivered defaults (PH_W=3,
+            // FREQ_FRAC=8, KP_SHIFT=2) are the signoff point; do not override
+            // them from a testbench unless the core test changes too.
+            cdr_multiphase #(
+                .OVERSAMPLE(OVERSAMPLE),
+                .PH_W(DLL_PH_W),
+                .LOCK_STALE_BITS(LOCK_STALE_BITS),
+                .PHASE_CTRL_W(PHASE_CTRL_W),
+                .FRAC_BITS(ADAPT_FRAC_BITS),
+                .CLK_OUT_ENABLE(CLK_OUT_ENABLE)
+            ) u_cdr (
+                .clk(rx_clk),
+                .rst_n(rx_rst_n_sync),
+                .enable(rx_enable),
+                .flush(rx_flush),
+                .smp(rx_smp),
+                .phase_offset(phase_offset),
+                .tap(rx_dll_tap),
                 .data_out(cdr_data_out),
                 .sample_strobe(cdr_sample_strobe),
                 .clk_out(cdr_clk_out),
@@ -186,6 +237,7 @@ module serdes_rx_digital #(
                 .lock_stale(cdr_lock_stale)
             );
             assign cdr_freq_trim = '0;
+            assign rx_dll_tap    = '0;
         end
     endgenerate
 

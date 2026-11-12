@@ -186,7 +186,10 @@ clock semantics.
 ## 4. Migration implications
 
 1. **Implemented:** `serdes_rx_digital` has `CDR_MODE` = fixed (0), adaptive
-   (1) or source-sync (2); `CDR_BYPASS=1` remains an alias for mode 2.  In
+   (1), source-sync (2), bang-bang (3) or DLL phase-select (4);
+   `CDR_BYPASS=1` remains an alias for mode 2.  Mode 4 keeps the phase mux
+   and sampler outside the digital netlist (`rx_dll_tap` out, `rx_smp` in);
+   see [`dll_backend.md`](dll_backend.md).  In
    source-sync mode the external `rx_clk` is the bit clock, `receiver_sampler`
    retimes the serial input, and the oversampling loop is skipped.  The
    generator selects the mode from `rx.clocking` and `rx.ppm`.

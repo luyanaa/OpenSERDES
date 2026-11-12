@@ -122,6 +122,9 @@ $(BANG_BANG_GEN)/rtl/serdes_rx_digital.sv: spec/bang_bang_4x.yaml scripts/gen_ip
 $(BUILD)/tb_rx_endpoint_cdr: tb/tb_rx_endpoint_cdr.sv $(BANG_BANG_GEN)/rtl/serdes_rx_digital.sv | $(BUILD)
 	$(IVERILOG) -g2012 -Wall -I$(BANG_BANG_GEN)/rtl -o $@ tb/tb_rx_endpoint_cdr.sv $(BANG_BANG_GEN)/rtl/*.sv
 
+$(BUILD)/tb_rx_endpoint_dll: tb/tb_rx_endpoint_dll.sv $(RTL) | $(BUILD)
+	$(IVERILOG) -g2012 -Wall -o $@ $^
+
 $(BUILD)/tb_deserializer_half_rate: tb/tb_deserializer_half_rate.sv rtl/deserializer_half_rate.sv | $(BUILD)
 	$(IVERILOG) -g2012 -Wall -o $@ $^
 
@@ -273,6 +276,7 @@ SIM_BINS := $(BUILD)/tb_serializer_lsb $(BUILD)/tb_serializer_msb \
             $(BUILD)/tb_cdr_phase_offset $(BUILD)/tb_cdr_leak \
             $(BUILD)/tb_cdr_multiphase \
             $(BUILD)/tb_rx_endpoint_cdr \
+            $(BUILD)/tb_rx_endpoint_dll \
             $(BUILD)/tb_deserializer_half_rate $(BUILD)/tb_receiver_pair_sampler \
             $(BUILD)/tb_deserializer_lsb $(BUILD)/tb_deserializer_msb \
             $(BUILD)/tb_serdes_loopback_lsb $(BUILD)/tb_serdes_loopback_msb \
@@ -312,6 +316,9 @@ sim: $(SIM_BINS)
 	$(VVP) $(BUILD)/tb_rx_endpoint_cdr
 	$(VVP) $(BUILD)/tb_rx_endpoint_cdr +PPM=700
 	$(VVP) $(BUILD)/tb_rx_endpoint_cdr +PPM=-700
+	$(VVP) $(BUILD)/tb_rx_endpoint_dll
+	$(VVP) $(BUILD)/tb_rx_endpoint_dll +PPM=700
+	$(VVP) $(BUILD)/tb_rx_endpoint_dll +PPM=-700
 	$(VVP) $(BUILD)/tb_deserializer_half_rate
 	$(VVP) $(BUILD)/tb_receiver_pair_sampler
 	$(VVP) $(BUILD)/tb_deserializer_lsb

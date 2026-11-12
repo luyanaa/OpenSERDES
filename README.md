@@ -189,7 +189,7 @@ Receiver 数字边界的 1-bit 采样模型：只建模原 `Receiver.sp` 中 2 G
 
 TX/RX 独立端点 wrapper。两者可以分别用不同 PDK 综合，再在同一链路中组合；协议/RTL 不变，只换目标库和 analog wrapper。
 
-`serdes_rx_digital` 的 `CDR_MODE` 选择 CDR：`0=fixed_oversampling`、`1=adaptive_oversampling`、`2=source_sync`；旧的 `CDR_BYPASS=1` 等价于 `CDR_MODE=2`。source-sync 模式下外部 `rx_clk` 作为 bit clock，经 `receiver_sampler` 后直接进入 deserializer；此时 `rx_clk_out=rx_clk`、`rx_lock=1`，`OVERSAMPLE` 不参与。
+`serdes_rx_digital` 的 `CDR_MODE` 选择 CDR：`0=fixed_oversampling`、`1=adaptive_oversampling`、`2=source_sync`、`3=bang_bang`、`4=dll_phase`；旧的 `CDR_BYPASS=1` 等价于 `CDR_MODE=2`。mode 4 的相位选择/采样器在数字网表之外：顶层输出 `rx_dll_tap`，输入 `rx_smp`（见 `docs/dll_backend.md`）。source-sync 模式下外部 `rx_clk` 作为 bit clock，经 `receiver_sampler` 后直接进入 deserializer；此时 `rx_clk_out=rx_clk`、`rx_lock=1`，`OVERSAMPLE` 不参与。
 
 `ALIGN_MODE`：`0=外部 rx_align`、`1=comma 单次对齐`、`2=comma 每帧重对齐`。新增输出 `rx_frame_locked`、`rx_frame_valid`（= `rx_par_valid & rx_frame_locked`）、`rx_serial_data`、`rx_serial_valid`、`rx_freq_trim`，用于链路 scoreboard、状态恢复和 calibration 观测。
 

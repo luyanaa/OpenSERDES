@@ -365,7 +365,9 @@ or a different PD/NCO partition, not more local arithmetic.  See §5.
    13-bit loop add, 9.10 ns / +0.90 WNS pre-PnR at the 10 ns target, 0 errors
    over 100k bits at 0/+-1000 ppm.  Routed it is ~10.5 ns (WNS -0.46 with the
    sampler/reset treated as internal), so it recovers ~1.5 ns over C2 but does
-   not close 100 MHz at ss.  The analog DLL is still a specification.
+   not close 100 MHz at ss.  The digital core is now wired as `CDR_MODE=4`
+   with an external `rx_dll_tap`/`rx_smp` sampler interface
+   (`docs/dll_backend.md` section 6); the analog DLL is still a specification.
 6. Records: baseline 25 ns `build/pnr/cross_pdk_close25_sky130.json`, A 22 ns
    `build/pnr/cross_pdk_close22_A.json`, C2 10 ns
    `build/pnr/cross_pdk_c2_10ns.json` (portable/local, not committed).

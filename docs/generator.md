@@ -87,13 +87,16 @@ Rules:
   spec axes, but the vocabulary is deliberately larger than the integrated
   backend.  **Accepted today**: `clock_source` = `independent` / `source_sync`
   (must equal `rx.clocking`); `clock_recovery` = `source_sync` /
-  `fixed_oversampling` / `adaptive_oversampling` (must match the RX
-  architecture; `none` only for `target: tx`); `sampler_architecture` =
+  `fixed_oversampling` / `adaptive_oversampling` / `bang_bang` (must match the
+  RX architecture; `none` only for `target: tx`); `sampler_architecture` =
   `single_edge`.  **Rejected (fail closed)**: `external_reference`, `ring_pll`,
-  `adpll`, `dll`, `bang_bang`, `pi_cdr`, `ddr`, `multiphase`,
+  `adpll`, `dll`, `pi_cdr`, `ddr`, `multiphase`,
   `interleaved` -- these need physical phase clocks / verified sampler or PLL
   backends that do not exist yet.  Listing them in `CAPABILITY_CHOICES` is a
-  roadmap, not a claim of support.
+  roadmap, not a claim of support.  The DLL phase-select core is integrated as
+  `CDR_MODE=4` at the RX top (`dll_backend.md` section 6), but the generator
+  does not emit a mode-4 package yet, so `dll`/`multiphase` stay rejected
+  here.
 - The manifest records `clocking.sample_clock_mhz = line_rate_mbps ×
   OVERSAMPLE`; this is an RTL clock requirement, not proof that the target
   standard-cell flow closes at that frequency.

@@ -1,11 +1,12 @@
 # DLL phase-select backend for the 4x bang-bang CDR
 
 Status: digital half implemented and verified (`rtl/cdr_multiphase.sv`,
-`tb/tb_cdr_multiphase.sv`).  It closes 10 ns pre-PnR by 0.9 ns; routed it is
-**~10.5 ns (~95 MHz), not 100 MHz**.  The delay line has first-order and
-closed-loop SPICE checks (§5.1, §5.2) with a behavioural PD/CP; the phase mux,
-sampler and transistor PD/CP are not built, and there is no fabricated or
-PEX-characterised DLL.
+`tb/tb_cdr_multiphase.sv`), and wired into the RX endpoint as `CDR_MODE=4`
+with an external sampler interface (`rx_dll_tap`/`rx_smp`).  It closes 10 ns
+pre-PnR by 0.9 ns; routed it is **~10.5 ns (~95 MHz), not 100 MHz**.  The
+delay line has first-order and closed-loop SPICE checks (§5.1, §5.2) with a
+behavioural PD/CP; the phase mux, sampler and transistor PD/CP are not built,
+and there is no fabricated or PEX-characterised DLL.
 
 ## 1. Why the current loop stops at 12-13 ns
 
@@ -137,6 +138,13 @@ Residual: at +3000 ppm the 5000-bit run shows 10 errors during acquisition.
 The -4000/+4000 points pass, so this is a pull-in transient in the capture
 sweep, not a hard capture edge; it was not re-run with a longer window.
 
+`tb/tb_rx_endpoint_dll.sv` repeats the 0/+-700 ppm checks through the full
+`serdes_rx_digital` endpoint (`CDR_MODE=4`) with the same `(tap+0.5)*1.25 ns`
+sampler model, plus pattern 3 at +700 ppm.  All pass, and the endpoint probe
+confirms the delivered loop parameters (`PH_W=3`, `FREQ_FRAC=8`, `KI=1`,
+`KP_SHIFT=2`, `LEAK_UI_BITS=12`) rather than a hand-written set.  The
+generator does not emit a mode-4 package yet (section 6).
+
 ## 5. Analog DLL specification
 
 The digital half assumes this macro.  Values are targets, not measurements.
@@ -218,10 +226,10 @@ path is a property of the first-order filter in this check, not of a real DLL
 filter; the residual there would be the PD's own offset.  At 83 ps = 0.008 UI
 it is far below one 1.25 ns tap and does not change the backend conclusion.
 
-Two corrections to an earlier draft of this section: the 93 ps figure was a
-run at 8 us, before the bias had settled (the offset is 193 ps at 2 us, 143 ps
-at 4 us, 93 ps at 8 us, 83 ps at 20 us), and it is not a PD sample delay.
-The default is now 20 us, which is converged.
+Two points about that number: the offset is a settling curve, not a constant
+(193 ps at 2 us, 143 ps at 4 us, 93 ps at 8 us, 83 ps at 20 us), so a short
+run does not reach the lock point; and it is not a PD sample delay.  The
+default run is now 20 us, which is converged (drift 0.033 mV).
 
 The lock check does not cover: PD/CP transistor design, supply/reference
 noise, tap mismatch, or the phase mux.  It also does not prove a 10.000 ns
@@ -239,12 +247,19 @@ The phase mux must be glitch-free: switch only while both the old and the new
 phase are low, and hold the selection for at least one period.  A phase step
 during a sampling edge would corrupt a bit.
 
-## 6. Integration work not done yet
+## 6. Integration status and remaining work
 
-1. **RTL integration.**  Add `CDR_MODE=4` to `serdes_rx_digital.sv`: instantiate
-   the DLL black box, the phase mux, the sampler and `cdr_multiphase`; the
-   sampler output replaces `cdr_sync`'s `samples[N-1]`.  This changes the clock
-   tree (8 generated clocks or one muxed clock) and needs a CDC/CTS review.
+1. **RTL integration (done, external sampler).**  `CDR_MODE=4` now instantiates
+   `cdr_multiphase` in `serdes_rx_digital.sv`.  The phase mux and sampler stay
+   outside the digital netlist: the top exposes `rx_dll_tap[DLL_PH_W-1:0]`
+   (3 bits by default) and consumes `rx_smp`, the bit sampled at that tap on
+   the previous clk.  The wrappers (`serdes_digital_top`,
+   `serdes_rx_axis_digital`, the 8b10b/64b66b tops, the SoC CDC wrapper) tie
+   `rx_smp` low and leave `rx_dll_tap` open; they run modes 0-3 only.
+   `tb/tb_rx_endpoint_dll.sv` runs the full endpoint with a behavioural
+   `(tap+0.5)*1.25 ns` sampler at 0/+-700 ppm and pattern 3.
+   Still needed for a chip: the DLL/mux/sampler macros, the muxed clock tree
+   (8 generated clocks or one muxed clock) and a CDC/CTS review.
 2. **Sampler setup.**  With tap 7 the sample is taken at 9.375 ns and read at
    10 ns - 0.625 ns of setup.  Either retime the sample one extra cycle (the
    loop already tolerates a cycle of latency) or restrict the usable tap range

@@ -53,6 +53,10 @@ module tb_rx_endpoint_cdr #(
     ) dut (
         .rx_clk(clk), .rx_rst_n(rst_n), .rx_enable(enable), .rx_flush(1'b0),
         .rx_align(1'b0), .rx_serial_in(data_in), .phase_offset('0),
+        .rx_smp(data_in),
+        /* verilator lint_off PINCONNECTEMPTY */
+        .rx_dll_tap(),
+        /* verilator lint_on PINCONNECTEMPTY */
         .rx_par_data(par_data), .rx_par_valid(par_valid), .rx_busy(busy),
         .rx_lock(lock), .rx_lock_stale(lock_stale),
         .rx_sample_strobe(sample_strobe), .rx_clk_out(clk_out),
