@@ -61,7 +61,7 @@
  },
  "views": {
   "schematic": {
-   "path": "Resistive_FB_inverter/Resist_FB_INV.src.net",
+   "path": "legacy/analog/Resistive_FB_inverter/Resist_FB_INV.src.net",
    "top": "Resist_FB_INV",
    "port_order": [
     "GND",
@@ -73,7 +73,7 @@
    "status": "available-historical"
   },
   "layout_spice": {
-   "path": "Resistive_FB_inverter/Resist_FB_INV.sp",
+   "path": "legacy/analog/Resistive_FB_inverter/Resist_FB_INV.sp",
    "top": "Resist_FB_INV",
    "port_order": [
     "GND",
@@ -117,7 +117,7 @@
   "lvs": {
    "status": "correct",
    "tool": "Calibre",
-   "path": "Resistive_FB_inverter/Resist_FB_INV.lvs.report"
+   "path": "legacy/analog/Resistive_FB_inverter/Resist_FB_INV.lvs.report"
   },
   "lef": {
    "path": "analog/macros/rx_res_fb_pmos/abstract.lef",

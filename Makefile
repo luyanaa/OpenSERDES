@@ -487,22 +487,22 @@ xyce-global-mc:
 	$(PYTHON) verification/analog/xyce_global_mc.py --mode global --samples 8 --out $(XYCE_GLOBAL_MC_OUT)
 
 magic-pex:
-	$(PYTHON) verification/analog/magic_pex.py --gds Inverter_Based_Tx/Inv_Transmitter.gds \
+	$(PYTHON) verification/analog/magic_pex.py --gds legacy/analog/Inverter_Based_Tx/Inv_Transmitter.gds \
 		--cell Inv_Transmitter --ports GND,VDD,VIN,VOUT \
 		--out $(MAGIC_PEX_DIR)/Inv_Transmitter.pex.spice
-	$(PYTHON) verification/analog/magic_pex.py --gds Receiver_Bypassing_CDR/Receiver.gds \
+	$(PYTHON) verification/analog/magic_pex.py --gds legacy/analog/Receiver_Bypassing_CDR/Receiver.gds \
 		--cell Receiver --ports GND,VDD,INP,CLK,OUT_B,OUT \
 		--out $(MAGIC_PEX_DIR)/Receiver.pex.spice
 
 magic-pex-compare: magic-pex
 	$(PYTHON) verification/analog/magic_pex_compare.py \
 		--pex $(MAGIC_PEX_DIR)/Inv_Transmitter.pex.spice \
-		--schematic Inverter_Based_Tx/Full_TX/Inv_Transmitter.sp \
+		--schematic legacy/analog/Inverter_Based_Tx/Full_TX/Inv_Transmitter.sp \
 		--top Inv_Transmitter --mode tx --ports GND,VDD,VIN,VOUT \
 		--out $(MAGIC_PEX_DIR)/tx_compare.json
 	$(PYTHON) verification/analog/magic_pex_compare.py \
 		--pex $(MAGIC_PEX_DIR)/Receiver.pex.spice \
-		--schematic Receiver_Bypassing_CDR/Receiver.sp \
+		--schematic legacy/analog/Receiver_Bypassing_CDR/Receiver.sp \
 		--top Receiver --mode rx --ports GND,VDD,INP,CLK,OUT_B,OUT \
 		--out $(MAGIC_PEX_DIR)/rx_compare.json
 
@@ -528,10 +528,10 @@ analog-macro-package:
 analog-gds:
 	@mkdir -p $(BUILD)/verify/legacy_gds
 	$(PYTHON) verification/analog/prepare_macro_gds.py \
-		--src Inverter_Based_Tx/Inv_Transmitter.gds --dst $(BUILD)/verify/legacy_gds/Inv_Transmitter.gds \
+		--src legacy/analog/Inverter_Based_Tx/Inv_Transmitter.gds --dst $(BUILD)/verify/legacy_gds/Inv_Transmitter.gds \
 		--name Inv_Transmitter
 	$(PYTHON) verification/analog/prepare_macro_gds.py \
-		--src Resistive_FB_inverter/Res_FB_Inv.gds --dst $(BUILD)/verify/legacy_gds/Res_FB_INV.gds \
+		--src legacy/analog/Resistive_FB_inverter/Res_FB_Inv.gds --dst $(BUILD)/verify/legacy_gds/Res_FB_INV.gds \
 		--name Resist_FB_INV
 
 analog-gds-audit:
@@ -542,7 +542,7 @@ analog-gds-audit:
 		--gds analog/macros/rx_parallel_inv_macro/layout.gds \
 		--out $(BUILD)/verify/gds_audit/rx_parallel_inv_macro.json
 	$(PYTHON) verification/analog/gds_audit.py \
-		--gds Resistive_FB_inverter/Res_FB_Inv.gds \
+		--gds legacy/analog/Resistive_FB_inverter/Res_FB_Inv.gds \
 		--out $(BUILD)/verify/gds_audit/rx_res_fb_pmos.json
 
 analog-views:
@@ -637,15 +637,15 @@ analog-contracts:
 
 analog-drc:
 	$(PYTHON) verification/analog/magic_drc.py \
-		--gds Inverter_Based_Tx/Inv_Transmitter.gds --cell Inv_Transmitter \
+		--gds legacy/analog/Inverter_Based_Tx/Inv_Transmitter.gds --cell Inv_Transmitter \
 		--out $(BUILD)/verify/drc/Inv_Transmitter.drc.json
 	$(PYTHON) verification/analog/magic_drc.py \
-		--gds Resistive_FB_inverter/Res_FB_Inv.gds --cell Resist_FB_INV \
+		--gds legacy/analog/Resistive_FB_inverter/Res_FB_Inv.gds --cell Resist_FB_INV \
 		--out $(BUILD)/verify/drc/Resist_FB_INV.drc.json
 
 analog-macro-pex:
 	$(PYTHON) verification/analog/magic_pex.py \
-		--gds Resistive_FB_inverter/Res_FB_Inv.gds \
+		--gds legacy/analog/Resistive_FB_inverter/Res_FB_Inv.gds \
 		--cell Resist_FB_INV --ports GND,VDD,INP,OUT \
 		--out $(BUILD)/verify/magic_pex/Resist_FB_INV.pex.spice
 

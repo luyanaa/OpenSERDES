@@ -3,9 +3,9 @@
 This note separates the digital content of the original CDR and receiver from
 the analog/back-end content, based on the delivered files:
 
-- `OverSampling_CDR/README.pdf` and the OpenSerDes paper (arXiv:2105.13256).
-- `OverSampling_CDR/CLK_RECOVERY.lvs.v` — the delivered gate-level LVS netlist.
-- `Receiver_Bypassing_CDR/Receiver_README.pdf` and `Receiver.sp`.
+- `legacy/analog/OverSampling_CDR/README.pdf` and the OpenSerDes paper (arXiv:2105.13256).
+- `legacy/analog/OverSampling_CDR/CLK_RECOVERY.lvs.v` — the delivered gate-level LVS netlist.
+- `legacy/analog/Receiver_Bypassing_CDR/Receiver_README.pdf` and `Receiver.sp`.
 - `rtl/cdr_oversampling.sv` and `rtl/serdes_rx_digital.sv` for the new model.
 
 There is no original RTL for the CDR or receiver in the repository.  The CDR

@@ -11,13 +11,13 @@ content is replaced, while all new digital work uses `rtl/`.
 |---|---|---|---|---|
 | Serializer | `Serializer/serialiser_unit_cell_1.v` | `rtl/serializer.sv` + `rtl/serializer_stream.sv` | **Migrated** | Parallel/mux and word-streaming architectures; LSB/MSB; one-hot word-group capture; old RTL kept at `legacy/rtl/serialiser_unit_cell_1.v`. |
 | Deserializer | `DeSerializer/deserialiser_unit_cell.v` | `rtl/deserializer.sv` + `rtl/deserializer_word.sv` | **Migrated** | No `INT_PAR_IN` shadow latch, no `COMPLETE` clock, one-hot bit/word select; align/flush gated out of capture; old RTL kept at `legacy/rtl/deserialiser_unit_cell.v`. |
-| Oversampling CDR | `OverSampling_CDR/CLK_RECOVERY.*` | `rtl/cdr_sync.sv` + `rtl/cdr_oversampling.sv` + `rtl/cdr_adaptive.sv` | **RTL validated** | Fixed-rate, frequency-tracking and source-sync modes. The delivered netlist is a digital period tracker/divider; no gate-equivalence is claimed. See [`cdr_receiver_digital.md`](cdr_receiver_digital.md). |
+| Oversampling CDR | `legacy/analog/OverSampling_CDR/CLK_RECOVERY.*` | `rtl/cdr_sync.sv` + `rtl/cdr_oversampling.sv` + `rtl/cdr_adaptive.sv` | **RTL validated** | Fixed-rate, frequency-tracking and source-sync modes. The delivered netlist is a digital period tracker/divider; no gate-equivalence is claimed. See [`cdr_receiver_digital.md`](cdr_receiver_digital.md). |
 | Frame alignment | none | `rtl/comma_align.sv` | **New** | Comma/training search, one-shot and per-frame re-alignment, `rx_frame_locked`, flush/lock recovery. |
-| Receiver bypassing CDR | `Receiver_Bypassing_CDR/Receiver.*` | `rtl/receiver_sampler.sv` + RX `CDR_MODE=2` | **Digital boundary migrated** | Analog front-end and 2 GHz custom NAND DFF remain legacy; only the `q <= d` sampling contract is modeled. `CDR_BYPASS` remains an alias. See [`cdr_receiver_digital.md`](cdr_receiver_digital.md). |
+| Receiver bypassing CDR | `legacy/analog/Receiver_Bypassing_CDR/Receiver.*` | `rtl/receiver_sampler.sv` + RX `CDR_MODE=2` | **Digital boundary migrated** | Analog front-end and 2 GHz custom NAND DFF remain legacy; only the `q <= d` sampling contract is modeled. `CDR_BYPASS` remains an alias. See [`cdr_receiver_digital.md`](cdr_receiver_digital.md). |
 | DFF | `legacy/DFF/DFF.sp`, `legacy/DFF/Dff.gds` | standard-cell flops in synthesis | **Replaced at synthesis** | The new RTL does not instantiate the custom `DFF` cell. |
 | NAND | `legacy/NAND/NAND.gds` | standard-cell NAND in synthesis | **Replaced at synthesis** | Kept for original physical reference. |
-| Inverter-based TX | `Inverter_Based_Tx/` | analog wrapper, not in this repo | **Not migrated** | The digital TX wrapper ends at `tx_serial_out`; the pad/channel driver remains analog. |
-| Resistive-feedback inverter | `Resistive_FB_inverter/` | none | **Not migrated** | Analog RX front-end. |
+| Inverter-based TX | `legacy/analog/Inverter_Based_Tx/` | analog wrapper, not in this repo | **Not migrated** | The digital TX wrapper ends at `tx_serial_out`; the pad/channel driver remains analog. |
+| Resistive-feedback inverter | `legacy/analog/Resistive_FB_inverter/` | none | **Not migrated** | Analog RX front-end. |
 
 ## Compatibility adapters
 

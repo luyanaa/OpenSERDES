@@ -20,8 +20,8 @@ records delay and waveform deltas.
 
 | Macro | GDS | Magic counts | PEX result |
 |---|---|---|---|
-| TX | `Inverter_Based_Tx/Inv_Transmitter.gds` | 39 devices, 317 R, 6 C | rise 58.7 ps, fall 53.3 ps at 50 fF |
-| RX | `Receiver_Bypassing_CDR/Receiver.gds` | 76 devices, ~5.1k R, 16 C | clock-to-Q fall 1.224 ns PEX vs 1.197 ns schematic; OUT_B rise 3.156 vs 3.138 ns |
+| TX | `legacy/analog/Inverter_Based_Tx/Inv_Transmitter.gds` | 39 devices, 317 R, 6 C | rise 58.7 ps, fall 53.3 ps at 50 fF |
+| RX | `legacy/analog/Receiver_Bypassing_CDR/Receiver.gds` | 76 devices, ~5.1k R, 16 C | clock-to-Q fall 1.224 ns PEX vs 1.197 ns schematic; OUT_B rise 3.156 vs 3.138 ns |
 
 The TX schematic (legacy `nshort`/`pshort` converted to sky130 devices) gives
 12.9 ps / 11.6 ps rise/fall in the same testbench, so the extracted RC network

@@ -9,7 +9,7 @@ tech file installed under ``PDK_ROOT``; the resulting SPICE is wrapped in a
 Example::
 
     python3 verification/analog/magic_pex.py \
-        --gds Inverter_Based_Tx/Inv_Transmitter.gds \
+        --gds legacy/analog/Inverter_Based_Tx/Inv_Transmitter.gds \
         --cell Inv_Transmitter --ports GND,VDD,VIN,VOUT \
         --out build/verify/pex/Inv_Transmitter.pex.spice
 

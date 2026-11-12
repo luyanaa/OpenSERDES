@@ -184,7 +184,7 @@ def _summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--pex", default=str(ROOT / "build/verify/magic_pex/Resist_FB_INV.pex.spice"))
-    ap.add_argument("--schematic", default=str(ROOT / "Resistive_FB_inverter/Resist_FB_INV.sp"))
+    ap.add_argument("--schematic", default=str(ROOT / "legacy/analog/Resistive_FB_inverter/Resist_FB_INV.sp"))
     ap.add_argument("--top", default="Resist_FB_INV")
     ap.add_argument("--ports", default="GND,VDD,INP,OUT")
     ap.add_argument("--corners", nargs="*", default=["tt"])

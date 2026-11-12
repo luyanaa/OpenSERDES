@@ -81,7 +81,7 @@
    "top": "tx_inv_chain_1_3_9",
    "format": "gds",
    "status": "available-physical-stdcell",
-   "source_path": "Inverter_Based_Tx/Inv_Transmitter.gds",
+   "source_path": "legacy/analog/Inverter_Based_Tx/Inv_Transmitter.gds",
    "note": "Top renamed; PR boundary 235/4 added for LibreLane. Met5 rails inset inside PR boundary; via-tower landing pads fattened (met2/met3/met4 overlay columns) for top-level DRC.",
    "physical": true,
    "reason": "",

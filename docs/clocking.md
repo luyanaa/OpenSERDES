@@ -151,7 +151,7 @@ value.
 python3 scripts/analyze_clock_tree.py \
   /grid/OpenSERDES/Serializer/serializer_unit_cell_1.lvs.v \
   /grid/OpenSERDES/DeSerializer/deserialiser_unit_cell_1.lvs.v \
-  /grid/OpenSERDES/OverSampling_CDR/CLK_RECOVERY.lvs.v
+  /grid/OpenSERDES/legacy/analog/OverSampling_CDR/CLK_RECOVERY.lvs.v
 ```
 
 The script reports buffer-chain connectivity and fanout.  It is **not** a CTS

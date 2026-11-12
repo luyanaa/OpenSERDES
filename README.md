@@ -17,11 +17,14 @@ docs/           migration, clocking, pre-PnR STA, CDR/RX study,
                generator, qualification, standard-cell library selection,
                library catalog, timing architecture, PVT/PEX/MC status
 legacy/rtl/     original serializer/deserializer sources, read-only
+legacy/analog/  original analog/layout evidence, read-only
 ```
 
-原有 `Serializer/`、`DeSerializer/`、`OverSampling_CDR/` 等目录保留其
-GDS/SPICE/LEF/PDF 物理与模拟证据；新数字流程只使用 `rtl/`。完整映射、兼容
-adapter 和剩余 gap 见 [`docs/migration.md`](docs/migration.md)。
+原有 `Serializer/`、`DeSerializer/` 保留其 GDS/SPICE/LEF/PDF 证据；旧的模拟/物理
+目录 `Inverter_Based_Tx/`、`OverSampling_CDR/`、`Resistive_FB_inverter/`、
+`Receiver_Bypassing_CDR/` 已移到 [`legacy/analog/`](legacy/analog/README.md)，只作
+只读 provenance。新数字流程只使用 `rtl/`。完整映射、兼容 adapter 和剩余 gap 见
+[`docs/migration.md`](docs/migration.md)。
 
 ## 1. 设计原则
 

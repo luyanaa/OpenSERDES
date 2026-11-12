@@ -61,7 +61,7 @@
       "top": "rx_parallel_inv_macro",
       "format": "gds",
       "status": "available-physical-stdcell",
-      "source_path": "Resistive_FB_inverter/Res_FB_Inv.gds",
+      "source_path": "legacy/analog/Resistive_FB_inverter/Res_FB_Inv.gds",
       "note": "Top renamed; PR boundary 235/4 added for LibreLane.",
       "physical": true,
       "reason": "",
