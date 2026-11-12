@@ -24,8 +24,22 @@ limits:
   # Post-route verified closure per CDR architecture (not the PDK bound).
   # bang_bang: 22 ns routed with exact-width NCO, see
   # docs/bang_bang_pipeline_study.md and build/pnr/cross_pdk_close22_A.json.
-  signoff_sample_clock_mhz_by_arch:
-    bang_bang_oversampling: 45
+  # Sample-clock evidence for the CDR, by architecture.  A value belongs in
+  # timing_closed_mhz only if a post-route run at that period has WNS >= 0;
+  # physical_signoff_mhz additionally needs DRC/LVS clean.  cp_implied_mhz is
+  # 1000/critical-path and is an estimate, never a closure.
+  clock_evidence_by_arch:
+    bang_bang_oversampling:
+      tested_max_mhz: 100          # 25 Mb/s x OS=4; fails (-8.27 ns)
+      timing_closed_mhz: 45.45     # 22 ns run: WNS 0 all corners
+      physical_signoff_mhz: 45.45  # same run: Magic/KLayout DRC 0, LVS 0
+      cp_implied_mhz: 53           # 1000 / 18.87 ns, estimate only
+      corner: nom_ss_100C_1v60
+      tool: "LibreLane 3.0.17 / OpenSTA"
+      commit: null                 # record predates commit capture
+      source: build/pnr/cross_pdk_close22_A.json
+      note: "25 ns also closes at 40 MHz. max_fanout/max_cap CTS limits still
+        report violations on the run and are not physical-signoff checks."
   note: "Endpoint 100 Mb/s, OS=2 full link 50 Mb/s; not post-route signoff."
 # Integrated clock gate used by Yosys SYNTH_CLOCKGATE_* when the spec sets
 # optimization.clock_gating: true.  Pins verified in the sky130 TT liberty:

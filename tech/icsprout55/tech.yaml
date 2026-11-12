@@ -46,8 +46,19 @@ limits:
   max_sample_clock_mhz: 400   # 2.5 ns RX demonstrated at +0.315 ns (prepnr_sta.md 3.6)
 
   # Post-route bang-bang critical path 13.66 ns from STAPostPNR state.
-  signoff_sample_clock_mhz_by_arch:
-    bang_bang_oversampling: 65
+  # Magic/KLayout/LVS were skipped for this PDK; the old 65 MHz scalar was
+  # CP-implied and is not a physical signoff.
+  clock_evidence_by_arch:
+    bang_bang_oversampling:
+      tested_max_mhz: 100          # 25 Mb/s x OS=4
+      timing_closed_mhz: null
+      physical_signoff_mhz: null   # DRC/LVS not run
+      cp_implied_mhz: 73           # 1000 / 13.66 ns, estimate only
+      corner: nom_ss_125C_1v08
+      tool: "LibreLane 3.0.17 / OpenSTA"
+      commit: null
+      source: build/pnr/cross_pdk.json
+      note: "10 ns run: setup WNS -3.58 ns; DRC/LVS not run."
   note: "H7CL 5 ns TX + OS=2; RX can close at 2.5 ns. Endpoint/link gates are pre-PnR."
   note: "H7CH=HVT, H7CL=LVT, H7CR=RVT; all 7-track. PDK_ROOT is the Librelane overlay; PDK_LIB_ROOT is the icsprout55-pdk library root."
 cts:

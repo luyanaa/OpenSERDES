@@ -61,7 +61,14 @@ records, per TX/RX architecture:
 - relative area/power/latency metrics and a confidence label.
 
 The metrics are not signoff data.  Replace them with measured post-route PPA as
-the qualification database grows.  Measured overrides live in
+the qualification database grows.
+
+`limits.clock_evidence_by_arch` is separate from the arch metrics: it records
+the CDR sample-clock evidence per architecture as `tested_max_mhz`,
+`timing_closed_mhz`, `physical_signoff_mhz` and `cp_implied_mhz`, plus
+`corner`, `tool`, `commit` and `source`.  A frequency is only a
+`physical_signoff_mhz` when a post-route run closes timing **and** DRC/LVS are
+clean; `cp_implied_mhz` is `1000 / critical-path` and is never a closure.  Measured overrides live in
 `tech/ppa_measured.yaml` (example: `tech/ppa_measured.example.yaml`) and are
 imported with `scripts/import_ppa.py`; the generator records the selected
 candidate, the Pareto frontier, the PPA source and the confidence in

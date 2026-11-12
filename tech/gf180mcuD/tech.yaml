@@ -22,8 +22,20 @@ limits:
   max_sample_clock_mhz: 50    # 20 ns RX; 10 ns RX fails by 17 ns (prepnr_sta.md 3.7)
 
   # Post-route bang-bang critical path 29.2 ns at 20 ns target -> ~30 MHz.
-  signoff_sample_clock_mhz_by_arch:
-    bang_bang_oversampling: 30
+  # No closing post-route period was found: the 20 ns run is DRC/LVS-clean but
+  # fails setup by -8.18 ns.  The old 30 MHz scalar was CP-implied.
+  clock_evidence_by_arch:
+    bang_bang_oversampling:
+      tested_max_mhz: 50           # 12.5 Mb/s x OS=4
+      timing_closed_mhz: null
+      physical_signoff_mhz: null   # DRC/LVS clean, timing not closed
+      cp_implied_mhz: 34           # 1000 / 29.24 ns, estimate only
+      corner: nom_ss_125C_4v50
+      tool: "LibreLane 3.0.17 / OpenSTA"
+      commit: null
+      source: build/pnr/cross_pdk.json
+      note: "20 ns run: setup WNS -8.18 ns. 10 ns also fails; no closing
+        period was tried."
   note: "5 V mcu7t5v0; endpoint 50 Mb/s, full link 25 Mb/s with OS=2."
 cts:
   target_skew_ps: 50

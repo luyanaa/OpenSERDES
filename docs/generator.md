@@ -112,17 +112,33 @@ Rules:
   RTL, while 2.5 ns (400 MHz) is demonstrated on icsprout55 H7CL.  Both the
   measured clock and its limit are recorded in `manifest.clocking`.
   `--relax-limits` downgrades this to a warning.
-- A third tier distinguishes **"can generate" from "has been signed off"**.
-  `limits.signoff_sample_clock_mhz_by_arch` gives the measured post-route
-  closure per CDR architecture (currently only `bang_bang_oversampling`:
-  45 / 30 / 80 / 65 MHz on sky130 / gf180mcuD / ihp-sg13g2 / icsprout55).
-  Above that value the generator **does not fail** -- it appends a warning to
-  `manifest.warnings` saying the configuration is an unverified experiment.
-  This is deliberate: the PDK-level gate says the silicon can run that fast,
-  not that a particular CDR architecture closes, and blocking would prevent
-  the very experiments needed to improve the number.  Note that
-  `spec/phy_ip.yaml` was corrected from 100 Mb/s / OS=8 (800 MHz, unclosable)
-  to 50 Mb/s / OS=8 (400 MHz) when this gate was added.
+- A third tier distinguishes **"can generate" from "has a verified
+  closure"**.  `limits.clock_evidence_by_arch.<arch>` records four sample-clock
+  values per PDK:
+  - `tested_max_mhz` -- the highest clock actually run (not necessarily
+    passing);
+  - `timing_closed_mhz` -- a post-route run at that period with WNS >= 0;
+  - `physical_signoff_mhz` -- timing closed **and** DRC/LVS clean;
+  - `cp_implied_mhz` -- `1000 / critical-path`, an estimate, never a closure.
+
+  Only sky130 has a verified closure today (45.45 MHz, 22 ns run, DRC/LVS 0;
+  the 25 ns run also closes at 40 MHz).  gf180mcuD, ihp-sg13g2 and icsprout55
+  have **no closing post-route period**; the former 30/80/65 MHz scalars were
+  CP-implied estimates, and ihp/icsprout are not DRC/LVS clean.  The generator
+  records `manifest.clocking.evidence` with the tier, source, corner, tool and
+  commit, and appends one of:
+  - above `physical_signoff_mhz`: "unverified experiment";
+  - inside `timing_closed_mhz` but above physical signoff: "timing evidence,
+    not physical signoff";
+  - no timing closure: "no verified post-route timing closure; CP-implied X is
+    an estimate".
+
+  It still does not fail: the gate says which evidence exists, not that the
+  experiment is forbidden.  The legacy scalar
+  `signoff_sample_clock_mhz_by_arch` is read as a fallback with
+  `physical_signoff_mhz: null`.  Note that `spec/phy_ip.yaml` was corrected
+  from 100 Mb/s / OS=8 (800 MHz, unclosable) to 50 Mb/s / OS=8 (400 MHz) when
+  the second-tier gate was added.
 - `constraints` also accepts `io_delay_ns` (0.200), `output_load_pf` (0.010),
   `sync_stages` (3), `lock_thresh` (8), `lock_stale_bits` (16) and
   `fifo_depth` (16, must be a power of two).  These used to be hard-coded;

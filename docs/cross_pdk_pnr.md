@@ -114,6 +114,18 @@ Two cautions about reading these numbers:
 
 ## Signoff honesty
 
+Only **sky130** has a verified closing point that also has a clean physical
+record: 45.45 MHz (22 ns, WNS 0 in all corners, Magic/KLayout DRC 0, Netgen
+LVS 0); the 25 ns run closes at 40 MHz.  The other PDKs have **no closing
+post-route period**: gf180mcuD at 50 MHz sample clock fails by -8.18 ns, IHP at
+100 MHz by -0.74 ns (and is not DRC/LVS clean), and icsprout55 at 100 MHz by
+-3.58 ns (DRC/LVS not run).  The former 30/80/65 MHz "signoff" scalars in
+`tech/*/tech.yaml` were `1000 / critical-path` estimates, not closures; they
+are now recorded as `cp_implied_mhz`, with `timing_closed_mhz` and
+`physical_signoff_mhz` left null.  See `limits.clock_evidence_by_arch` and
+`docs/generator.md`'s third tier.
+
+
 - `sky130` and `gf180mcuD` completed the full flow with Magic DRC = 0,
   KLayout DRC = 0 and Netgen LVS = 0.  These are `PHYSICAL_SIGNOFF`-clean
   implementations that **still fail** `POST_ROUTE_TIMING`.

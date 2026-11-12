@@ -39,8 +39,20 @@ limits:
   max_sample_clock_mhz: 200   # 5 ns RX closes at +1.78 ns (prepnr_sta.md 3.5)
 
   # Post-route bang-bang critical path 10.96 ns; no clean signoff yet (DRC/LVS).
-  signoff_sample_clock_mhz_by_arch:
-    bang_bang_oversampling: 80
+  # Closest to closing (-0.74 ns at 10 ns) but the implementation is not
+  # DRC/LVS clean; the old 80 MHz scalar was CP-implied.
+  clock_evidence_by_arch:
+    bang_bang_oversampling:
+      tested_max_mhz: 100          # 25 Mb/s x OS=4
+      timing_closed_mhz: null
+      physical_signoff_mhz: null
+      cp_implied_mhz: 91           # 1000 / 10.96 ns, estimate only
+      corner: nom_slow_1p08V_125C
+      tool: "LibreLane 3.0.17 / OpenSTA"
+      commit: null
+      source: build/pnr/cross_pdk.json
+      note: "10 ns run: setup WNS -0.74 ns; Magic/KLayout DRC 37893/4739,
+        Netgen LVS 115 errors."
 cts:
   target_skew_ps: 50
   max_slew_ns: 0.5

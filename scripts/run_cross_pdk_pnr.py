@@ -26,6 +26,16 @@ import yaml
 
 ROOT = Path(__file__).resolve().parent.parent
 
+
+def _git_commit() -> str:
+    """HEAD for the evidence record; 'unknown' is better than a stale hash."""
+    try:
+        proc = subprocess.run(["git", "rev-parse", "HEAD"], cwd=ROOT,
+                              text=True, capture_output=True, timeout=10)
+        return proc.stdout.strip() if proc.returncode == 0 else "unknown"
+    except (OSError, subprocess.SubprocessError):
+        return "unknown"
+
 # LibreLane 3.0.14 / OpenROAD 26Q3 from the nix store.  The wrapper sets up the
 # full toolchain (yosys, openroad, magic, klayout, netgen, abc), so it is the
 # nix-shell environment without needing to rebuild the shell.
@@ -448,6 +458,7 @@ def main() -> int:
         # A bare command name (LIBRELANE_BIN=librelane inside the nix-shell)
         # is not useful provenance; record the resolved binary too.
         "librelane_resolved": shutil.which(str(LIBRELANE)) or str(LIBRELANE),
+        "git_commit": _git_commit(),
         "records": records,
         "measured": [r["tech"] for r in records
                      if r["status"].startswith("measured")],

@@ -273,6 +273,69 @@ def load_arch_db() -> dict[str, dict[str, Any]]:
 
 
 PPA_WARNINGS: list[str] = []
+
+
+def clock_evidence_for(tech: Tech, arch: str) -> dict[str, Any] | None:
+    """Sample-clock evidence for one RX architecture, with a legacy fallback.
+
+    Only a value backed by a post-route run at that period belongs in
+    timing_closed_mhz; physical_signoff_mhz additionally needs DRC/LVS clean.
+    cp_implied_mhz is 1000/critical-path and is an estimate, never a closure.
+    """
+    evidence = (tech.limits.get("clock_evidence_by_arch") or {}).get(arch)
+    if evidence is not None:
+        return evidence
+    legacy = (tech.limits.get("signoff_sample_clock_mhz_by_arch") or {}).get(arch)
+    if legacy is None:
+        return None
+    return {
+        "timing_closed_mhz": float(legacy),
+        "physical_signoff_mhz": None,
+        "cp_implied_mhz": None,
+        "source": "legacy signoff_sample_clock_mhz_by_arch",
+        "note": "legacy scalar; physical signoff level unknown",
+    }
+
+
+def clock_tier(evidence: dict[str, Any] | None, mhz: float) -> str:
+    if not evidence:
+        return "none"
+    phys = evidence.get("physical_signoff_mhz")
+    timing = evidence.get("timing_closed_mhz")
+    if phys is not None and mhz <= float(phys):
+        return "physical_signoff"
+    if timing is not None and mhz <= float(timing):
+        return "timing_closed"
+    return "none"
+
+
+def clock_evidence_warning(tech: Tech, arch: str,
+                           evidence: dict[str, Any] | None,
+                           mhz: float) -> str | None:
+    if evidence is None:
+        return None
+    tier = clock_tier(evidence, mhz)
+    if tier == "physical_signoff":
+        return None
+    src = evidence.get("source", "?")
+    phys = evidence.get("physical_signoff_mhz")
+    timing = evidence.get("timing_closed_mhz")
+    cp = evidence.get("cp_implied_mhz")
+    if tier == "timing_closed":
+        return (f"RX sample clock {mhz:g} MHz is inside the {tech.name}/{tech.scl} "
+                f"{arch} post-route timing closure ({timing:g} MHz) but above "
+                f"physical signoff ({phys}); treat as timing evidence, not "
+                f"physical signoff ({src})")
+    if timing is None:
+        return (f"RX sample clock {mhz:g} MHz has no verified post-route timing "
+                f"closure for {tech.name}/{tech.scl} {arch}"
+                + (f" (CP-implied {cp:g} MHz is an estimate, not a closure)"
+                   if cp else "")
+                + f"; treat as an unverified experiment ({src})")
+    return (f"RX sample clock {mhz:g} MHz exceeds the verified post-route timing "
+            f"closure for {tech.name}/{tech.scl} {arch} ({timing:g} MHz"
+            + (f"; CP-implied {cp:g} MHz" if cp else "")
+            + "); treat as an unverified experiment (" + src + ")")
 PPA_MEASURED = {"measured_post_route", "measured_pre_pnr"}
 
 
@@ -785,19 +848,6 @@ def validate(spec: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
                 fail(message + "; lower line_rate/oversample, use source_sync, "
                      "or --relax-limits only for an explicit experiment")
 
-        # Second tier: the hard gate above is a PDK-level physical bound, which
-        # is too coarse to mean "this CDR architecture closes".  sky130 can
-        # route a 200 MHz fixed-oversampling link while a bang-bang loop closes
-        # at ~45 MHz post-route.  Record, do not block: a configuration above
-        # the measured closure is an experiment, not a signoff-clean design.
-        verified = (tech.limits.get("signoff_sample_clock_mhz_by_arch") or {}).get(
-            rx_arch_name)
-        if verified is not None and sample_clock_mhz > float(verified):
-            spec.setdefault("_warnings", []).append(
-                f"RX sample clock {sample_clock_mhz:g} MHz exceeds the verified "
-                f"post-route closure for {tech.name}/{tech.scl} "
-                f"{rx_arch_name} ({float(verified):g} MHz); treat as an "
-                "unverified experiment, not a signoff-clean configuration")
 
     interface = spec.get("interface", {}) or {}
     if not isinstance(interface, dict):
@@ -1113,6 +1163,31 @@ def build_plan(cfg: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
                               cfg["tech"].scl, ppa, opt=cfg["optimization"])
     else:
         rx_arch = dict(unused)
+
+    # Third tier: "can generate" is not "has a verified closure".  Evaluate
+    # the selected arch (which may differ from the requested one under auto)
+    # and record the evidence level in the manifest.
+    clock_evidence = None
+    if cfg["target"] in ("link", "rx"):
+        clock_evidence = clock_evidence_for(cfg["tech"], rx_arch["name"])
+        tier = clock_tier(clock_evidence, cfg["sample_clock_mhz"])
+        cfg["clock_evidence"] = {
+            "tier": tier,
+            "requested_mhz": cfg["sample_clock_mhz"],
+            "timing_closed_mhz": (clock_evidence or {}).get("timing_closed_mhz"),
+            "physical_signoff_mhz": (clock_evidence or {}).get("physical_signoff_mhz"),
+            "cp_implied_mhz": (clock_evidence or {}).get("cp_implied_mhz"),
+            "corner": (clock_evidence or {}).get("corner"),
+            "tool": (clock_evidence or {}).get("tool"),
+            "git_commit": (clock_evidence or {}).get("commit"),
+            "source": (clock_evidence or {}).get("source"),
+        }
+        warning = clock_evidence_warning(cfg["tech"], rx_arch["name"],
+                                         clock_evidence, cfg["sample_clock_mhz"])
+        if warning:
+            cfg["warnings"].append(warning)
+    else:
+        cfg["clock_evidence"] = None
 
     if cfg["target"] == "link":
         if soc_single:
@@ -1926,6 +2001,7 @@ def main() -> int:
             "tx_period_ns": cfg["tx_period_ns"],
             "rx_period_ns": cfg["rx_period_ns"],
             "tech": {"name": cfg["tech"].name, "scl": cfg["tech"].scl},
+            "clock_evidence": cfg.get("clock_evidence"),
             "warnings": cfg["warnings"],
         }, indent=2))
         return 0
@@ -2124,6 +2200,7 @@ def main() -> int:
             "sampler_architecture": cfg["sampler_architecture"],
             "sample_clock_mhz": cfg["sample_clock_mhz"],
             "max_sample_clock_mhz": cfg.get("max_sample_clock_mhz"),
+            "evidence": cfg.get("clock_evidence"),
             "recommendation": cfg.get("clock_recommendation"),
             "ports": plan["clock_ports"],
             "tx_period_ns": cfg["tx_period_ns"],
