@@ -40,6 +40,8 @@ class TestIcs55FlowOverrides(unittest.TestCase):
             cfg, Path("/grid/icsprout55-pdk"), Path("librelane.yaml"))
         self.assertEqual(cfg["KLAYOUT_DRC_DEFINES"], {"run_mode": "tiling"})
         self.assertTrue(cfg["KLAYOUT_LVS_SCRIPT"].endswith("libs.tech/lvs/ics55.lvs"))
+        self.assertTrue(cfg["KLAYOUT_DEF_LAYER_MAP"].endswith(
+            "tech/icsprout55/def_layer.map"))
         self.assertFalse(cfg["ERROR_ON_KLAYOUT_DRC"])
 
     def test_ihp_uses_klayout_lvs_instead_of_netgen(self) -> None:

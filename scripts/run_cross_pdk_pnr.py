@@ -206,6 +206,11 @@ def _ics55_flow_overrides(cfg_data: dict, pdk_root: Path, cfg_path: Path) -> Non
     # the LVS runset/options, but set them explicitly so the record is
     # independent of the LibreLane PDK config discovery.
     cfg_data["KLAYOUT_DRC_DEFINES"] = {"run_mode": "tiling"}
+    # The PDK's ics55.map is a GDS stream-in map (short M1..M5 names); the
+    # routed DEF uses MET1..MET5/T4M2, so KLayout's DEF reader would ignore
+    # every routing, via and pin/label layer.  Use the repo LEF/DEF map.
+    cfg_data["KLAYOUT_DEF_LAYER_MAP"] = str(
+        ROOT / "tech/icsprout55/def_layer.map")
     cfg_data["KLAYOUT_LVS_SCRIPT"] = str(
         pdk_root / "libs.tech/lvs/ics55.lvs")
     cfg_data["KLAYOUT_LVS_OPTIONS"] = {"run_mode": "deep"}
