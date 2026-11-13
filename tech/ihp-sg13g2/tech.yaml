@@ -51,8 +51,12 @@ limits:
       tool: "LibreLane 3.0.17 / OpenSTA"
       commit: null
       source: build/pnr/cross_pdk.json
+      observation_source: build/pnr/ihp_observe.json
       note: "10 ns run: setup WNS -0.74 ns; Magic/KLayout DRC 37893/4739,
-        Netgen LVS 115 errors."
+        Netgen LVS 115 errors. A 3.0.14 observation with the PDK's KLayout
+        LVS deck measured CP 10.84 ns / WNS -0.61 ns, 2627 cells, 2.37 uW,
+        Magic/KLayout DRC 38484/4767 and a KLayout LVS failure (four std
+        cells get an extra internal pin); still not DRC/LVS clean."
 cts:
   target_skew_ps: 50
   max_slew_ns: 0.5

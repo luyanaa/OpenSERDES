@@ -158,6 +158,34 @@ def _expand_config(src: Path, dst: Path, lib_root: str) -> None:
 SIGNOFF_SKIP_STEPS: dict[str, list[str]] = {}
 
 
+def _ihp_flow_overrides(cfg_data: dict, pdk_root: Path, cfg_path: Path) -> None:
+    """Use the PDK's KLayout LVS instead of netgen for IHP.
+
+    The netgen flow fails top-level pin matching on the VPWR/VGND PDN nets
+    versus the VDD/VSS standard-cell pins; the IHP PDK ships a KLayout LVS
+    deck (KLAYOUT_LVS_SCRIPT) and upstream KLayout.LVS supports this PDK.
+    """
+    meta = cfg_data.setdefault("meta", {})
+    meta["flow"] = "Classic"
+    meta["substituting_steps"] = {
+        "-Netgen.LVS": "OpenROAD.WriteCDL",
+        "Netgen.LVS": "KLayout.LVS",
+    }
+    # pdk_root is the version root for IHP; the PDK family directory is
+    # ihp-sg13g2 (the PDK config.tcl uses $PDK_ROOT/$PDK/...).
+    pdk_dir = pdk_root
+    family = str(cfg_data.get("PDK", ""))
+    if family and (pdk_root / family).is_dir():
+        pdk_dir = pdk_root / family
+    cfg_data["KLAYOUT_LVS_SCRIPT"] = str(
+        pdk_dir / "libs.tech/klayout/tech/lvs/sg13g2.lvs")
+    cfg_data["KLAYOUT_LVS_OPTIONS"] = {"run_mode": "deep"}
+    # The known IHP DRC deck errors are an observation, not a hard gate; keep
+    # the flow going so the KLayout LVS verdict is recorded in the same run.
+    cfg_data["ERROR_ON_MAGIC_DRC"] = False
+    cfg_data["ERROR_ON_KLAYOUT_DRC"] = False
+
+
 def _ics55_flow_overrides(cfg_data: dict, pdk_root: Path, cfg_path: Path) -> None:
     meta = cfg_data.setdefault("meta", {})
     meta["flow"] = "Classic"
@@ -400,6 +428,8 @@ def run_pdk(spec: Path, tech: str, workdir: Path, tag: str,
     cfg_data["RUN_IRDROP_REPORT"] = False
     if tech == "icsprout55":
         _ics55_flow_overrides(cfg_data, Path(pdk_root), cfg)
+    elif tech == "ihp-sg13g2":
+        _ihp_flow_overrides(cfg_data, Path(pdk_root), cfg)
     cfg.write_text(yaml.safe_dump(cfg_data, sort_keys=False))
 
     # The config is a positional argument in LibreLane 3 ("-c" is not a

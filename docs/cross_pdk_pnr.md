@@ -67,6 +67,27 @@ arrival from `55-openroad-stapostpnr/*/max.rpt`.
 Hold WNS is 0 and hold violations are 0 in every corner for all four PDKs.
 Route DRC (`route__drc_errors`) and antenna violations are 0 for all four.
 
+A recent **LibreLane 3.0.14** observation of the same spec (gf180mcuD at
+12.5 Mb/s, 20 ns) measured CP 27.25 ns / WNS -6.53 ns, 2901 cells and 22.9 uW,
+with Magic/KLayout DRC = 0, LVS = 0, route DRC = 0 and antenna = 0.  The
+3.0.17 table above remains the reference; the two tool versions are close but
+not identical, so do not mix their cell/power numbers.  The DRC/LVS verdict is
+unchanged: clean.
+
+A **LibreLane 3.0.14** IHP observation (25 Mb/s, 10 ns) used the PDK's own
+`KLayout.LVS` deck instead of netgen, to test whether the 115 netgen errors
+were a pin-mapping artifact.  It measured CP 10.84 ns / WNS -0.61 ns, 2627
+cells and 2.37 uW; Magic DRC 38484, KLayout DRC 4767 (all `M1.b` / `M1.e`
+metal1 spacing/enclosure), route DRC 0, antenna 0.  KLayout LVS still fails
+(`design__lvs_error__count = 1`): the extracted layout netlist gives four
+standard cells (`sg13g2_a22oi_1`, `sg13g2_dfrbpq_1`, `sg13g2_mux2_1`,
+`sg13g2_or2_1`) an extra internal pin ("No equivalent pin ... from netlist
+found in reference netlist"), while each of those cells alone matches.  The
+netgen result is therefore not just a netgen pin-mapping artifact; the
+full-design IHP layout/extraction is not LVS-clean under either engine.  The
+3.0.17 row above stays the reference; this observation is recorded in
+`build/pnr/ihp_observe.json`.
+
 ## What the timing says
 
 **No PDK closes post-route setup timing at the capability-gated target
@@ -133,10 +154,12 @@ are now recorded as `cp_implied_mhz`, with `timing_closed_mhz` and
 - `sky130` and `gf180mcuD` completed the full flow with Magic DRC = 0,
   KLayout DRC = 0 and Netgen LVS = 0.  These are `PHYSICAL_SIGNOFF`-clean
   implementations that **still fail** `POST_ROUTE_TIMING`.
-- `ihp-sg13g2` has non-zero Magic/KLayout DRC and LVS errors.  The LVS report
-  ends in "Top level cell failed pin matching" with the PDK's own
-  `VPWR`/`VGND` design nets mapped to `VDD`/`VSS` cell power pins; both DRC
-  decks report wide-metal / spacing errors while OpenROAD's own `route__drc`
+- `ihp-sg13g2` has non-zero Magic/KLayout DRC and LVS errors.  Netgen ends
+  in "Top level cell failed pin matching" with the PDK's own `VPWR`/`VGND`
+  design nets mapped to `VDD`/`VSS` cell power pins; the PDK's KLayout LVS
+  deck reproduces the failure with a different signature (four standard cells
+  get an extra internal pin in the full-design extraction).  Both DRC decks
+  report metal1 wide-metal / spacing errors while OpenROAD's own `route__drc`
   is clean.  This is a PDK signoff-deck integration gap, not a regression in
   the generated RTL.  Its STA/power/area are recorded and flagged, but this is
   **not** a signoff-clean implementation.

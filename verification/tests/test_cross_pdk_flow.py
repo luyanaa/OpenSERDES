@@ -42,6 +42,29 @@ class TestIcs55FlowOverrides(unittest.TestCase):
         self.assertTrue(cfg["KLAYOUT_LVS_SCRIPT"].endswith("libs.tech/lvs/ics55.lvs"))
         self.assertFalse(cfg["ERROR_ON_KLAYOUT_DRC"])
 
+    def test_ihp_uses_klayout_lvs_instead_of_netgen(self) -> None:
+        module = _load()
+        cfg: dict = {}
+        module._ihp_flow_overrides(
+            cfg, Path("/pdk/ihp-sg13g2"), Path("librelane.yaml"))
+        substitutions = cfg["meta"]["substituting_steps"]
+        self.assertEqual(substitutions["Netgen.LVS"], "KLayout.LVS")
+        self.assertEqual(substitutions["-Netgen.LVS"], "OpenROAD.WriteCDL")
+        self.assertTrue(cfg["KLAYOUT_LVS_SCRIPT"].endswith(
+            "libs.tech/klayout/tech/lvs/sg13g2.lvs"))
+
+    def test_ihp_lvs_path_uses_the_pdk_family_directory(self) -> None:
+        module = _load()
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "ihp-sg13g2").mkdir()
+            cfg = {"PDK": "ihp-sg13g2"}
+            module._ihp_flow_overrides(cfg, root, Path("librelane.yaml"))
+            self.assertEqual(
+                cfg["KLAYOUT_LVS_SCRIPT"],
+                str(root / "ihp-sg13g2/libs.tech/klayout/tech/lvs/sg13g2.lvs"))
+
     def test_no_cli_skip_list_for_ics55(self) -> None:
         module = _load()
         self.assertEqual(module._skip_args("icsprout55"), [])
