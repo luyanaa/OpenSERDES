@@ -35,10 +35,12 @@ class TestIcs55FlowOverrides(unittest.TestCase):
 
     def test_tiled_drc_and_lvs_runset_are_set(self) -> None:
         module = _load()
-        cfg: dict = {}
+        cfg: dict = {"DESIGN_NAME": "serdes_rx_digital"}
         module._ics55_flow_overrides(
             cfg, Path("/grid/icsprout55-pdk"), Path("librelane.yaml"))
-        self.assertEqual(cfg["KLAYOUT_DRC_DEFINES"], {"run_mode": "tiling"})
+        self.assertEqual(cfg["KLAYOUT_DRC_DEFINES"]["run_mode"], "tiling")
+        self.assertEqual(cfg["KLAYOUT_DRC_DEFINES"]["cell_exclusion"], "true")
+        self.assertEqual(cfg["KLAYOUT_DRC_DEFINES"]["top"], "serdes_rx_digital")
         self.assertTrue(cfg["KLAYOUT_LVS_SCRIPT"].endswith("libs.tech/lvs/ics55.lvs"))
         self.assertTrue(cfg["KLAYOUT_DEF_LAYER_MAP"].endswith(
             "tech/icsprout55/def_layer.map"))

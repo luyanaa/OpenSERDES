@@ -205,7 +205,16 @@ def _ics55_flow_overrides(cfg_data: dict, pdk_root: Path, cfg_path: Path) -> Non
     # The repaired deck supports run_mode=tiling; the PDK config.tcl supplies
     # the LVS runset/options, but set them explicitly so the record is
     # independent of the LibreLane PDK config discovery.
-    cfg_data["KLAYOUT_DRC_DEFINES"] = {"run_mode": "tiling"}
+    # Full-design DRC runs on the top-level interconnect: the FEOL ACT_L_1
+    # check expands the full CT layer by 12.5 um and does not finish on a
+    # 2356-cell design, while the standard cells themselves are covered by
+    # `make ics55-drc-lvs`.  The deck's cell_exclusion mode keeps the cell
+    # frames and checks only the top-level/analog shapes.
+    cfg_data["KLAYOUT_DRC_DEFINES"] = {
+        "run_mode": "tiling",
+        "cell_exclusion": "true",
+        "top": str(cfg_data.get("DESIGN_NAME", "")),
+    }
     # The PDK's ics55.map is a GDS stream-in map (short M1..M5 names); the
     # routed DEF uses MET1..MET5/T4M2, so KLayout's DEF reader would ignore
     # every routing, via and pin/label layer.  Use the repo LEF/DEF map.
