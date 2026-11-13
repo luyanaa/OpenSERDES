@@ -38,11 +38,28 @@ capabilities:
   schematic: true
   macro_generation: true
   pcell_layout: geometry_only
-  drc: partial
-  lvs: false
+  drc: available_provisional
+  lvs: available_provisional
   pex: false
   post_pex_analog: false
   macro_package: false
+drc:
+  deck: libs.tech/drc/ics55_drc.drc
+  tool: klayout
+  status: available_provisional
+  evidence: build/verify/ics55_drc_lvs.json
+  note: >-
+    Partial Calibre translation; cell INVX1H7R runs with 19 known
+    library-drawing items (well/implant/density).  Not foundry signoff.
+lvs:
+  deck: libs.tech/lvs/ics55.lvs
+  runner: libs.tech/lvs/run_lvs.py
+  tool: klayout
+  status: available_provisional
+  evidence: build/verify/ics55_drc_lvs.json
+  note: >-
+    KLayout LVS port; cell INVX1H7R compares PASS.  No same-input Calibre
+    differential, so this is not an LVS signoff result.
 note: >-
   Schematic macro generation only.  The device subckt names come from the
   PDK wrapper and are loadable by ngspice; the KLayout PCell is a provisional

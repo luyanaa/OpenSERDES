@@ -37,12 +37,13 @@ Notes on the invocation, each of which was a hard failure before it was fixed:
 - `RUN_IRDROP_REPORT=false`: static IR drop needs non-zero via resistance in
   the tech LEF; some plain-PDK trees declare zero and the whole flow aborts at
   that step.  IR drop is not an input to the numbers below.
-- On `icsprout55` the Magic/KLayout/Netgen signoff steps are skipped
-  (`--skip`): its tech LEF declares `RV`/`RDL`/`CT` layers that Magic 8.3.623
-  cannot parse, and `Magic.StreamOut` spins indefinitely.  Those steps are all
-  post-`OpenROAD.STAPostPNR` view generation, so the mapped STA/power/area
-  numbers are unaffected; the record carries `signoff_skipped` and
-  `metrics_source` to say exactly where its numbers came from.
+- On `icsprout55` the cross-PDK flow still skips the signoff steps
+  (`--skip`).  The PDK's repaired KLayout DRC/LVS decks are usable at cell
+  level (`make ics55-drc-lvs`), but the full-design flow aborts at
+  `Odb.CheckDesignAntennaProperties` before the DRC/LVS steps, and a
+  main-profile DRC on the 2356-cell design did not finish in a bounded run.
+  The mapped STA/power/area numbers are unaffected; the record carries
+  `signoff_skipped` and `metrics_source` to say where its numbers came from.
 - The RTL ports `freq_trim` / `rx_freq_trim` are deliberately **not** declared
   `signed`: Yosys emits the keyword into the netlist and OpenROAD's
   `read_verilog` rejects it, which blocked STA for every design.  Consumers
@@ -59,7 +60,7 @@ arrival from `55-openroad-stapostpnr/*/max.rpt`.
 | sky130 | 25 Mb/s | 10 ns | 2186 | 15202 um2 | 3.7 uW | -8.27 ns | 18.87 ns | clean (0/0) |
 | gf180mcuD | 12.5 Mb/s | 20 ns | 2915 | 48927 um2 | 49.5 uW | -8.18 ns | 29.24 ns | clean (0/0) |
 | ihp-sg13g2 | 25 Mb/s | 10 ns | 2696 | 28181 um2 | 2.8 uW | -0.74 ns | 10.96 ns | magic 37893 / klayout 4739 / LVS 115 |
-| icsprout55 | 25 Mb/s | 10 ns | 2372 | 4596 um2 | 1.2 uW | -3.58 ns | 13.66 ns | not run (see above) |
+| icsprout55 | 25 Mb/s | 10 ns | 2372 | 4596 um2 | 1.2 uW | -3.58 ns | 13.66 ns | KLayout decks: cell LVS PASS, DRC 19 library items; full-design pending |
 
 Hold WNS is 0 and hold violations are 0 in every corner for all four PDKs.
 Route DRC (`route__drc_errors`) and antenna violations are 0 for all four.
@@ -119,7 +120,8 @@ record: 45.45 MHz (22 ns, WNS 0 in all corners, Magic/KLayout DRC 0, Netgen
 LVS 0); the 25 ns run closes at 40 MHz.  The other PDKs have **no closing
 post-route period**: gf180mcuD at 50 MHz sample clock fails by -8.18 ns, IHP at
 100 MHz by -0.74 ns (and is not DRC/LVS clean), and icsprout55 at 100 MHz by
--3.58 ns (DRC/LVS not run).  The former 30/80/65 MHz "signoff" scalars in
+-3.58 ns (the repaired KLayout decks pass LVS on a released cell but the full
+PnR signoff is still pending).  The former 30/80/65 MHz "signoff" scalars in
 `tech/*/tech.yaml` were `1000 / critical-path` estimates, not closures; they
 are now recorded as `cp_implied_mhz`, with `timing_closed_mhz` and
 `physical_signoff_mhz` left null.  See `limits.clock_evidence_by_arch` and
@@ -136,9 +138,15 @@ are now recorded as `cp_implied_mhz`, with `timing_closed_mhz` and
   is clean.  This is a PDK signoff-deck integration gap, not a regression in
   the generated RTL.  Its STA/power/area are recorded and flagged, but this is
   **not** a signoff-clean implementation.
-- `icsprout55` metrics come from `55-openroad-stapostpnr/state_out.json`
-  (the flow was stopped before the un-runnable signoff views).  DRC/LVS were
-  not run, which is recorded as `signoff_skipped`; `None` in the DRC/LVS
+- `icsprout55` metrics come from `55-openroad-stapostpnr/state_out.json`.
+  The KLayout DRC/LVS decks have since been repaired and are usable:
+  `make ics55-drc-lvs` runs them on the released H7CR `INVX1H7R` fixture and
+  records **LVS PASS** plus 19 DRC items in the library drawing (well,
+  implant and density categories; see `libs.tech/drc/README.md`).  That is a
+  cell-level deck check, not a full-design signoff.  The PnR flow still skips
+  its signoff views: `Odb.CheckDesignAntennaProperties` aborts before the
+  KLayout/full-design DRC/LVS steps, and a direct main-profile DRC on the
+  2356-cell design did not finish in a bounded run.  `None` in the DRC/LVS
   columns means "not measured", never "zero".
 
 ## Limits (do not overclaim)

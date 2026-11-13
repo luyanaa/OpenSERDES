@@ -35,6 +35,7 @@ ANALOG_LUT ?= $(BUILD)/verify/$(ANALOG_TECH)_lut.json
 SKY130_MODEL ?=
 ANALOG_MODEL ?= $(SKY130_MODEL)
 ANALOG_TX_LOADS ?= 10 50 100 200
+ICS55_PDK ?= /grid/icsprout55-pdk
 ANALOG_RX_SLEWS ?= 20 50 100 200
 PVT_CORNERS ?= tt ss ff sf fs
 PVT_VOLTAGES ?= 1.62 1.80 1.98
@@ -63,7 +64,7 @@ RTL   := $(wildcard rtl/*.sv)
 SV2V_DIR := $(BUILD)/sv2v
 SV2V_RTL := $(SV2V_DIR)/rtl.v
 
-.PHONY: all sim lint synth regress gen qualify signoff ppa-import ppa-power-import clean si-eye si-bathtub si-jtol si-rtl-jtol verify-link analog-pcell-probe analog-pcell-inv analog-pcell-tx analog-pcell-tx-verify analog-pcell-tx-views analog-pcell-tx-1-4-16 analog-pcell-tx-1-4-16-verify analog-pcell-rx-fb analog-pcell-rx-fb-verify analog-pcell-rx-fb-views analog-freepdk45-probe analog-etri050-probe m3-noise m3-holdout m3-closure analog-stdcell-gen analog-macro-gen analog-contracts analog-gds analog-gds-audit analog-views analog-package analog-macro-pex analog-drc analog-rx-dc analog-rx-pvt dll-feasibility dll-lock mixed-signal-e2e rx-pex-digital-e2e pex-jtol-sweep cross-pdk-pnr ms-phy-baseline phy-link-closure soc-e2e soc-e2e-stress analog-lut sky130-lut analog-lut-demo analog-tech-check sky130-pvt pvt-margin pdk-mc xyce-global-mc magic-pex magic-pex-compare sky130-mc pex-compare lib-catalog timing-compare analog-macro-package
+.PHONY: all sim lint synth regress gen qualify signoff ppa-import ppa-power-import clean si-eye si-bathtub si-jtol si-rtl-jtol verify-link analog-pcell-probe analog-pcell-inv analog-pcell-tx analog-pcell-tx-verify analog-pcell-tx-views analog-pcell-tx-1-4-16 analog-pcell-tx-1-4-16-verify analog-pcell-rx-fb analog-pcell-rx-fb-verify analog-pcell-rx-fb-views analog-freepdk45-probe analog-etri050-probe m3-noise m3-holdout m3-closure analog-stdcell-gen analog-macro-gen analog-contracts analog-gds analog-gds-audit analog-views analog-package analog-macro-pex analog-drc analog-rx-dc analog-rx-pvt dll-feasibility dll-lock ics55-drc-lvs mixed-signal-e2e rx-pex-digital-e2e pex-jtol-sweep cross-pdk-pnr ms-phy-baseline phy-link-closure soc-e2e soc-e2e-stress analog-lut sky130-lut analog-lut-demo analog-tech-check sky130-pvt pvt-margin pdk-mc xyce-global-mc magic-pex magic-pex-compare sky130-mc pex-compare lib-catalog timing-compare analog-macro-package
 
 all: sim
 
@@ -642,6 +643,10 @@ analog-drc:
 	$(PYTHON) verification/analog/magic_drc.py \
 		--gds legacy/analog/Resistive_FB_inverter/Res_FB_Inv.gds --cell Resist_FB_INV \
 		--out $(BUILD)/verify/drc/Resist_FB_INV.drc.json
+
+ics55-drc-lvs:
+	$(PYTHON) verification/analog/ics55_drc_lvs.py --pdk $(ICS55_PDK) \
+		--out $(BUILD)/verify/ics55_drc_lvs.json
 
 analog-macro-pex:
 	$(PYTHON) verification/analog/magic_pex.py \

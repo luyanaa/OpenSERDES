@@ -150,11 +150,12 @@ def _expand_config(src: Path, dst: Path, lib_root: str) -> None:
     dst.write_text(text)
 
 
-# Steps that cannot run on a PDK whose Magic/DRC tech files are incomplete.
-# The icsprout55 tech LEF declares RV/RDL/CT layers that Magic 8.3.623 cannot
-# parse; Magic.StreamOut spins indefinitely on them.  These steps are all
-# post-STAPostPNR signoff views, so skipping them keeps every mapped
-# STA/power/area number intact while letting the flow reach its metrics.
+# icsprout55 signoff steps are still skipped by the cross-PDK flow.  The PDK
+# now provides a usable KLayout DRC/LVS pair (exercised at cell level by
+# `make ics55-drc-lvs`), but the LibreLane full-design path aborts at
+# Odb.CheckDesignAntennaProperties before the DRC/LVS steps, and a full-design
+# main-profile DRC on the 2356-cell design did not finish in a bounded run.
+# The mapped STA/power/area numbers are unaffected.
 SIGNOFF_SKIP_STEPS = {
     "icsprout55": [
         "Magic.StreamOut", "KLayout.StreamOut", "KLayout.Render",

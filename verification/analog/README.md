@@ -43,6 +43,10 @@ make analog-tech-check ANALOG_TECH=sky130 PYTHON=/usr/bin/python3
 python3 verification/analog/extract_lut.py --tech sky130 --check-tools --out /tmp/sky_check.json
 ```
 
+The ICsprout55 KLayout DRC/LVS decks are exercised by `make ics55-drc-lvs`
+(released `INVX1H7R` cell: LVS PASS, DRC 19 known library items).  The decks
+are provisional ports, not foundry signoff.
+
 The sky130 config auto-detects the PM3 tree under
 `~/.ciel/ciel/sky130/versions/*/skywater-pdk/libraries/sky130_fd_pr/latest`
 (or `SKY130_ROOT`).  Magic is invoked with the config's `sky130A.magicrc` and

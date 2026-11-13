@@ -32,8 +32,10 @@ python3 verification/analog/macro_gen.py --tech gf180mcu \
 | etri050 | `mos` model cards | `nmos4` / `pmos4` | 5/0.6, 1/5 | schematic |
 | freepdk45 | — | `NMOS_VTG` / `PMOS_VTG` not verified | — | **fail closed** |
 
-All generated macros are `SCHEMATIC_ONLY`: `circuit.spice`, `macro.v` and a
-manifest; layout/LEF/Liberty/PEX stay `missing` unless an explicit
+For icsprout55 the PDK's repaired KLayout DRC/LVS decks are usable at cell
+level (`make ics55-drc-lvs`); generated macros remain `SCHEMATIC_ONLY` with
+`circuit.spice`, `macro.v` and a manifest, and layout/LEF/Liberty/PEX stay
+`missing` unless an explicit
 `--layout-gds`/`--lef`/`--cdl`/`--pex` with clean DRC/LVS is attached.  The
 verified gf180mcu/IHP `rx_fb_pcell` macros are a different, three-inverter
 topology built by their bespoke builders, not by this generator; the generic

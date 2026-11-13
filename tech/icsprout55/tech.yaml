@@ -52,13 +52,13 @@ limits:
     bang_bang_oversampling:
       tested_max_mhz: 100          # 25 Mb/s x OS=4
       timing_closed_mhz: null
-      physical_signoff_mhz: null   # DRC/LVS not run
+      physical_signoff_mhz: null   # cell DRC/LVS available; full PnR signoff pending
       cp_implied_mhz: 73           # 1000 / 13.66 ns, estimate only
       corner: nom_ss_125C_1v08
       tool: "LibreLane 3.0.17 / OpenSTA"
       commit: null
-      source: build/pnr/cross_pdk.json
-      note: "10 ns run: setup WNS -3.58 ns; DRC/LVS not run."
+      source: build/pnr/cross_pdk.json + build/verify/ics55_drc_lvs.json
+      note: "10 ns run: setup WNS -3.58 ns; a 3.0.14 re-run measured critical path 13.09 ns. KLayout DRC/LVS decks are now available; cell INVX1H7R LVS PASS and DRC 19 known library items (make ics55-drc-lvs). Full-design PnR signoff still pending; no timing closure."
   note: "H7CL 5 ns TX + OS=2; RX can close at 2.5 ns. Endpoint/link gates are pre-PnR."
   note: "H7CH=HVT, H7CL=LVT, H7CR=RVT; all 7-track. PDK_ROOT is the Librelane overlay; PDK_LIB_ROOT is the icsprout55-pdk library root."
 cts:
