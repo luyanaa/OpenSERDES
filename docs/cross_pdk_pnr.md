@@ -37,13 +37,15 @@ Notes on the invocation, each of which was a hard failure before it was fixed:
 - `RUN_IRDROP_REPORT=false`: static IR drop needs non-zero via resistance in
   the tech LEF; some plain-PDK trees declare zero and the whole flow aborts at
   that step.  IR drop is not an input to the numbers below.
-- On `icsprout55` the cross-PDK flow still skips the signoff steps
-  (`--skip`).  The PDK's repaired KLayout DRC/LVS decks are usable at cell
-  level (`make ics55-drc-lvs`), but the full-design flow aborts at
-  `Odb.CheckDesignAntennaProperties` before the DRC/LVS steps, and a
-  main-profile DRC on the 2356-cell design did not finish in a bounded run.
-  The mapped STA/power/area numbers are unaffected; the record carries
-  `signoff_skipped` and `metrics_source` to say where its numbers came from.
+- On `icsprout55` the flow now uses the PDK's LibreLane plugin and its
+  documented `meta.substituting_steps`: `Odb.CheckDesignAntennaProperties`
+  is removed (the Magic LEF writer is skipped, so there is no design LEF),
+  `Netgen.LVS` is replaced by `ICS55.KLayoutLVS` after `OpenROAD.WriteCDL`,
+  and `KLayout.DRC` runs with `run_mode=tiling`.  The current PDK working
+  tree is still being repaired (its new DRC modules raise
+  `'enclosing': A check value must be specified`), so the full-design
+  DRC/LVS has not been re-measured; `make ics55-drc-lvs` is the bounded
+  cell-level gate.  The mapped STA/power/area numbers are unaffected.
 - The RTL ports `freq_trim` / `rx_freq_trim` are deliberately **not** declared
   `signed`: Yosys emits the keyword into the netlist and OpenROAD's
   `read_verilog` rejects it, which blocked STA for every design.  Consumers
@@ -143,11 +145,10 @@ are now recorded as `cp_implied_mhz`, with `timing_closed_mhz` and
   `make ics55-drc-lvs` runs them on the released H7CR `INVX1H7R` fixture and
   records **LVS PASS** plus 19 DRC items in the library drawing (well,
   implant and density categories; see `libs.tech/drc/README.md`).  That is a
-  cell-level deck check, not a full-design signoff.  The PnR flow still skips
-  its signoff views: `Odb.CheckDesignAntennaProperties` aborts before the
-  KLayout/full-design DRC/LVS steps, and a direct main-profile DRC on the
-  2356-cell design did not finish in a bounded run.  `None` in the DRC/LVS
-  columns means "not measured", never "zero".
+  cell-level deck check, not a full-design signoff.  The PnR flow now removes
+  the Odb antenna-properties check (no design LEF) and swaps in the PDK's
+  KLayout LVS step; the full-design DRC/LVS is waiting on the PDK deck
+  repair.  `None` in the DRC/LVS columns means "not measured", never "zero".
 
 ## Limits (do not overclaim)
 

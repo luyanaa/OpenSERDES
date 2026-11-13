@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -15,10 +16,27 @@ PDK = Path("/grid/icsprout55-pdk")
 RUNNER = ROOT / "verification" / "analog" / "ics55_drc_lvs.py"
 
 
+def _drc_deck_complete(pdk: Path) -> bool:
+    """The PDK deck assembles every rule module it references."""
+    deck = pdk / "libs.tech/drc/ics55_drc.drc"
+    if not deck.is_file():
+        return False
+    refs = re.findall(r"'(rule_decks/[^']+)'", deck.read_text())
+    return bool(refs) and all((deck.parent / ref).is_file() for ref in refs)
+
+
+def _pdk_clean(pdk: Path) -> bool:
+    """The PDK deck is committed, not a work-in-progress edit."""
+    proc = subprocess.run(["git", "-C", str(pdk), "status", "--porcelain"],
+                          text=True, capture_output=True, timeout=30)
+    return proc.returncode == 0 and not proc.stdout.strip()
+
+
 @unittest.skipUnless(
     PDK.is_dir() and shutil.which("klayout")
-    and (PDK / "libs.tech/lvs/run_lvs.py").is_file(),
-    "ICsprout55 PDK or klayout not installed")
+    and (PDK / "libs.tech/lvs/run_lvs.py").is_file()
+    and _drc_deck_complete(PDK) and _pdk_clean(PDK),
+    "ICsprout55 PDK is missing, dirty (repair in progress), or incomplete")
 class TestIcs55DrcLvs(unittest.TestCase):
     def test_released_cell_lvs_passes_and_drc_report_is_written(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

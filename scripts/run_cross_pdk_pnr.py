@@ -150,21 +150,41 @@ def _expand_config(src: Path, dst: Path, lib_root: str) -> None:
     dst.write_text(text)
 
 
-# icsprout55 signoff steps are still skipped by the cross-PDK flow.  The PDK
-# now provides a usable KLayout DRC/LVS pair (exercised at cell level by
-# `make ics55-drc-lvs`), but the LibreLane full-design path aborts at
-# Odb.CheckDesignAntennaProperties before the DRC/LVS steps, and a full-design
-# main-profile DRC on the 2356-cell design did not finish in a bounded run.
-# The mapped STA/power/area numbers are unaffected.
-SIGNOFF_SKIP_STEPS = {
-    "icsprout55": [
-        "Magic.StreamOut", "KLayout.StreamOut", "KLayout.Render",
-        "Magic.WriteLEF", "KLayout.XOR", "Checker.XOR",
-        "Magic.DRC", "KLayout.DRC", "Checker.MagicDRC",
-        "Checker.KLayoutDRC", "Magic.SpiceExtraction",
-        "Checker.IllegalOverlap", "Netgen.LVS", "Checker.LVS",
-    ],
-}
+# icsprout55 uses the PDK's LibreLane plugin (`librelane_plugin_ics55`) and
+# its documented `meta.substituting_steps` instead of CLI `--skip`: the Odb
+# antenna-properties check is nulled because the Magic LEF writer is skipped,
+# and Netgen.LVS is replaced by ICS55.KLayoutLVS after OpenROAD.WriteCDL.
+# KLayout DRC is run in tiling mode.  Other PDKs keep the default flow.
+SIGNOFF_SKIP_STEPS: dict[str, list[str]] = {}
+
+
+def _ics55_flow_overrides(cfg_data: dict, pdk_root: Path, cfg_path: Path) -> None:
+    meta = cfg_data.setdefault("meta", {})
+    meta["flow"] = "Classic"
+    meta["substituting_steps"] = {
+        "Magic.DRC": None,
+        "Checker.MagicDRC": None,
+        "Magic.SpiceExtraction": None,
+        "Magic.StreamOut": None,
+        "Magic.WriteLEF": None,
+        "Odb.CheckDesignAntennaProperties": None,
+        "Checker.IllegalOverlap": None,
+        "KLayout.XOR": None,
+        "Checker.XOR": None,
+        "-Netgen.LVS": "OpenROAD.WriteCDL",
+        "Netgen.LVS": "ICS55.KLayoutLVS",
+    }
+    # The repaired deck supports run_mode=tiling; the PDK config.tcl supplies
+    # the LVS runset/options, but set them explicitly so the record is
+    # independent of the LibreLane PDK config discovery.
+    cfg_data["KLAYOUT_DRC_DEFINES"] = {"run_mode": "tiling"}
+    cfg_data["KLAYOUT_LVS_SCRIPT"] = str(
+        pdk_root / "libs.tech/lvs/ics55.lvs")
+    cfg_data["KLAYOUT_LVS_OPTIONS"] = {"run_mode": "deep"}
+    # The known library-drawing DRC items are recorded, not fatal for this
+    # verification run; LVS is the gate that should still run.
+    cfg_data["ERROR_ON_KLAYOUT_DRC"] = False
+    cfg_data["ERROR_ON_MAGIC_DRC"] = False
 
 
 def _skip_args(tech: str) -> list[str]:
@@ -189,9 +209,15 @@ def _clean_env() -> dict:
     return env
 
 
-def _run(cmd: list[str], cwd: Path, timeout: int) -> subprocess.CompletedProcess:
+def _run(cmd: list[str], cwd: Path, timeout: int,
+         tech: str | None = None) -> subprocess.CompletedProcess:
+    env = _clean_env()
+    if tech == "icsprout55":
+        plugin = Path(PDK_ROOTS[tech]) / "libs.tech/librelane"
+        old = env.get("PYTHONPATH", "")
+        env["PYTHONPATH"] = str(plugin) + (":" + old if old else "")
     return subprocess.run(cmd, cwd=str(cwd), text=True, capture_output=True,
-                          timeout=timeout, env=_clean_env())
+                          timeout=timeout, env=env)
 
 
 def _collect(run_dir: Path) -> dict:
@@ -372,6 +398,8 @@ def run_pdk(spec: Path, tech: str, workdir: Path, tag: str,
     # IR drop is not an input to the mapped STA/power/area numbers, so skip it
     # uniformly across PDKs to keep the comparison fair.
     cfg_data["RUN_IRDROP_REPORT"] = False
+    if tech == "icsprout55":
+        _ics55_flow_overrides(cfg_data, Path(pdk_root), cfg)
     cfg.write_text(yaml.safe_dump(cfg_data, sort_keys=False))
 
     # The config is a positional argument in LibreLane 3 ("-c" is not a
@@ -382,7 +410,7 @@ def run_pdk(spec: Path, tech: str, workdir: Path, tag: str,
     cmd = ([str(LIBRELANE)] + pdk_args + _skip_args(tech)
            + ["--run-tag", tag, "--condensed", str(cfg)])
     try:
-        pnr = _run(cmd, workdir, 7200)
+        pnr = _run(cmd, workdir, 7200, tech=tech)
     except subprocess.TimeoutExpired:
         rec["reason"] = "librelane timeout"
         return rec
