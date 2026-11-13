@@ -1,0 +1,45 @@
+# ICsprout55 LEF/DEF layer map for KLayout DEF streamout.
+#
+# KLayout's KLAYOUT_DEF_LAYER_MAP expects the LEF/DEF form:
+#   <layer-name> <purposes> <gds-layer> <gds-datatype>
+#   NAME <layer-name>/<purpose>,... <gds-layer> <gds-datatype>
+#
+# The PDK file libs.tech/klayout/tech/ics55.map is a GDS *stream-in* map
+# (short M1..M5 names).  The routed DEF uses MET1..MET5, VIA1..VIA4, T4M2
+# and RDL, so pointing KLAYOUT_DEF_LAYER_MAP at the stream-in map makes
+# KLayout ignore every routing, via and pin/label layer.  This map mirrors
+# the official techfile/icsprout55.layermap bindings for the active
+# 6-metal profile (MET1-MET5 + T4M2).
+
+MET1 NET,SPNET,VIA 81 1
+MET1 LEFPIN,PIN 81 1
+NAME MET1/LABEL,MET1/LEFPIN 81 6
+
+MET2 NET,SPNET,VIA 82 1
+MET2 LEFPIN,PIN 82 1
+NAME MET2/LABEL,MET2/LEFPIN 82 6
+
+MET3 NET,SPNET,VIA 83 1
+MET3 LEFPIN,PIN 83 1
+NAME MET3/LABEL,MET3/LEFPIN 83 6
+
+MET4 NET,SPNET,VIA 84 1
+MET4 LEFPIN,PIN 84 1
+NAME MET4/LABEL,MET4/LEFPIN 84 6
+
+MET5 NET,SPNET,VIA 85 1
+MET5 LEFPIN,PIN 85 1
+NAME MET5/LABEL,MET5/LEFPIN 85 6
+
+VIA1 VIA,LEFPIN,PIN 91 1
+VIA2 VIA,LEFPIN,PIN 92 1
+VIA3 VIA,LEFPIN,PIN 93 1
+VIA4 VIA,LEFPIN,PIN 94 1
+
+T4M2 NET,SPNET,VIA 103 1
+T4M2 LEFPIN,PIN 103 1
+NAME T4M2/LABEL,T4M2/LEFPIN 103 6
+
+RDL NET,SPNET,VIA 123 1
+RDL LEFPIN,PIN 123 1
+NAME RDL/LABEL,RDL/LEFPIN 123 6

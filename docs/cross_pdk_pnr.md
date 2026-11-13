@@ -62,7 +62,7 @@ arrival from `55-openroad-stapostpnr/*/max.rpt`.
 | sky130 | 25 Mb/s | 10 ns | 2186 | 15202 um2 | 3.7 uW | -8.27 ns | 18.87 ns | clean (0/0) |
 | gf180mcuD | 12.5 Mb/s | 20 ns | 2915 | 48927 um2 | 49.5 uW | -8.18 ns | 29.24 ns | clean (0/0) |
 | ihp-sg13g2 | 25 Mb/s | 10 ns | 2696 | 28181 um2 | 2.8 uW | -0.74 ns | 10.96 ns | magic 37893 / klayout 4739 / LVS 115 |
-| icsprout55 | 25 Mb/s | 10 ns | 2372 | 4596 um2 | 1.2 uW | -3.58 ns | 13.66 ns | KLayout decks: cell LVS PASS, DRC 19 library items; full-design pending |
+| icsprout55 | 25 Mb/s | 10 ns | 2372 | 4596 um2 | 1.2 uW | -3.58 ns | 13.66 ns | cell DRC 23 items / LVS PASS; full-design DRC not bounded; LVS ERC PASS, compare FAIL (130 missing nets) |
 
 Hold WNS is 0 and hold violations are 0 in every corner for all four PDKs.
 Route DRC (`route__drc_errors`) and antenna violations are 0 for all four.
@@ -73,6 +73,31 @@ with Magic/KLayout DRC = 0, LVS = 0, route DRC = 0 and antenna = 0.  The
 3.0.17 table above remains the reference; the two tool versions are close but
 not identical, so do not mix their cell/power numbers.  The DRC/LVS verdict is
 unchanged: clean.
+
+An **icsprout55** re-run after the DRC deck repair exposed a flow integration
+bug: `KLAYOUT_DEF_LAYER_MAP` pointed at the PDK's GDS stream-in map
+(`ics55.map`, short `M1..M5` names), while the routed DEF uses `MET1..MET5`.
+KLayout therefore ignored every routing, via and pin/label layer during
+streamout (the log listed `No mapping for layer 'MET1', purpose 'NET'`), so
+the previous full-design DRC/LVS ran on an incomplete GDS.  The repo now
+supplies `tech/icsprout55/def_layer.map` (LEF/DEF form, mapped to the official
+`techfile/icsprout55.layermap`) and the cross-PDK script points
+`KLAYOUT_DEF_LAYER_MAP` at it.  With that map the streamout keeps MET1-MET5,
+VIA1-VIA4, T4M2 and RDL, and the GDS carries the signal pin labels.
+
+The repaired cell gate now passes: `make ics55-drc-lvs` gives DRC rc=0 with 23
+recorded items (18 categories; `--require-drc-clean` is not set) and LVS PASS.
+The full-design tiling DRC still did not produce a report in bounded runs
+(about 1 h 45 min for `main` on the incomplete GDS, 26 min for
+`no_density=true no_mom=true`, and more than 25 min for `main` on the
+corrected GDS; resident memory 1-6 GB), so no full-design DRC verdict is
+claimed.  Full-design LVS on the corrected GDS, with the 1138 filler/decap
+instances removed from
+both sides to isolate the functional netlist, reaches `ICS55_ERC=PASS` (0
+selected/diagnostic violations) but `ICS55_LVS_COMPARE=FAIL`: 130 reference
+nets have no layout counterpart and the top-level `rx_smp` port is not
+extracted, while the schematic has 69 pins and the layout 68.  This is a
+netlist/layout extraction gap to debug, not a deck crash.
 
 A **LibreLane 3.0.14** IHP observation (25 Mb/s, 10 ns) used the PDK's own
 `KLayout.LVS` deck instead of netgen, to test whether the 115 netgen errors
