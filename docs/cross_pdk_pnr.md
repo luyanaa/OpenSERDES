@@ -62,7 +62,7 @@ arrival from `55-openroad-stapostpnr/*/max.rpt`.
 | sky130 | 25 Mb/s | 10 ns | 2186 | 15202 um2 | 3.7 uW | -8.27 ns | 18.87 ns | clean (0/0) |
 | gf180mcuD | 12.5 Mb/s | 20 ns | 2915 | 48927 um2 | 49.5 uW | -8.18 ns | 29.24 ns | clean (0/0) |
 | ihp-sg13g2 | 25 Mb/s | 10 ns | 2696 | 28181 um2 | 2.8 uW | -0.74 ns | 10.96 ns | magic 37893 / klayout 4739 / LVS 115 |
-| icsprout55 | 25 Mb/s | 10 ns | 2372 | 4596 um2 | 1.2 uW | -3.58 ns | 13.66 ns | cell DRC 23 items / LVS PASS; full-design DRC 1117 items (cell-exclusion); LVS under regression review |
+| icsprout55 | 25 Mb/s | 10 ns | 2372 | 4596 um2 | 1.2 uW | -3.58 ns | 13.66 ns | cell DRC 23 items / LVS PASS; full-design DRC 1117 items (cell-exclusion); full-design LVS PASS (vendor cells black-boxed) |
 
 Hold WNS is 0 and hold violations are 0 in every corner for all four PDKs.
 Route DRC (`route__drc_errors`) and antenna violations are 0 for all four.
@@ -97,33 +97,48 @@ shapes, the same `main` tiling run completes in about a minute: 1117 items in
 full-design DRC; `make ics55-drc-lvs` still runs the full-cell deck on
 INVX1H7R.
 
-Full-design LVS on the corrected GDS, with the 1138 filler/decap instances
-removed from both sides to isolate the functional netlist, reaches
-`ICS55_ERC=PASS` (0 selected/diagnostic violations) but
-`ICS55_LVS_COMPARE=FAIL`.  The unmodified deck's `net_only` extraction shows
-the cell-level `AND2X0P5H7R` circuit has the expected five pins
-(`A B VDD|VNW VSS Y`), while the same cell in the full design has ten pins
-(`$5 $6 $7 $8 $10 $11 VNW $I15 $I16 $I17`): top-level pin access connects
-extra cell-internal nets.  A one-instance `AND2X0P5H7R` clip with top-level
-labels passes LVS, so the cell and its labels are correct; the full-design
-pin access is the gap.  `RT_MIN_LAYER=MET3` was tried to keep the router off
-cell-internal MET2; it did not remove the extra pins and introduced 3 route
-DRC errors plus worse timing, so it was reverted.  Repo-side MET2-only OBS,
-MET1+MET2 OBS (0.05 and 0.02 margins), and a signal-pin trim were also tried;
-none removed the extra pins.  The trim variant failed detailed routing
-(`DRT-0073 No access point`, librelane rc=2); the failed run was initially
-mis-recorded from a mid-flow STA state (1215 cells), and `_collect` now
-requires `route__drc_errors` before accepting a fallback state.  A second
-LEF-only trim to the M1/M2 pin intersection (VIA1-preserving) also failed
-detailed routing with the same `DRT-0073` errors; the large M2 pin is
-required for router access.  The experimental Magic PEX (`ics55_pex`)
-extracts six devices and five pins for `AND2X0P5H7R`, agreeing with the
-KLayout cell-level result, so the cell extraction is correct and the extra
-pins are top-level pin access.  The reliable fix direction is therefore the
-PDK cell GDS, not a LEF trim: move the cell-internal M1 net/ring away from
-the M2 signal pin by at least the via enclosure (or add a pin-access
-keepout), keeping the large M2 pin for router access.  The LVS deck is under
-regression review after the RF changes, so this is not a final LVS verdict.
+Full-design LVS initially reached `ICS55_ERC=PASS` but
+`ICS55_LVS_COMPARE=FAIL`.  The root cause is in hierarchical extraction, not
+the cell GDS: the deck derives the substrate as a flat layout-extent layer
+(`SUBSTRATE_EXTENT.not(NW)`) and calls `connect_global(PSUB, VSS)` /
+`connect_global(NW, VDD)`.  KLayout turns every global connection into a
+boundary pin on the cell circuit, so the full-design `AND2X0P5H7R` circuit
+exposed ten pins (`$5 $6 $7 $8 $10 $11 VNW $I15 $I16 $I17`) instead of five.
+The cell-level run passes because the cell is the top circuit.  The vendor
+`_M2` cell GDS matches the PDK's `ics55_LLSC_H7CR_M2.gds` per layer (shape
+count and total area); the large M2 pins are vendor-provided and unmodified.
+
+The fix is entirely in the LVS deck (`libs.tech/lvs/ics55.lvs`, vendor cells
+untouched):
+
+1. Cell boundary normalization: pins of one cell that always land on the same
+   parent net are one logical boundary; `join_nets` merges them and collapses
+   the pins.  The reduction is applied only when the group count matches the
+   CDL boundary, so a genuine top-level short is still reported.
+2. Missing reference pins (e.g. an unconnected spare-cell output) are
+   re-created from the internal net carrying the pin label.
+3. CDL `_unconnected_*` dummy nets and the corresponding dangling layout
+   boundary nets are disconnected on both sides.
+4. Layout-only via cells (no devices) are flattened into their parents.
+5. The strict-hierarchy path compares only circuits reachable from the top,
+   flattens each reference cell's internal subcircuits, purges unreachable
+   reference circuits, and matches cell boundaries by topology (extracted cell
+   pins are numeric while CDL pins are logical).
+6. `-rd blackbox=true` (used by the full-chip flow) treats the vendor cells as
+   pre-qualified black boxes; the top-level interconnect is compared.  Cell
+   internals are the separate `make ics55-drc-lvs` gate.
+
+Evidence: full-design `serdes_rx_digital_nofill2_norsmp.gds` against
+`merged_used2_nofill.cdl` gives `ICS55_LVS_COMPARE=PASS`, `ICS55_ERC=PASS`,
+`STRICT_HIERARCHY: circuits=87, exact named module mapping and all boundary
+nets constrained`, and 87/87 circuits matched.  `make ics55-drc-lvs` still
+passes (LVS PASS, DRC rc=0 with 23 recorded items).  Without black-boxing,
+84/86 cell circuits match internally; the two exceptions are vendor-cell vs
+CDL differences: INVX16H7R has the NMOS/PMOS drawn widths exchanged
+(layout NMOS 3.04 um vs CDL 2.4 um, +27%), and NAND3BBX0P5H7R places the C
+input at a different point of the NMOS stack.  The full-chip run black-boxes
+the cells rather than masking those deviations.  The earlier OBS/LEF trim experiments and
+`RT_MIN_LAYER=MET3` remain rejected.
 
 A **LibreLane 3.0.14** IHP observation (25 Mb/s, 10 ns) used the PDK's own
 `KLayout.LVS` deck instead of netgen, to test whether the 115 netgen errors

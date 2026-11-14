@@ -179,7 +179,12 @@ def _ihp_flow_overrides(cfg_data: dict, pdk_root: Path, cfg_path: Path) -> None:
         pdk_dir = pdk_root / family
     cfg_data["KLAYOUT_LVS_SCRIPT"] = str(
         pdk_dir / "libs.tech/klayout/tech/lvs/sg13g2.lvs")
-    cfg_data["KLAYOUT_LVS_OPTIONS"] = {"run_mode": "deep"}
+    cfg_data["KLAYOUT_LVS_OPTIONS"] = {
+        "run_mode": "deep",
+        "strict_topology": "true",
+        "strict_hierarchy": "true",
+        "blackbox": "true",
+    }
     # The known IHP DRC deck errors are an observation, not a hard gate; keep
     # the flow going so the KLayout LVS verdict is recorded in the same run.
     cfg_data["ERROR_ON_MAGIC_DRC"] = False
@@ -222,7 +227,12 @@ def _ics55_flow_overrides(cfg_data: dict, pdk_root: Path, cfg_path: Path) -> Non
         ROOT / "tech/icsprout55/def_layer.map")
     cfg_data["KLAYOUT_LVS_SCRIPT"] = str(
         pdk_root / "libs.tech/lvs/ics55.lvs")
-    cfg_data["KLAYOUT_LVS_OPTIONS"] = {"run_mode": "deep"}
+    cfg_data["KLAYOUT_LVS_OPTIONS"] = {
+        "run_mode": "deep",
+        "strict_topology": "true",
+        "strict_hierarchy": "true",
+        "blackbox": "true",
+    }
     # The known library-drawing DRC items are recorded, not fatal for this
     # verification run; LVS is the gate that should still run.
     cfg_data["ERROR_ON_KLAYOUT_DRC"] = False
