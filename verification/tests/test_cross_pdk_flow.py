@@ -52,6 +52,7 @@ class TestIcs55FlowOverrides(unittest.TestCase):
             "strict_topology": "true",
             "strict_hierarchy": "true",
             "blackbox": "true",
+            "flow_mode": "true",
         })
         self.assertFalse(cfg["ERROR_ON_KLAYOUT_DRC"])
 

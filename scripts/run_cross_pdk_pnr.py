@@ -228,6 +228,7 @@ def _ics55_flow_overrides(cfg_data: dict, pdk_root: Path, cfg_path: Path) -> Non
         "strict_topology": "true",
         "strict_hierarchy": "true",
         "blackbox": "true",
+        "flow_mode": "true",
     }
     # The known library-drawing DRC items are recorded, not fatal for this
     # verification run; LVS is the gate that should still run.
