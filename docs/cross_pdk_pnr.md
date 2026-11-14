@@ -148,13 +148,18 @@ labels (`PORT DEPTH 0: ports=0`) and the step reported 18268 ERC violations.
 `flow_mode` removes fill/tap instances in memory before extraction (keeping
 cell definitions so the extraction indices are unchanged), keeps only the CDL
 top ports (top-cell cell-pin labels are ignored), and treats unused top pins
-as open pins.  The filled final GDS now passes: `FILLER INSTANCES removed
-before extraction: 1238`, `FILLER FILTER reference: removed 1238`,
+as open pins.  The full ics55 signoff flow now completes with
+`design__lvs_error__count=0`: the LVS step logs `FILLER INSTANCES removed
+before extraction: 1166`, `FILLER FILTER reference: removed 1166`,
 `ICS55_LVS_COMPARE=PASS`, `ICS55_ERC=PASS`, and
-`STRICT_HIERARCHY: circuits=87`.  The nofill GDS pair and
-`make ics55-drc-lvs` still pass.  `Odb.ReportDisconnectedPins` finds `rx_smp`
-disconnected (0 critical); the deck keeps it as an open pin, while the flow's
-`Checker.DisconnectedPins` metric is still missing.
+`STRICT_HIERARCHY: circuits=77`.  `Odb.ReportDisconnectedPins` is replaced by
+`ICS55.ReportDisconnectedPins`, which publishes
+`design__disconnected_pin__count=1` and
+`design__critical_disconnected_pin__count=0`; `Checker.DisconnectedPins` runs
+instead of skipping and reports the `rx_smp` Mode-4 input as non-critical.
+The flow status is `measured_with_violations` only because of the known
+full-design KLayout DRC items (`klayout__drc_error__count=1127`; route DRC 0),
+not LVS.  The nofill GDS pair and `make ics55-drc-lvs` still pass.
 
 A **LibreLane 3.0.14** IHP observation (25 Mb/s, 10 ns) used the PDK's own
 `KLayout.LVS` deck instead of netgen, to test whether the 115 netgen errors
