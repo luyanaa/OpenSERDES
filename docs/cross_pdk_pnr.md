@@ -113,13 +113,16 @@ MET1+MET2 OBS (0.05 and 0.02 margins), and a signal-pin trim were also tried;
 none removed the extra pins.  The trim variant failed detailed routing
 (`DRT-0073 No access point`, librelane rc=2); the failed run was initially
 mis-recorded from a mid-flow STA state (1215 cells), and `_collect` now
-requires `route__drc_errors` before accepting a fallback state.  The
-experimental Magic PEX (`ics55_pex`) extracts six devices and five pins for
-`AND2X0P5H7R`, agreeing with the KLayout cell-level result, so the cell
-extraction is correct and the extra pins are top-level pin access.  The
-reliable fix direction is PDK-side cell pin geometry / pin-access keepout:
-adjust the cell GDS/LEF pin shapes and internal-net spacing so a top-level
-via enclosure cannot bridge to an internal net.  The LVS deck is under
+requires `route__drc_errors` before accepting a fallback state.  A second
+LEF-only trim to the M1/M2 pin intersection (VIA1-preserving) also failed
+detailed routing with the same `DRT-0073` errors; the large M2 pin is
+required for router access.  The experimental Magic PEX (`ics55_pex`)
+extracts six devices and five pins for `AND2X0P5H7R`, agreeing with the
+KLayout cell-level result, so the cell extraction is correct and the extra
+pins are top-level pin access.  The reliable fix direction is therefore the
+PDK cell GDS, not a LEF trim: move the cell-internal M1 net/ring away from
+the M2 signal pin by at least the via enclosure (or add a pin-access
+keepout), keeping the large M2 pin for router access.  The LVS deck is under
 regression review after the RF changes, so this is not a final LVS verdict.
 
 A **LibreLane 3.0.14** IHP observation (25 Mb/s, 10 ns) used the PDK's own
