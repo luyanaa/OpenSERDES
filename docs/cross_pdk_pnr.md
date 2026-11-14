@@ -108,9 +108,18 @@ extra cell-internal nets.  A one-instance `AND2X0P5H7R` clip with top-level
 labels passes LVS, so the cell and its labels are correct; the full-design
 pin access is the gap.  `RT_MIN_LAYER=MET3` was tried to keep the router off
 cell-internal MET2; it did not remove the extra pins and introduced 3 route
-DRC errors plus worse timing, so it was reverted.  The fix direction is the
-cell LEF OBS/pin access: add MET2 obstructions/keepout outside the pin shapes
-so top-level vias land only on the logical pins.  The LVS deck is under
+DRC errors plus worse timing, so it was reverted.  Repo-side MET2-only OBS,
+MET1+MET2 OBS (0.05 and 0.02 margins), and a signal-pin trim were also tried;
+none removed the extra pins.  The trim variant failed detailed routing
+(`DRT-0073 No access point`, librelane rc=2); the failed run was initially
+mis-recorded from a mid-flow STA state (1215 cells), and `_collect` now
+requires `route__drc_errors` before accepting a fallback state.  The
+experimental Magic PEX (`ics55_pex`) extracts six devices and five pins for
+`AND2X0P5H7R`, agreeing with the KLayout cell-level result, so the cell
+extraction is correct and the extra pins are top-level pin access.  The
+reliable fix direction is PDK-side cell pin geometry / pin-access keepout:
+adjust the cell GDS/LEF pin shapes and internal-net spacing so a top-level
+via enclosure cannot bridge to an internal net.  The LVS deck is under
 regression review after the RF changes, so this is not a final LVS verdict.
 
 A **LibreLane 3.0.14** IHP observation (25 Mb/s, 10 ns) used the PDK's own

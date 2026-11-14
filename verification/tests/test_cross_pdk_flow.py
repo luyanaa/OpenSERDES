@@ -35,7 +35,9 @@ class TestIcs55FlowOverrides(unittest.TestCase):
 
     def test_tiled_drc_and_lvs_runset_are_set(self) -> None:
         module = _load()
-        cfg: dict = {"DESIGN_NAME": "serdes_rx_digital"}
+        cfg: dict = {
+            "DESIGN_NAME": "serdes_rx_digital",
+        }
         module._ics55_flow_overrides(
             cfg, Path("/grid/icsprout55-pdk"), Path("librelane.yaml"))
         self.assertEqual(cfg["KLAYOUT_DRC_DEFINES"]["run_mode"], "tiling")
@@ -73,6 +75,39 @@ class TestIcs55FlowOverrides(unittest.TestCase):
         module = _load()
         self.assertEqual(module._skip_args("icsprout55"), [])
         self.assertEqual(module.SIGNOFF_SKIP_STEPS, {})
+
+
+class TestCollectFallback(unittest.TestCase):
+    def test_midflow_state_without_route_drc_is_rejected(self) -> None:
+        module = _load()
+        import json
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            run = Path(tmp)
+            mid = run / "43-openroad-stamidpnr-3"
+            mid.mkdir()
+            (mid / "state_out.json").write_text(json.dumps({
+                "metrics": {"design__instance__count": 1215,
+                            "timing__setup__wns": 0}}))
+            with self.assertRaises(FileNotFoundError):
+                module._collect(run)
+
+    def test_postroute_state_with_route_drc_is_accepted(self) -> None:
+        module = _load()
+        import json
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            run = Path(tmp)
+            post = run / "55-openroad-stapostpnr"
+            post.mkdir()
+            (post / "state_out.json").write_text(json.dumps({
+                "metrics": {"route__drc_errors": 0,
+                            "design__instance__count": 10}}))
+            rec = module._collect(run)
+            self.assertEqual(
+                rec["metrics_source"],
+                "55-openroad-stapostpnr/state_out.json")
+            self.assertEqual(rec["drc_routing"], 0)
 
 
 if __name__ == "__main__":

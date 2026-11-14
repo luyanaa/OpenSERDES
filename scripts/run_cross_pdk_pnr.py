@@ -282,10 +282,16 @@ def _collect(run_dir: Path) -> dict:
                 payload = json.loads(state.read_text())
             except (OSError, json.JSONDecodeError):
                 continue
-            if isinstance(payload.get("metrics"), dict) and payload["metrics"]:
-                metrics_path = state
-                source = str(state.relative_to(run_dir))
-                break
+            metrics = payload.get("metrics")
+            if not isinstance(metrics, dict) or not metrics:
+                continue
+            # A mid-PnR STA state has timing but no route DRC; accepting it
+            # would turn a failed routing run into a "measured" record.
+            if "route__drc_errors" not in metrics:
+                continue
+            metrics_path = state
+            source = str(state.relative_to(run_dir))
+            break
         if source == "final/metrics.json" or source == "metrics.json":
             raise FileNotFoundError(f"no metrics.json under {run_dir}")
     if source.endswith("state_out.json"):
