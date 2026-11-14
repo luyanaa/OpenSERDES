@@ -153,7 +153,12 @@ the deck's post-extraction cell-boundary merge aborts in KLayout 0.30
 The validated full-design PASS is on the nofill GDS + filtered CDL pair.  The
 experimental filled-GDS deck changes (top-label filter, pre-extraction filler
 removal, open-pin handling) were reverted because they destabilized the nofill
-path; a KLayout upgrade or a safe net-merge workaround is required first.
+path.  The nofill GDS from the same design (116 `NAND2X0P5H7R` instances)
+passes, so the flow fix is to run LVS on a nofill GDS rather than the filled
+final GDS; a KLayout upgrade is the alternative.  The tried workarounds do not
+preserve connectivity: `Circuit#blank` + flatten drops the top-level
+connections, device removal + flat compare leaves the cell-internal nets
+unmatched, and a manual net merge corrupts the cell pin/net mapping.
 (b) `Odb.ReportDisconnectedPins` finds one disconnected top input, `rx_smp`
 (0 critical), but `Checker.DisconnectedPins` is skipped because the metric is
 missing; the pin should be placed or removed, and the checker metric wired up.
