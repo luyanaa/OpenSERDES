@@ -100,10 +100,18 @@ INVX1H7R.
 Full-design LVS on the corrected GDS, with the 1138 filler/decap instances
 removed from both sides to isolate the functional netlist, reaches
 `ICS55_ERC=PASS` (0 selected/diagnostic violations) but
-`ICS55_LVS_COMPARE=FAIL`: 130 reference nets have no layout counterpart and
-the top-level `rx_smp` port is not extracted, while the schematic has 69 pins
-and the layout 68.  The LVS deck is under regression review after the RF
-changes, so this is not a final LVS verdict.
+`ICS55_LVS_COMPARE=FAIL`.  The unmodified deck's `net_only` extraction shows
+the cell-level `AND2X0P5H7R` circuit has the expected five pins
+(`A B VDD|VNW VSS Y`), while the same cell in the full design has ten pins
+(`$5 $6 $7 $8 $10 $11 VNW $I15 $I16 $I17`): top-level pin access connects
+extra cell-internal nets.  A one-instance `AND2X0P5H7R` clip with top-level
+labels passes LVS, so the cell and its labels are correct; the full-design
+pin access is the gap.  `RT_MIN_LAYER=MET3` was tried to keep the router off
+cell-internal MET2; it did not remove the extra pins and introduced 3 route
+DRC errors plus worse timing, so it was reverted.  The fix direction is the
+cell LEF OBS/pin access: add MET2 obstructions/keepout outside the pin shapes
+so top-level vias land only on the logical pins.  The LVS deck is under
+regression review after the RF changes, so this is not a final LVS verdict.
 
 A **LibreLane 3.0.14** IHP observation (25 Mb/s, 10 ns) used the PDK's own
 `KLayout.LVS` deck instead of netgen, to test whether the 115 netgen errors
