@@ -140,6 +140,23 @@ input at a different point of the NMOS stack.  The full-chip run black-boxes
 the cells rather than masking those deviations.  The earlier OBS/LEF trim experiments and
 `RT_MIN_LAYER=MET3` remain rejected.
 
+Flow integration (current): the LibreLane `ICS55.KLayoutLVS` step now passes
+`top=DESIGN_NAME` plus `strict_topology`, `strict_hierarchy` and `blackbox`.
+Before that, `source(input)` selected a cell with no labels (`PORT DEPTH 0:
+ports=0`) and the step reported 18268 ERC violations.  The step also treats
+`ICS55_ERC=FAIL` as an LVS error.  Two flow items remain open: (a) the final
+GDS carries 1138 fill/decap instances and 21 cell-pin labels on the top cell;
+the deck's post-extraction cell-boundary merge aborts in KLayout 0.30
+`Circuit::join_nets` on the current design's `NAND2X0P5H7R` extraction
+(116 instances, 10 boundary pins), so the filled-GDS LVS is not yet runnable.
+The validated full-design PASS is on the nofill GDS + filtered CDL pair.  The
+experimental filled-GDS deck changes (top-label filter, pre-extraction filler
+removal, open-pin handling) were reverted because they destabilized the nofill
+path; a KLayout upgrade or a safe net-merge workaround is required first.
+(b) `Odb.ReportDisconnectedPins` finds one disconnected top input, `rx_smp`
+(0 critical), but `Checker.DisconnectedPins` is skipped because the metric is
+missing; the pin should be placed or removed, and the checker metric wired up.
+
 A **LibreLane 3.0.14** IHP observation (25 Mb/s, 10 ns) used the PDK's own
 `KLayout.LVS` deck instead of netgen, to test whether the 115 netgen errors
 were a pin-mapping artifact.  It measured CP 10.84 ns / WNS -0.61 ns, 2627
