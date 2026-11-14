@@ -30,6 +30,10 @@ class TestIcs55FlowOverrides(unittest.TestCase):
         self.assertIsNone(substitutions["Odb.CheckDesignAntennaProperties"])
         self.assertEqual(substitutions["Netgen.LVS"], "ICS55.KLayoutLVS")
         self.assertEqual(substitutions["-Netgen.LVS"], "OpenROAD.WriteCDL")
+        self.assertEqual(
+            substitutions["Odb.ReportDisconnectedPins"],
+            "ICS55.ReportDisconnectedPins",
+        )
         self.assertIsNone(substitutions["Magic.WriteLEF"])
         self.assertEqual(cfg["meta"]["flow"], "Classic")
 

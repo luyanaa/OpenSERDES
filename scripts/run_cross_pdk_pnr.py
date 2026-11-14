@@ -201,6 +201,7 @@ def _ics55_flow_overrides(cfg_data: dict, pdk_root: Path, cfg_path: Path) -> Non
         "Checker.XOR": None,
         "-Netgen.LVS": "OpenROAD.WriteCDL",
         "Netgen.LVS": "ICS55.KLayoutLVS",
+        "Odb.ReportDisconnectedPins": "ICS55.ReportDisconnectedPins",
     }
     # The repaired deck supports run_mode=tiling; the PDK config.tcl supplies
     # the LVS runset/options, but set them explicitly so the record is
