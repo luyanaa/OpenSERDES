@@ -131,7 +131,8 @@ untouched):
 Evidence: full-design `serdes_rx_digital_nofill2_norsmp.gds` against
 `merged_used2_nofill.cdl` gives `ICS55_LVS_COMPARE=PASS`, `ICS55_ERC=PASS`,
 `STRICT_HIERARCHY: circuits=87, exact named module mapping and all boundary
-nets constrained`, and 87/87 circuits matched.  `make ics55-drc-lvs` still
+nets constrained`, and 87/87 circuits matched.  A re-run with the committed
+deck reproduces the PASS (`lvs_vendor_confirm`).  `make ics55-drc-lvs` still
 passes (LVS PASS, DRC rc=0 with 23 recorded items).  Without black-boxing,
 84/86 cell circuits match internally; the two exceptions are vendor-cell vs
 CDL differences: INVX16H7R has the NMOS/PMOS drawn widths exchanged
