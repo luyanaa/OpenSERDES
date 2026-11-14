@@ -46,6 +46,13 @@ class TestIcs55FlowOverrides(unittest.TestCase):
         self.assertTrue(cfg["KLAYOUT_LVS_SCRIPT"].endswith("libs.tech/lvs/ics55.lvs"))
         self.assertTrue(cfg["KLAYOUT_DEF_LAYER_MAP"].endswith(
             "tech/icsprout55/def_layer.map"))
+        self.assertEqual(cfg["KLAYOUT_LVS_OPTIONS"], {
+            "run_mode": "deep",
+            "top": "serdes_rx_digital",
+            "strict_topology": "true",
+            "strict_hierarchy": "true",
+            "blackbox": "true",
+        })
         self.assertFalse(cfg["ERROR_ON_KLAYOUT_DRC"])
 
     def test_ihp_uses_klayout_lvs_instead_of_netgen(self) -> None:
@@ -58,6 +65,9 @@ class TestIcs55FlowOverrides(unittest.TestCase):
         self.assertEqual(substitutions["-Netgen.LVS"], "OpenROAD.WriteCDL")
         self.assertTrue(cfg["KLAYOUT_LVS_SCRIPT"].endswith(
             "libs.tech/klayout/tech/lvs/sg13g2.lvs"))
+        # IHP keeps its original deck options; the ics55 strict/blackbox
+        # switches are not valid for the IHP runset.
+        self.assertEqual(cfg["KLAYOUT_LVS_OPTIONS"], {"run_mode": "deep"})
 
     def test_ihp_lvs_path_uses_the_pdk_family_directory(self) -> None:
         module = _load()
