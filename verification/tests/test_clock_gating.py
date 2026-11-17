@@ -62,9 +62,22 @@ class TestClockGating(unittest.TestCase):
         self.assertIn("SYNTH_CLOCKGATE", (out / "pnr" / "README.md").read_text())
 
     def test_tech_without_icg_fails_closed(self) -> None:
-        r, _ = self._run(_spec("ihp-sg13g2", True))
+        # gf180mcuD ships no integrated clock gate in the standard-cell set;
+        # asking for clock gating there must stop the flow, not silently emit
+        # a Yosys clock-gate config the library cannot implement.
+        r, _ = self._run(_spec("gf180mcuD", True))
         self.assertEqual(r.returncode, 2)
         self.assertIn("clock_gate.icg_cell", r.stdout + r.stderr)
+
+    def test_ihp_emits_icg_config(self) -> None:
+        r, out = self._run(_spec("ihp-sg13g2", True))
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        pnr = yaml.safe_load((out / "pnr" / "librelane.yaml").read_text())
+        self.assertEqual(pnr["SYNTH_CLOCKGATE_POSEDGE_ICG"],
+                         "sg13g2_lgcp_1/GATE/CLK/GCLK")
+        m = json.loads((out / "manifest.json").read_text())
+        self.assertTrue(m["clock_gating"]["enabled"])
+        self.assertIn("lgcp_1", m["clock_gating"]["icg"])
 
     def test_disabled_by_default(self) -> None:
         r, out = self._run(_spec("sky130", False))

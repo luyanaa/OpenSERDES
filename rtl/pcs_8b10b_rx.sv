@@ -11,6 +11,8 @@ module pcs_8b10b_rx (
     input  logic       enable,
     input  logic       valid,
     input  logic [9:0] code,
+    input  logic       rd_init,
+    input  logic       rd_load,
     output logic [7:0] data,
     output logic       ctrl,
     output logic       data_valid,
@@ -25,7 +27,8 @@ module pcs_8b10b_rx (
 
     decoder_8b10b u_dec (
         .i_clk(clk), .i_reset_n(rst_n), .i_en(enable && valid),
-        .i_10b(code), .o_8b(data_q), .o_ctrl(ctrl_q),
+        .i_10b(code), .i_rd_init(rd_init), .i_rd_load(rd_load),
+        .o_8b(data_q), .o_ctrl(ctrl_q),
         .o_code_err(code_err_q), .o_disp_err(disp_err_q)
     );
 
@@ -33,7 +36,9 @@ module pcs_8b10b_rx (
         if (!rst_n)
             valid_q <= 1'b0;
         else
-            valid_q <= enable && valid;
+            // A symbol overwritten by an rd_load is not decoded; suppress its
+            // valid pulse so the collector never sees a stale byte.
+            valid_q <= enable && valid && !rd_load;
     end
 
     assign data       = data_q;

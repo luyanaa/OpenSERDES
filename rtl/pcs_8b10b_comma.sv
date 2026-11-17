@@ -11,11 +11,19 @@
 // cycle so the downstream deserializer treats the NEXT serial bit as the start
 // of a fresh 10-bit symbol (same contract as comma_align).
 //
-// Lock semantics: after `LOCK_COMMAS` comma detections at the same boundary the
-// block declares `locked`.  It does NOT watch the payload for further commas
-// (they are data-dependent and would cause false slips); instead an external
-// `slip_req` input (e.g. a run of code/disparity errors, or loss of CDR lock)
-// re-opens the search.
+// Lock semantics: the first comma after reset/flush produces the `align`
+// pulse; `locked` is asserted at that same cycle, after the pulse has been
+// delivered.  By default the block then stops watching the payload for
+// further commas (they are data-dependent and would cause false slips); an
+// external `slip_req` input (a run of code/disparity errors, or loss of CDR
+// lock) re-opens the search.  LOCK_COMMAS > 1 requires that many aligned
+// commas before locking and is only useful on links that insert repeated
+// commas.
+//
+// RETRIGGER=1 keeps the per-comma `align` pulse alive after lock.  Use it when
+// every frame starts with a comma and the receiver needs a fresh symbol
+// boundary (and a fresh disparity seed) per frame; a comma inside the payload
+// will then realign the frame, so the payload must not contain K28.5.
 //
 // Bit order: bits arrive on `serial_in` qualified by `serial_valid`.  This
 // assumes the link's LSB_FIRST serialisation of the 10-bit symbol (the K28.5
@@ -24,6 +32,8 @@
 module pcs_8b10b_comma #(
     // Number of consecutive aligned commas required to declare lock.
     parameter int LOCK_COMMAS = 2,
+    // 1: keep pulsing `align` on every comma after lock (per-frame comma).
+    parameter bit RETRIGGER   = 1'b0,
     // Search window: we look for the 7-bit comma followed by enough bits to
     // confirm it sits at a symbol start (bits abcdei fgh.. -> comma is the
     // first 7 bits '0011111' or its inverse '1100000').
@@ -38,7 +48,10 @@ module pcs_8b10b_comma #(
     input  logic slip_req,     // external re-lock request (decode-error burst)
     output logic align,        // pulse: next bit starts a new symbol
     output logic locked,       // sticky comma lock
-    output logic comma_seen    // pulse on each in-boundary comma detection
+    output logic comma_seen,   // pulse on each in-boundary comma detection
+    // Post-comma running disparity: COMMA_P is the RD- K28.5 variant, so RD
+    // becomes +1; COMMA_N is RD+ and RD becomes -1.
+    output logic comma_rd_plus
 );
 
     // 7-bit comma patterns.  The K28.5 symbol (10'b0101111100 / 1010000011)
@@ -58,9 +71,11 @@ module pcs_8b10b_comma #(
     localparam int DW   = (TAIL <= 1) ? 1 : $clog2(TAIL + 1);
 
     logic [COMMA_LEN-1:0] hist_q;
+    logic                 comma_rd_plus_q;
     logic [LCW-1:0]       comma_cnt_q;
     logic                 locked_q;
     logic [DW-1:0]        delay_q;
+    logic                 pending_q;   // comma matched, tail bits still arriving
     logic                 match;
     logic [COMMA_LEN-1:0] window;
 
@@ -68,33 +83,49 @@ module pcs_8b10b_comma #(
     assign window = {serial_in, hist_q[COMMA_LEN-1:1]};
     assign match  = (window == COMMA_P) || (window == COMMA_N);
 
-    // align fires when the symbol that began with the comma finishes, so the
-    // NEXT serial bit is the first bit of a fresh symbol.
-    assign align      = serial_valid & enable & (delay_q == DW'(TAIL - 1)) & ~locked_q;
+    // align fires on the cycle whose serial_in is the symbol's LAST bit, so the
+    // NEXT serial bit is the first bit of a fresh 10-bit symbol.
+    assign align      = serial_valid & enable & pending_q &
+                        (delay_q == DW'(TAIL - 1)) &
+                        (RETRIGGER | ~locked_q);
     assign comma_seen = serial_valid & enable & match;
     assign locked     = locked_q;
+    assign comma_rd_plus = comma_rd_plus_q;
 
     always_ff @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
-            hist_q      <= '0;
-            comma_cnt_q <= '0;
-            delay_q     <= '0;
-            locked_q    <= 1'b0;
+            hist_q           <= '0;
+            comma_rd_plus_q  <= 1'b0;
+            comma_cnt_q      <= '0;
+            delay_q          <= '0;
+            pending_q        <= 1'b0;
+            locked_q         <= 1'b0;
         end else if (!enable || flush || slip_req) begin
-            hist_q      <= '0;
-            comma_cnt_q <= '0;
-            delay_q     <= '0;
-            locked_q    <= 1'b0;
+            hist_q           <= '0;
+            comma_rd_plus_q  <= 1'b0;
+            comma_cnt_q      <= '0;
+            delay_q          <= '0;
+            pending_q        <= 1'b0;
+            locked_q         <= 1'b0;
         end else if (serial_valid) begin
             hist_q <= window;
             if (match) begin
-                delay_q <= '0;
-                if (comma_cnt_q < LCW'(LOCK_COMMAS))
+                // (Re)arm the tail counter and latch the comma polarity.  The
+                // count is taken at align time, never at match time: locking
+                // at match would gate off the align pulse of this very comma.
+                comma_rd_plus_q <= (window == COMMA_P);
+                pending_q       <= 1'b1;
+                delay_q         <= '0;
+                if (comma_cnt_q != LCW'(LOCK_COMMAS))
                     comma_cnt_q <= comma_cnt_q + 1'b1;
-                if (comma_cnt_q >= LCW'(LOCK_COMMAS - 1))
-                    locked_q <= 1'b1;
-            end else if (delay_q != DW'(TAIL)) begin
-                delay_q <= delay_q + 1'b1;
+            end else if (pending_q) begin
+                if (delay_q != DW'(TAIL))
+                    delay_q <= delay_q + 1'b1;
+                if (align) begin
+                    pending_q <= 1'b0;
+                    if (comma_cnt_q >= LCW'(LOCK_COMMAS))
+                        locked_q <= 1'b1;
+                end
             end
         end
     end

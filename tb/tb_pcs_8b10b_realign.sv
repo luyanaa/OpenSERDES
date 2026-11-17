@@ -39,7 +39,9 @@ module tb_pcs_8b10b_realign;
 
     logic [7:0] rx_data; logic rx_ctrl, rx_dvalid, rx_cerr, rx_derr;
     pcs_8b10b_rx u_rx (.clk(clk), .rst_n(rst_n), .enable(1'b1),
-                       .valid(par_valid), .code(par[0]), .data(rx_data),
+                       .valid(par_valid), .code(par[0]),
+                       .rd_init(1'b0), .rd_load(1'b0),
+                       .data(rx_data),
                        .ctrl(rx_ctrl), .data_valid(rx_dvalid),
                        .code_error(rx_cerr), .disp_error(rx_derr));
 

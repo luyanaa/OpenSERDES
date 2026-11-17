@@ -48,6 +48,7 @@ DESIGN_FILES = {
         "comma_align.sv", "pcs_8b10b_comma.sv", "pcs_64b66b_lock.sv",
         "receiver_sampler.sv", "reset_sync.sv",
         "serdes_tx_digital.sv", "serdes_rx_digital.sv", "pcs_64b66b.sv",
+        "pcs_64b66b_rx_gearbox.sv", "pcs_64b66b_ctrl_decode.sv",
         "serdes_64b66b_top.sv",
     ],
     "serdes_digital_top": [
@@ -69,6 +70,33 @@ DESIGN_FILES = {
     ],
     "serdes_tx_half_rate_digital": [
         "serializer_half_rate.sv", "serdes_tx_half_rate_digital.sv",
+    ],
+    "serdes_multilane_top": [
+        "serializer_stream.sv", "deserializer_word.sv", "deserializer.sv",
+        "cdr_sync.sv", "cdr_oversampling.sv", "cdr_adaptive.sv",
+        "cdr_bang_bang.sv", "cdr_multiphase.sv", "comma_align.sv",
+        "receiver_sampler.sv", "reset_sync.sv", "serdes_rx_digital.sv",
+        "async_fifo.sv", "cdc_sync.sv", "lane_deskew.sv",
+        "axis_lane_bonder.sv", "serdes_multilane_top.sv",
+    ],
+    "serdes_pipe_lite_top": [
+        "pipe_elastic_buffer.sv", "encoder_8b10b.sv", "decoder_8b10b.sv",
+        "serializer_stream.sv", "deserializer_word.sv", "deserializer.sv",
+        "cdr_sync.sv", "cdr_oversampling.sv", "cdr_adaptive.sv", "cdr_bang_bang.sv",
+        "cdr_multiphase.sv", "comma_align.sv", "receiver_sampler.sv",
+        "reset_sync.sv", "serdes_rx_digital.sv", "serdes_raw_pcs_top.sv",
+        "serdes_pipe_lite_top.sv",
+    ],
+    "serdes_raw_pcs_top": [
+        "serializer_stream.sv", "deserializer_word.sv", "deserializer.sv",
+        "cdr_sync.sv", "cdr_oversampling.sv", "cdr_adaptive.sv", "cdr_bang_bang.sv",
+        "cdr_multiphase.sv", "comma_align.sv", "receiver_sampler.sv",
+        "reset_sync.sv", "serdes_rx_digital.sv", "serdes_raw_pcs_top.sv",
+    ],
+    "serdes_rx_half_rate_digital": [
+        "reset_sync.sv", "receiver_sampler.sv", "comma_align.sv",
+        "rx_pair_align.sv", "deserializer_half_rate.sv",
+        "serdes_rx_half_rate_digital.sv",
     ],
     "serdes_tx_axis_digital": [
         "axis_tx_adapter.sv", "serializer_stream.sv", "reset_sync.sv",
@@ -103,7 +131,10 @@ DESIGN_FILES = {
     "serdes_soc_cdc_wrapper": [
         "apb_csr.sv", "async_fifo.sv", "cdc_sync.sv", "cdc_snapshot.sv",
         "bist_snapshot.sv", "serdes_bist.sv", "prbs_gen.sv", "prbs_check.sv",
+        "prbs_word_check.sv",
         "axis_tx_adapter.sv", "serializer_stream.sv", "axis_rx_adapter.sv",
+        "pcs_8b10b_tx.sv", "pcs_8b10b_rx.sv", "pcs_8b10b_comma.sv",
+        "pcs_8b10b_stream.sv",
         "axis_crc_inserter.sv", "axis_crc_checker.sv", "crc_frame.sv",
         "deserializer_word.sv", "deserializer.sv", "cdr_sync.sv",
         "cdr_oversampling.sv", "cdr_adaptive.sv", "cdr_bang_bang.sv",
@@ -125,6 +156,12 @@ PRESETS = {
     "soc": {"data": "axi4_stream", "control": "apb", "cdc": "async_fifo", "features": ["bist"]},
     "phy_ip": {"data": "valid_ready", "control": "apb", "cdc": "async_fifo",
                "features": ["bist", "calibration", "dft"]},
+    "raw_pcs": {"data": "valid_ready", "control": "native", "cdc": "none",
+                "features": []},
+    "pipe_lite": {"data": "valid_ready", "control": "native", "cdc": "none",
+                  "features": []},
+    "multilane": {"data": "axi4_stream", "control": "native", "cdc": "async_fifo",
+                  "features": []},
 }
 
 CODING_FACTOR = {"raw": 1.0, "8b10b": 1.25, "64b66b": 66.0 / 64.0}
@@ -164,7 +201,11 @@ CAPABILITY_INTEGRATED = {
     "rx_frontend": {"rtl": True},
     "equalization": {"none": True},
     "termination": {"none": True},
-    "lane_bonding": {"single": True},
+    # Bonding is integrated as serdes_multilane_top: N source-synchronous or
+    # bang-bang lanes, per-lane async FIFO, marker/epoch deskew, wide AXIS
+    # bonder/debonder.  Verified by tb_lane_deskew / tb_multilane_top /
+    # tb_multilane_axis.
+    "lane_bonding": {"single": True, "2_lane": True, "4_lane": True},
     "power_management": {"none": True},
     "fec": {"none": True},
 }
@@ -253,6 +294,12 @@ def load_tech(name: str, scl_override: str | None) -> Tech:
     default_corner = data.get("default_corner")
     if default_corner not in corners:
         default_corner = next(iter(corners))
+    # A variant may override the design-rule limits: a slower / weaker family
+    # has its own characterised transition and capacitance ceilings, and
+    # applying the default family's numbers to it makes repair_design insert
+    # buffers forever instead of closing.
+    cts = dict(data.get("cts", {}))
+    cts.update((variant or {}).get("cts", {}))
     return Tech(
         name=name,
         pdk=data["pdk"],
@@ -261,7 +308,7 @@ def load_tech(name: str, scl_override: str | None) -> Tech:
         corners=corners,
         native_dff=(variant or {}).get("native_dff", data.get("native_dff", "")),
         limits=data.get("limits", {}),
-        cts=data.get("cts", {}),
+        cts=cts,
         clock_gate=data.get("clock_gate", {}) or {},
     )
 
@@ -598,6 +645,21 @@ def validate(spec: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
     ratio = width * words
     if ratio > 4096:
         fail("payload_width * words must be <= 4096")
+    lanes = as_int(link.get("lanes", 1), "link.lanes")
+    if not (1 <= lanes <= 16):
+        fail("link.lanes must be in [1, 16]")
+    deskew_spec = spec.get("deskew") or {}
+    if not isinstance(deskew_spec, dict):
+        fail("deskew must be a mapping")
+    deskew_cfg = {
+        "marker_period": as_int(deskew_spec.get("marker_period", 16),
+                                "deskew.marker_period"),
+        "max_skew": as_int(deskew_spec.get("max_skew", 8), "deskew.max_skew"),
+    }
+    if deskew_cfg["marker_period"] < 2:
+        fail("deskew.marker_period must be >= 2")
+    if deskew_cfg["max_skew"] < 0:
+        fail("deskew.max_skew must be >= 0")
 
     coding = str(link.get("coding", "raw")).lower()
     if coding not in CODING_FACTOR:
@@ -669,7 +731,11 @@ def validate(spec: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
         oversample = 1
     elif os_raw in (None, "auto"):
         if abs(ppm) > 0:
-            oversample = 8
+            # 4x bang-bang is the default for a frequency offset.  Measured
+            # against 8x adaptive: 0.60x clock load at RATIO=32 and 0.53x at
+            # RATIO=256, for 1.32x / 1.21x generic cells.  Clock load is the
+            # oversampling power term; see docs/timing_optimization.md.
+            oversample = 4
         elif power_first and bool(rx.get("allow_os2", False)):
             # Restricted 2x mode: half the clock load of OS=4, no jitter margin.
             oversample = 2
@@ -713,14 +779,49 @@ def validate(spec: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
     if tx_rate_mode == "half":
         if target != "tx":
             fail("tx.rate_mode: half is only available for target: tx; "
-                 "there is no verified half-rate RX")
+                 "use rx.rate_mode: half on an rx endpoint for the RX side")
         if str((spec.get("interface") or {}).get("enable_mode", "static")).lower() != "static":
             fail("tx.rate_mode: half has no enable port yet; set "
                  "interface.enable_mode: static")
 
+    rx_rate_mode = str(rx.get("rate_mode", "full")).lower()
+    if rx_rate_mode not in ("full", "half"):
+        fail("rx.rate_mode must be full or half")
+    if rx_rate_mode == "half":
+        if target != "rx":
+            fail("rx.rate_mode: half is only available for target: rx in this "
+                 "release; the half-rate link top is a separate integration")
+        if str((spec.get("interface") or {}).get("enable_mode", "static")).lower() != "static":
+            fail("rx.rate_mode: half has no dynamic enable yet; set "
+                 "interface.enable_mode: static")
+        if clocking != "source_sync":
+            fail("rx.rate_mode: half currently requires rx.clocking: source_sync "
+                 "(clk_bit is the bit clock; oversampling/bang-bang half-rate "
+                 "needs a divided sample-clock contract)")
+        if coding != "raw":
+            fail("rx.rate_mode: half supports coding: raw only")
+        rx_align_name = str(rx.get("align", "external")).lower()
+        if rx_align_name not in ("external", "comma", "comma_per_frame"):
+            fail("rx.rate_mode: half supports align: external, comma or "
+                 "comma_per_frame")
+        if width < 4:
+            fail("rx.rate_mode: half requires link.payload_width >= 4 "
+                 "(pairs fill word0 bits 0-1 on alignment)")
+
     rx_arch_name = rx.get("architecture", "auto")
     if rx_arch_name == "auto":
         rx_arch_name = None
+    # An unspecified architecture with a frequency offset now defaults to the
+    # 4x bang-bang loop instead of the 8x adaptive loop.  It is only selected
+    # when the caller did not pin oversample/architecture explicitly.
+    auto_bang_bang = (
+        rx_arch_name is None
+        and abs(ppm) > 0
+        and clocking != "source_sync"
+        and str(rx.get("oversample", "auto") or "auto").lower() in ("auto", "none")
+    )
+    if auto_bang_bang:
+        rx_arch_name = "bang_bang_oversampling"
     if clocking == "source_sync" and rx_arch_name not in (None, "source_sync"):
         fail("rx.architecture conflicts with rx.clocking: source_sync")
     if clocking != "source_sync" and rx_arch_name == "source_sync":
@@ -939,15 +1040,78 @@ def validate(spec: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
     if preset == "phy_ip" and not args.allow_incomplete:
         fail("preset phy_ip requires BIST/calibration/DFT integration that is "
              "not implemented yet; use --allow-incomplete to emit a scaffold package")
+    if preset == "pipe_lite":
+        if target not in ("rx", "tx"):
+            fail("preset pipe_lite supports target: rx or tx in this release")
+        if width != 16:
+            fail("preset pipe_lite is a 16-bit PIPE interface in this release")
+        if words != 1:
+            fail("preset pipe_lite uses a flat word bus; set link.words: 1")
+        if coding != "8b10b":
+            fail("preset pipe_lite requires link.coding: 8b10b "
+                 "(the shell owns the encoder/decoder)")
+        if data_mode != "valid_ready" or control != "native" or cdc != "none":
+            fail("preset pipe_lite requires valid_ready data, native control, no CDC")
+        if str((spec.get("interface") or {}).get("enable_mode", "static")).lower() != "static":
+            fail("preset pipe_lite has no dynamic enable port; set "
+                 "interface.enable_mode: static")
+    if preset == "multilane":
+        if target != "link":
+            fail("preset multilane is a bonded link; set target: link")
+        if lanes not in (2, 4, 8):
+            fail("preset multilane requires link.lanes in 2, 4, 8")
+        if words != 1:
+            fail("preset multilane is one word per lane per beat; set link.words: 1")
+        if coding != "raw":
+            fail("preset multilane runs a raw 1-bit line per lane; coding is a "
+                 "separate layer, set link.coding: raw")
+        if data_mode != "axi4_stream":
+            fail("preset multilane exposes one wide AXIS port; set "
+                 "interface.data: axi4_stream")
+        if control != "native" or cdc != "async_fifo":
+            fail("preset multilane requires native control and cdc: async_fifo "
+                 "(each lane has its own recovered clock)")
+        if str(rx.get("align", "external")).lower() not in ("comma", "external"):
+            fail("preset multilane supports rx.align: comma (sync word per lane) "
+                 "or external")
+        # Deskew sizing is a hard contract, not a suggestion.
+        marker_period = deskew_cfg["marker_period"]
+        max_skew = deskew_cfg["max_skew"]
+        if marker_period <= max_skew:
+            fail("deskew.marker_period must exceed deskew.max_skew")
+        if marker_period & (marker_period - 1):
+            fail("deskew.marker_period must be a power of two")
+        if width <= 4:
+            fail("preset multilane reserves 4 tag bits; link.payload_width > 4")
+    if preset == "raw_pcs":
+        if target not in ("rx", "tx"):
+            fail("preset raw_pcs supports target: rx or tx in this release")
+        if width not in (16, 20, 32, 40, 64):
+            fail("preset raw_pcs requires link.payload_width in 16, 20, 32, 40, 64")
+        if words != 1:
+            fail("preset raw_pcs uses a flat word bus; set link.words: 1")
+        if coding != "raw":
+            fail("preset raw_pcs is a raw PCS; set link.coding: raw "
+                 "(8b10b/64b66b belong to pipe_lite or the coding tops)")
+        if data_mode != "valid_ready" or control != "native" or cdc != "none":
+            fail("preset raw_pcs requires valid_ready data, native control, no CDC")
+        if str((spec.get("interface") or {}).get("enable_mode", "static")).lower() != "static":
+            fail("preset raw_pcs has no dynamic enable port; set "
+                 "interface.enable_mode: static")
+        if str(rx.get("align", "external")).lower() not in ("external", "comma",
+                                                            "comma_per_frame"):
+            fail("preset raw_pcs supports align: external, comma or comma_per_frame")
 
-    if data_mode == "axi4_stream" and target == "link" and not soc_any:
+    if (data_mode == "axi4_stream" and target == "link" and not soc_any
+            and preset != "multilane"):
         if not args.allow_incomplete:
             fail("target link has no general AXIS wrapper; use target: tx or rx, "
                  "or preset: soc with cdc none/async_fifo, or "
                  "--allow-incomplete for a core scaffold")
         spec.setdefault("_warnings", []).append(
             "target link AXIS/APB/CDC wrapper is not integrated; package is a core scaffold")
-    if (control == "apb" or cdc != "none" or features) and not soc_any:
+    if ((control == "apb" or cdc != "none" or features) and not soc_any
+            and preset != "multilane"):
         if not args.allow_incomplete:
             fail("APB/CDC/BIST/calibration/DFT integration is not implemented "
                  "for this target; use --allow-incomplete to emit a scaffold package")
@@ -992,11 +1156,12 @@ def validate(spec: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
             fail("coding: 64b66b requires rx.align: external or block_lock "
                  "(block boundary external or sync-header block lock)")
     if coding == "8b10b":
-        if target != "link":
-            fail("coding: 8b10b is currently supported only for target: link")
-        if width != 8:
+        if target != "link" and preset != "pipe_lite":
+            fail("coding: 8b10b is currently supported only for target: link "
+                 "(or preset: pipe_lite, which owns the encoder/decoder)")
+        if preset != "pipe_lite" and width != 8:
             fail("coding: 8b10b requires link.payload_width: 8")
-        if align not in ("external", "comma_8b10b"):
+        if preset != "pipe_lite" and align not in ("external", "comma_8b10b"):
             fail("coding: 8b10b requires rx.align: external or comma_8b10b "
                  "(external comma or K28.5 self-alignment)")
 
@@ -1022,7 +1187,9 @@ def validate(spec: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
         "rx_frontend": "rtl" if target in ("link", "rx") else "none",
         "equalization": "none",
         "termination": "none",
-        "lane_bonding": "single",
+        # A bonded link advertises its lane count; everything else is single.
+        "lane_bonding": ({2: "2_lane", 4: "4_lane"}.get(lanes, "single")
+                         if preset == "multilane" else "single"),
         "power_management": "none",
         "fec": "none",
     }
@@ -1079,9 +1246,11 @@ def validate(spec: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
             missing_blocks += ["calibration", "dft", "scan", "clock_gating"]
         if preset == "soc" and not soc_any:
             missing_blocks += ["soc_axi_apb_cdc_wrapper"]
-        if data_mode == "axi4_stream" and target == "link" and not soc_any:
+        if (data_mode == "axi4_stream" and target == "link" and not soc_any
+            and preset != "multilane"):
             missing_blocks += ["link_axis_wrapper"]
-        if (control == "apb" or cdc != "none" or features) and not soc_any:
+        if ((control == "apb" or cdc != "none" or features) and not soc_any
+            and preset != "multilane"):
             missing_blocks += ["apb_cdc_bist_integration"]
         missing_blocks = sorted(set(missing_blocks))
         if missing_blocks:
@@ -1095,6 +1264,8 @@ def validate(spec: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
         "target": target,
         "width": width,
         "words": words,
+        "lanes": lanes,
+        "deskew": deskew_cfg,
         "ratio": ratio,
         "coding": coding,
         "line_rate": line_rate,
@@ -1104,6 +1275,7 @@ def validate(spec: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
         "rx_period_ns": rx_period_ns,
         "tx_arch_name": tx_arch_name,
         "tx_rate_mode": tx_rate_mode,
+        "rx_rate_mode": rx_rate_mode,
         "tx_bank_mode": tx_bank_mode,
         "rx_arch_name": rx_arch_name,
         "clocking": clocking,
@@ -1207,7 +1379,13 @@ def build_plan(cfg: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
     else:
         cfg["clock_evidence"] = None
 
-    if cfg["target"] == "link":
+    if cfg["preset"] == "multilane":
+        design = "serdes_multilane_top"
+    elif cfg["preset"] == "raw_pcs":
+        design = "serdes_raw_pcs_top"
+    elif cfg["preset"] == "pipe_lite":
+        design = "serdes_pipe_lite_top"
+    elif cfg["target"] == "link":
         if soc_single:
             design = "serdes_soc_wrapper"
         elif soc_cdc:
@@ -1225,8 +1403,11 @@ def build_plan(cfg: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
             design = ("serdes_tx_axis_digital"
                       if cfg["data_mode"] == "axi4_stream" else tx_arch["module"])
     else:
-        design = ("serdes_rx_axis_digital"
-                  if cfg["data_mode"] == "axi4_stream" else rx_arch["module"])
+        if cfg.get("rx_rate_mode") == "half":
+            design = "serdes_rx_half_rate_digital"
+        else:
+            design = ("serdes_rx_axis_digital"
+                      if cfg["data_mode"] == "axi4_stream" else rx_arch["module"])
 
     if design not in DESIGN_FILES:
         fail(f"internal: no file list for design {design}")
@@ -1250,6 +1431,29 @@ def build_plan(cfg: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
         })
     if design == "serdes_soc_cdc_wrapper":
         params["FIFO_DEPTH"] = cfg["fifo_depth"]
+    if design == "serdes_multilane_top":
+        deskew = cfg["deskew"]
+        marker_period = deskew["marker_period"]
+        max_skew = deskew["max_skew"]
+        params.update({
+            "LANES": cfg["lanes"],
+            "MARKER_PERIOD": marker_period,
+            "MAX_SKEW": max_skew,
+            # lane_deskew requires a power-of-two depth that covers two marker
+            # periods plus the declared skew.
+            "DESKEW_DEPTH": 1 << max(2 * marker_period + max_skew - 1,
+                                     2 * marker_period - 1).bit_length(),
+            "FIFO_DEPTH": cfg["fifo_depth"],
+            "TAG_WIDTH": 4,
+            "SYNC_WORD": cfg["sync_pattern"],
+            "OVERSAMPLE": cfg["oversample"],
+            "SYNC_STAGES": cfg["sync_stages"],
+            "LOCK_THRESH": cfg["lock_thresh"],
+            "LOCK_STALE_BITS": cfg["lock_stale_bits"],
+            "CDR_MODE": int(rx_arch.get("cdr_mode", 2)),
+            "CDR_BYPASS": 1 if cfg["oversample"] == 1 else 0,
+            "ALIGN_MODE": cfg["align_mode"],
+        })
     if design in ("serdes_rx_digital", "serdes_rx_axis_digital", "serdes_digital_top",
                   "serdes_8b10b_top", "serdes_64b66b_top"):
         params.update({
@@ -1268,6 +1472,33 @@ def build_plan(cfg: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
     if design == "serdes_rx_digital":
         params["CLK_OUT_ENABLE"] = (1 if cfg["optimization"].get("export_clk_out", True)
                                     else 0)
+    if design == "serdes_pipe_lite_top":
+        params.pop("WORDS", None)
+        params.update({
+            "OVERSAMPLE": int(cfg["oversample"]),
+            "CDR_MODE": int(rx_arch.get("cdr_mode", 2)),
+            "SYNC_STAGES": cfg["sync_stages"],
+        })
+    if design == "serdes_raw_pcs_top":
+        params.pop("WORDS", None)
+        os_value = int(cfg["oversample"])
+        params.update({
+            "OVERSAMPLE": os_value,
+            "CDR_MODE": int(rx_arch.get("cdr_mode", 2)),
+            "SYNC_STAGES": cfg["sync_stages"],
+            "SYNC_LEN": cfg["sync_len"],
+            "SYNC_PATTERN": cfg["sync_pattern"],
+            "PHASE_CTRL_W": 1 if os_value <= 1 else (os_value - 1).bit_length(),
+        })
+    if design == "serdes_rx_half_rate_digital":
+        os_value = int(cfg["oversample"])
+        params.update({
+            "SYNC_STAGES": cfg["sync_stages"],
+            "ALIGN_MODE": cfg["align_mode"],
+            "SYNC_LEN": cfg["sync_len"],
+            "SYNC_PATTERN": cfg["sync_pattern"],
+            "PHASE_CTRL_W": 1 if os_value <= 1 else (os_value - 1).bit_length(),
+        })
     # Phase/threshold training is only wired into the digital top and the SoC
     # CDC wrapper (the two tops that own the oversampling-CDR phase actuator).
     if (cfg["capabilities"]["training"] == "phase_threshold" and
@@ -1288,6 +1519,21 @@ def build_plan(cfg: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
         # clk_bit runs at the line rate; clk_word is the divide-by-2 word clock.
         clock_period = cfg["tx_period_ns"]
         clock_ports = ["clk_word", "clk_bit"]
+    elif design == "serdes_rx_half_rate_digital":
+        # source_sync: rx_period_ns is the bit clock; clk_word is /2.
+        clock_period = cfg["rx_period_ns"]
+        clock_ports = ["clk_word", "clk_bit"]
+    elif design == "serdes_raw_pcs_top":
+        clock_period = (cfg["rx_period_ns"] if cfg["target"] == "rx"
+                        else cfg["tx_period_ns"])
+        clock_ports = ["clk"]
+    elif design == "serdes_multilane_top":
+        clock_period = cfg["tx_period_ns"]
+        clock_ports = ["tx_clk", "rx_clk", "core_clk"]
+    elif design == "serdes_pipe_lite_top":
+        clock_period = (cfg["rx_period_ns"] if cfg["target"] == "rx"
+                        else cfg["tx_period_ns"])
+        clock_ports = ["clk"]
     elif cfg["target"] == "link":
         clock_period = cfg["tx_period_ns"]
         clock_ports = ["tx_clk", "rx_clk"]
@@ -1417,8 +1663,16 @@ def digital_capability_report(cfg: dict[str, Any], plan: dict[str, Any]) -> dict
                          "integrated": False},
         "termination": {"selected": "none", "implementation": "none",
                         "integrated": False},
-        "lane_bonding": {"selected": "single", "implementation": "rtl",
-                         "integrated": True},
+        "lane_bonding": {
+            "selected": cfg["capabilities"]["lane_bonding"],
+            "implementation": "rtl",
+            "integrated": True,
+            "lanes": cfg["lanes"],
+            "deskew": ("marker/epoch, per-lane elastic buffer"
+                       if cfg["lanes"] > 1 else "n/a"),
+            "marker_period": cfg["deskew"]["marker_period"],
+            "max_skew_words": cfg["deskew"]["max_skew"],
+        },
         "power_management": {"selected": "none", "implementation": "none",
                              "integrated": False},
         "fec": {"selected": "none", "implementation": "none",
@@ -1506,6 +1760,110 @@ def sdc_text(cfg: dict[str, Any], plan: dict[str, Any], stage: str) -> str:
         f"# Stage: {stage}",
         "",
     ]
+    if plan["design"] == "serdes_pipe_lite_top":
+        period = rx if target == "rx" else tx
+        lines += [
+            f"set CLK_PERIOD_NS {period:.6f}",
+            "create_clock -name clk -period $CLK_PERIOD_NS [get_ports clk]",
+            "# PIPE word clocks are clk / 20 (two 8b/10b symbols per word).",
+            "set WORD_DIV 20",
+            "create_generated_clock -name tx_usr_clk -source [get_ports clk] "
+            "-divide_by $WORD_DIV [get_ports tx_usr_clk]",
+            "create_generated_clock -name rx_rec_clk -source [get_ports clk] "
+            "-divide_by $WORD_DIV [get_ports rx_rec_clk]",
+            f"set_clock_uncertainty -setup {setup:.3f} [get_clocks clk]",
+            f"set_clock_uncertainty -hold  {hold:.3f} [get_clocks clk]",
+            f"set_clock_uncertainty -setup {setup:.3f} [get_clocks tx_usr_clk]",
+            f"set_clock_uncertainty -hold  {hold:.3f} [get_clocks tx_usr_clk]",
+            f"set_clock_uncertainty -setup {setup:.3f} [get_clocks rx_rec_clk]",
+            f"set_clock_uncertainty -hold  {hold:.3f} [get_clocks rx_rec_clk]",
+            "",
+            "set_input_delay  -clock tx_usr_clk 0.200 "
+            "[get_ports {tx_data* tx_datak* tx_valid}]",
+            "set_output_delay -clock tx_usr_clk 0.200 [get_ports tx_ready]",
+            "set_output_delay -clock clk 0.200 "
+            "[get_ports {tx_serial_out tx_serial_valid}]",
+            "set_input_delay  -clock clk 0.200 "
+            "[get_ports {rx_serial_in power_down* rate tx_elec_idle rx_elec_idle "
+            "tx_detect_rx}]",
+            "set_output_delay -clock rx_rec_clk 0.200 "
+            "[get_ports {rx_data* rx_datak* rx_valid rx_status*}]",
+            "set_output_delay -clock clk 0.200 "
+            "[get_ports {phy_status analog_tx_elec_idle analog_rx_elec_idle "
+            "analog_tx_det_rx rx_lock}]",
+            "set_load 0.010 [get_ports tx_serial_out]",
+            "",
+        ]
+        if stage == "pre_pnr":
+            lines += [
+                "# Pre-CTS: asynchronous reset recovery/removal is not signed off yet.",
+                "set_false_path -from [get_ports rst_n]",
+                "foreach pin [get_pins -hierarchical *RESET_B] { set_false_path -through $pin }",
+                "foreach pin [get_pins -hierarchical *RN]      { set_false_path -through $pin }",
+                "foreach pin [get_pins -hierarchical *SN]      { set_false_path -through $pin }",
+                "foreach pin [get_pins -hierarchical *SETN]    { set_false_path -through $pin }",
+                "foreach pin [get_pins -hierarchical *SET_B]   { set_false_path -through $pin }",
+            ]
+        else:
+            lines += [
+                "# Post-CTS/signoff: reset recovery/removal is enabled.",
+                "set_propagated_clock [all_clocks]",
+            ]
+        lines += signoff_extras(cfg, stage)
+        return _sdc_finish(lines, io, load)
+
+    if plan["design"] == "serdes_raw_pcs_top":
+        width = int(plan["params"]["DATA_WIDTH"])
+        period = rx if target == "rx" else tx
+        lines += [
+            f"set CLK_PERIOD_NS {period:.6f}",
+            "create_clock -name clk -period $CLK_PERIOD_NS [get_ports clk]",
+            f"set WORD_DIV {width}",
+            "# Word clocks are clk / DATA_WIDTH (standard-cell divider).",
+            "create_generated_clock -name tx_usr_clk -source [get_ports clk] "
+            "-divide_by $WORD_DIV [get_ports tx_usr_clk]",
+            "create_generated_clock -name rx_rec_clk -source [get_ports clk] "
+            "-divide_by $WORD_DIV [get_ports rx_rec_clk]",
+            f"set_clock_uncertainty -setup {setup:.3f} [get_clocks clk]",
+            f"set_clock_uncertainty -hold  {hold:.3f} [get_clocks clk]",
+            f"set_clock_uncertainty -setup {setup:.3f} [get_clocks tx_usr_clk]",
+            f"set_clock_uncertainty -hold  {hold:.3f} [get_clocks tx_usr_clk]",
+            f"set_clock_uncertainty -setup {setup:.3f} [get_clocks rx_rec_clk]",
+            f"set_clock_uncertainty -hold  {hold:.3f} [get_clocks rx_rec_clk]",
+            "",
+            "set_input_delay  -clock tx_usr_clk 0.200 "
+            "[get_ports {tx_data* tx_valid}]",
+            "set_output_delay -clock tx_usr_clk 0.200 [get_ports tx_ready]",
+            "set_output_delay -clock clk 0.200 "
+            "[get_ports {tx_serial_out tx_serial_valid}]",
+            "set_input_delay  -clock clk 0.200 "
+            "[get_ports {rx_serial_in rx_slide rx_align_bypass}]",
+            "set_output_delay -clock rx_rec_clk 0.200 "
+            "[get_ports {rx_data* rx_valid}]",
+            "set_output_delay -clock clk 0.200 "
+            "[get_ports {rx_lock rx_busy rx_frame_locked}]",
+            "set_false_path -to [get_ports rx_clk_out]",
+            "set_load 0.010 [get_ports tx_serial_out]",
+            "",
+        ]
+        if stage == "pre_pnr":
+            lines += [
+                "# Pre-CTS: asynchronous reset recovery/removal is not signed off yet.",
+                "set_false_path -from [get_ports rst_n]",
+                "foreach pin [get_pins -hierarchical *RESET_B] { set_false_path -through $pin }",
+                "foreach pin [get_pins -hierarchical *RN]      { set_false_path -through $pin }",
+                "foreach pin [get_pins -hierarchical *SN]      { set_false_path -through $pin }",
+                "foreach pin [get_pins -hierarchical *SETN]    { set_false_path -through $pin }",
+                "foreach pin [get_pins -hierarchical *SET_B]   { set_false_path -through $pin }",
+            ]
+        else:
+            lines += [
+                "# Post-CTS/signoff: reset recovery/removal is enabled.",
+                "set_propagated_clock [all_clocks]",
+            ]
+        lines += signoff_extras(cfg, stage)
+        return _sdc_finish(lines, io, load)
+
     if target in ("link", "tx"):
         lines += [
             f"set TX_PERIOD_NS {tx:.6f}",
@@ -1522,6 +1880,18 @@ def sdc_text(cfg: dict[str, Any], plan: dict[str, Any], stage: str) -> str:
             f"set_clock_uncertainty -hold  {hold:.3f} [get_clocks rx_clk]",
             "",
             "set_clock_groups -asynchronous -group [get_clocks tx_clk] -group [get_clocks rx_clk]",
+        ]
+    if plan["design"] == "serdes_multilane_top":
+        # The deskew runs in its own core clock; the per-lane recovered clocks
+        # only reach the async FIFO write side.
+        lines += [
+            "",
+            f"set CORE_PERIOD_NS {tx:.6f}",
+            "create_clock -name core_clk -period $CORE_PERIOD_NS [get_ports core_clk]",
+            f"set_clock_uncertainty -setup {setup:.3f} [get_clocks core_clk]",
+            f"set_clock_uncertainty -hold  {hold:.3f} [get_clocks core_clk]",
+            "set_clock_groups -asynchronous -group [get_clocks tx_clk] "
+            "-group [get_clocks rx_clk] -group [get_clocks core_clk]",
         ]
     elif target == "rx":
         lines += [
@@ -1634,6 +2004,53 @@ def sdc_text(cfg: dict[str, Any], plan: dict[str, Any], stage: str) -> str:
             "set_output_delay -clock clk_word 0.200 [get_ports in_ready]",
             "set_output_delay -clock clk_bit 0.200 [get_ports {serial_out serial_valid busy frame_done}]",
             "set_load 0.010 [get_ports serial_out]",
+            "",
+        ]
+        if stage == "pre_pnr":
+            lines += [
+                "# Pre-CTS: asynchronous reset recovery/removal is not signed off yet.",
+                "set_false_path -from [get_ports rst_n]",
+                "foreach pin [get_pins -hierarchical *RESET_B] { set_false_path -through $pin }",
+                "foreach pin [get_pins -hierarchical *RN]      { set_false_path -through $pin }",
+                "foreach pin [get_pins -hierarchical *SN]      { set_false_path -through $pin }",
+                "foreach pin [get_pins -hierarchical *SETN]    { set_false_path -through $pin }",
+                "foreach pin [get_pins -hierarchical *SET_B]   { set_false_path -through $pin }",
+            ]
+        else:
+            lines += [
+                "# Post-CTS/signoff: reset recovery/removal is enabled.",
+                "set_propagated_clock [all_clocks]",
+            ]
+        lines += signoff_extras(cfg, stage)
+        return _sdc_finish(lines, io, load)
+
+    if plan["design"] == "serdes_rx_half_rate_digital":
+        word_period = rx * 2.0
+        lines = [
+            f"# Generated by OpenSERDES gen_ip.py ({stage}). Do not edit by hand.",
+            f"# Stage: {stage}",
+            "",
+            f"set BIT_PERIOD_NS {rx:.6f}",
+            "create_clock -name clk_bit -period $BIT_PERIOD_NS [get_ports clk_bit]",
+            f"set WORD_PERIOD_NS {word_period:.6f}",
+            "# clk_word is the divide-by-2 word clock; keep the phase relationship.",
+            "create_generated_clock -name clk_word -source [get_ports clk_bit] "
+            "-divide_by 2 [get_ports clk_word]",
+            f"set_clock_uncertainty -setup {setup:.3f} [get_clocks clk_bit]",
+            f"set_clock_uncertainty -hold  {hold:.3f} [get_clocks clk_bit]",
+            f"set_clock_uncertainty -setup {setup:.3f} [get_clocks clk_word]",
+            f"set_clock_uncertainty -hold  {hold:.3f} [get_clocks clk_word]",
+            "",
+            "set_input_delay  -clock clk_bit 0.200 [get_ports rx_serial_in]",
+            "set_input_delay  -clock clk_word 0.200 "
+            "[get_ports {rx_enable rx_flush rx_align}]",
+            "set_output_delay -clock clk_word 0.200 "
+            "[get_ports {rx_par_data* rx_par_valid rx_busy rx_lock rx_lock_stale "
+            "rx_frame_locked rx_frame_valid rx_freq_trim*}]",
+            "set_output_delay -clock clk_bit 0.200 "
+            "[get_ports {rx_serial_data rx_serial_valid rx_sample_strobe}]",
+            "set_false_path -to [get_ports rx_clk_out]",
+            "set_load 0.010 [get_ports rx_serial_data]",
             "",
         ]
         if stage == "pre_pnr":
@@ -2144,7 +2561,10 @@ def main() -> int:
         "spec_sha256": hashlib.sha256(spec_text.encode()).hexdigest(),
         "target": cfg["target"],
         "design": plan["design"],
+        "interface_class": ("PIPE_DIGITAL_COMPAT"
+                            if cfg["preset"] == "pipe_lite" else None),
         "tx_rate_mode": cfg.get("tx_rate_mode", "full"),
+        "rx_rate_mode": cfg.get("rx_rate_mode", "full"),
         "tx_bank_mode": cfg.get("tx_bank_mode", "single"),
         "line_rate_mbps": cfg["line_rate"],
         "data_width": cfg["width"],

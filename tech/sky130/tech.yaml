@@ -2,6 +2,65 @@ name: sky130
 pdk_root: ${PDK_ROOT}
 pdk: sky130A
 scl: sky130_fd_sc_hd
+# Additional same-process libraries.  hd and hdll are both 2.72 um (9-track)
+# cells, so they tile the same rows and can be mixed cell-by-cell -- the ics55
+# H7CL/H7CH/H7CR pattern, applied to sky130 leakage/speed classes.  Views are
+# built by scripts/sky_install_family.py (json->Liberty conversion plus merged
+# LEF/GDS/CDL), installed under libs.ref/<scl>, and carry their own SCL config.
+scl_variants:
+  sky130_fd_sc_hdll:
+    vt: LVT
+    native_dff: sky130_fd_sc_hdll__dfrtp_1
+    track_height: 9
+    cell_height_um: 2.72
+    # hdll is the low-leakage family: same footprint and drive strength as hd
+    # but slower and weaker.  Its liberty characterises no pin below 1.0 ns
+    # max_transition, so hd's 0.5 ns design rule is unsatisfiable by
+    # construction and repair_design spirals.  Use the family's own ceilings.
+    cts:
+      max_slew_ns: 1.0
+      max_cap_ff: 200
+      max_fanout: 10
+      target_skew_ps: 50
+    corners:
+      nom_tt_025C_1v80:
+        - ${PDK_LIB_ROOT}/sky130A/libs.ref/sky130_fd_sc_hdll/lib/sky130_fd_sc_hdll__tt_025C_1v80.lib
+      nom_ss_100C_1v60:
+        - ${PDK_LIB_ROOT}/sky130A/libs.ref/sky130_fd_sc_hdll/lib/sky130_fd_sc_hdll__ss_100C_1v60.lib
+  # Leakage-first mix: hdll is the default family (all 324 cells) and hd
+  # contributes only the 145 cells hdll does not have (ICG dlclkp, dfrtn,
+  # tristate ebufn/einvn/einvp, lpflow, delay cells, probe, and the `_0`
+  # drive variants).  There is no equal-footprint tie for ABC to break, so
+  # every cell the flow picks is the low-leakage one; this is the ics55
+  # "HVT default + other Vt where needed" pattern.
+  sky130_ll9t:
+    vt: mixed
+    native_dff: sky130_fd_sc_hdll__dfrtp_1
+    track_height: 9
+    cell_height_um: 2.72
+    cts:
+      max_slew_ns: 1.0
+      max_cap_ff: 200
+      max_fanout: 10
+      target_skew_ps: 50
+    corners:
+      nom_tt_025C_1v80:
+        - ${PDK_LIB_ROOT}/sky130A/libs.ref/sky130_ll9t/lib/sky130_ll9t__tt_025C_1v80.lib
+      nom_ss_100C_1v60:
+        - ${PDK_LIB_ROOT}/sky130A/libs.ref/sky130_ll9t/lib/sky130_ll9t__ss_100C_1v60.lib
+  # hd + hdll merged into one library (752 cells: 428 hd + 324 hdll) so the
+  # synthesiser, resizer and CTS can pick per cell.  Mixed `hdll` cells are
+  # lower-leakage equivalents for the same footprint and drive strength.
+  sky130_mix9t:
+    vt: mixed
+    native_dff: sky130_fd_sc_hd__dfrtp_1
+    track_height: 9
+    cell_height_um: 2.72
+    corners:
+      nom_tt_025C_1v80:
+        - ${PDK_LIB_ROOT}/sky130A/libs.ref/sky130_mix9t/lib/sky130_mix9t__tt_025C_1v80.lib
+      nom_ss_100C_1v60:
+        - ${PDK_LIB_ROOT}/sky130A/libs.ref/sky130_mix9t/lib/sky130_mix9t__ss_100C_1v60.lib
 default_corner: nom_tt_025C_1v80
 corners:
   nom_tt_025C_1v80:

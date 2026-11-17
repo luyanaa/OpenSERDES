@@ -22,7 +22,7 @@ Measured cells / DFF:
 
   tx parallel_mux            109 / 41   @32      582 / 268  @256
   tx word_group_capture      142 / 46   @32      626 / 277  @256
-  tx word_streaming          308 / 44   @32     1977 / 272  @256
+  tx word_streaming          111 / 44   @32      407 / 272  @256   (shift-register rewrite)
   rx fixed_oversampling OS4   218 / 67  @32      758 / 319  @256
   rx fixed_oversampling OS8   228 / 68  @32      767 / 320  @256
   rx adaptive_oversampling    847 / 115 @32     1382 / 367  @256
@@ -38,6 +38,12 @@ Scope and limits (do not overclaim):
   It is the correct quantity for comparing oversampling factors, and is NOT
   a power measurement. Real power needs SAIF + report_power.
 * rel_latency comes from the documented handshake behaviour, not from STA.
+* word_streaming was re-measured after the shift-register rewrite: the
+  indexed `data_q[capture_idx]` write plus the WORDS-way read mux became a
+  shift register with the current word fixed at data_q[0].  Cells fell from
+  298 to 111 at RATIO=32 and from 1983 to 407 at RATIO=256 (Yosys generic
+  gates, same method).  The DFF series is unchanged: the rewrite is
+  flop-count neutral.
 * bang_bang_oversampling is measured, not modelled.  Re-measured after C2
   (registered NCO control word, commit a587565): **1158 cells / 139 DFF at
   RATIO=32** and 1768 / 391 at RATIO=256.  That is **5.3x** the cells of
@@ -59,7 +65,7 @@ from __future__ import annotations
 CELL_MODEL: dict[str, tuple[float, float, float, float]] = {
     "parallel_mux":           (41.4, 2.112,  8.6, 1.013),
     "word_group_capture":     (72.8, 2.161, 13.0, 1.031),
-    "word_streaming":         (69.6, 7.451, 11.4, 1.018),
+    "word_streaming":         (68.7, 1.321, 11.4, 1.018),
     "fixed_oversampling":    (140.8, 2.411, 31.0, 1.124),
     "fixed_oversampling_os2": (140.8, 2.411, 31.0, 1.124),
     "bang_bang_oversampling": (1070.9, 2.723, 103.0, 1.125),

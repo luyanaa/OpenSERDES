@@ -1,7 +1,8 @@
 # Demonstrates that optimization weights/budgets now change the selected
-# architecture (item 4). At 32x8 parallel_mux is excluded by max_ratio_bits=128,
-# so word_group_capture (small) and word_streaming (3.4x cells but marginally
-# lower clock load) are both candidates for target: tx.
+# architecture (item 4). At 32x8 parallel_mux is excluded by max_ratio_bits=128.
+# word_streaming used to be 3.4x the cells of word_group_capture; after the
+# shift-register write-path rewrite it is smaller (407 vs 626 generic cells at
+# 32x8) and has the lower clock load, so it wins the minmax selection.
 name: power_tradeoff_32x8
 target: tx
 link:

@@ -53,6 +53,59 @@ Notes on the invocation, each of which was a hard failure before it was fixed:
 
 ## Measured results (LibreLane 3.0.17)
 
+### Current two-gate signoff runs
+
+Timing closure and physical signoff are independent gates: `status=measured`
+requires both to pass.  Power is the post-route OpenSTA default-activity total
+(it is not a workload `E_bit`).  "data" counts exclude CTS clock-tree nets.
+
+| PDK | period | line rate | cells | core area | setup WNS | hold WNS | data slew/cap/fanout | clock fanout/cap | route DRC | Magic | KLayout | LVS | status |
+|---|---:|---:|---:|---:|---:|---:|---|---:|---:|---:|---:|---:|---|
+| gf180mcuD (AS 3.3 V) | 20 ns | 12.5 Mb/s | 3459 | 51947 um2 | +8.37 ns | +0.14 ns | 0 / 0 / 0 | - | 0 | 0 | 0 | 0 | measured |
+| ihp-sg13g2 | 10 ns | 25 Mb/s | 2534 | 28181 um2 | +2.22 ns | +0.08 ns | 0 / 0 / 0 | 1 / - | 0 | 0 | 0 | 0 | measured |
+| sky130 | 22 ns | 11.36 Mb/s | 2136 | 15090 um2 | +6.71 ns | +0.09 ns | 0 / 0 / 0 | 1 / 1 | 0 | 0 | 0 | 0 | measured |
+| icsprout55 (H7CL) | 10 ns | 25 Mb/s | 2835 | 6448 um2 | +1.82 ns | +0.01 ns | 0 / 3 / 0 | 1 / 1 | 0 | n/a | 1295 | ERC | measured_with_violations |
+
+What closed the gates (all in `scripts/run_cross_pdk_pnr.py`):
+
+- `signoff.sdc` carries the design-rule limits, but PnR steps read
+  `PNR_SDC_FILE`.  The signoff `set_max_fanout`/`transition`/`capacitance`
+  lines are now copied into a PnR SDC copy, so `repair_design` sees the same
+  rules that post-route STA checks.  Before this, gf180 AS reported 3 slew
+  violations to the resizer and 50 at signoff.
+- Repair steps are pinned to the slow corner with `RSZ_CORNERS`.  OpenROAD's
+  resizer repairs the corner it has loaded, and the multi-corner load order is
+  not stable: sky130 had 194 SS max-slew violations when TT was loaded first
+  and 5 when SS was pinned.
+- CTS sink clustering is set to the signoff fanout minus one so a CTS dummy
+  load still fits under the limit.
+- IHP `PDN_RAIL_WIDTH` is 0.44 um, matching the sg13g2 stdcell rail
+  (`VDD RECT 0 3.56 1.44 4`).  The PDK's 1.0 um rail overhangs each cell rail
+  by 0.28 um and produced 4602 `M1.b` + 165 `M1.e` items; the full-design
+  KLayout/Magic DRC is now 0.
+- Post-GRT repair margin is 25% (default 10%): detailed-route RC otherwise
+  leaves marginal nets 2-3% over (sky130 5 nets at 0.508 vs 0.500).
+- ics55 runs at `FP_CORE_UTIL 35`; at the default sizing the repaired design
+  filled the core and had no room for the buffers the repair needed.
+
+Clock-tree fanout and capacitance are recorded separately as
+`clock_fanout_violations` / `clock_cap_violations`.  A ~140-sink design cannot
+satisfy fanout 10 at both the CTS root and the leaves in a two-level tree
+(root = ceil(140/cluster), leaf = cluster), TritonCTS does not add a third
+level, and OpenSTA accepts `set_max_fanout` only on the design object
+(`STA-0100` for nets and pins).  Data nets keep the design limits.
+
+ics55 remains `measured_with_violations` for two independent reasons: three
+library pin-capacitance items (1.8-11% over, on minimum-size
+`NOR2X0P5H7L`/`AOAI211X0P7H7L`/`OAOI211X0P7H7L` drivers) and the full-design
+KLayout deck (1295 items: well/implant/via-enclosure and metal width/area).
+Route DRC is 0, `ICS55_LVS_COMPARE=PASS` and the netlists match; the recorded
+LVS failure is the deck's ERC `erc_pathcheck_bad` on one net whose label was
+written off the wire (its DEF net `_0336_` is routed on MET2, but the label
+landed at the bbox centre, which is not on the L-shape).
+
+### Earlier measurements (superseded by the two-gate runs above)
+
 Target is the post-route `nom_*` corner set; power is post-route total
 (internal + switching + leakage).  `CP` is the worst-corner critical-path data
 arrival from `55-openroad-stapostpnr/*/max.rpt`.

@@ -7,11 +7,16 @@
 `define TB_CAPTURE_MODE 0
 `endif
 
+`ifndef TB_WORD_ONEHOT
+`define TB_WORD_ONEHOT 0
+`endif
+
 module tb_serializer #(
     parameter int DATA_WIDTH = 8,
     parameter int WORDS      = 4,
     parameter bit LSB_FIRST  = (`TB_LSB_FIRST != 0),
-    parameter bit CAPTURE_MODE = (`TB_CAPTURE_MODE != 0)
+    parameter bit CAPTURE_MODE = (`TB_CAPTURE_MODE != 0),
+    parameter bit WORD_ONEHOT  = (`TB_WORD_ONEHOT != 0)
 );
 
     localparam int RATIO = DATA_WIDTH * WORDS;
@@ -33,7 +38,8 @@ module tb_serializer #(
         .DATA_WIDTH(DATA_WIDTH),
         .WORDS(WORDS),
         .LSB_FIRST(LSB_FIRST),
-        .CAPTURE_MODE(CAPTURE_MODE)
+        .CAPTURE_MODE(CAPTURE_MODE),
+        .WORD_ONEHOT(WORD_ONEHOT)
     ) dut (
         .clk(clk),
         .rst_n(rst_n),
@@ -157,7 +163,7 @@ module tb_serializer #(
             $display("FAIL: tb_serializer errors=%0d LSB_FIRST=%0b", errors, LSB_FIRST);
             $fatal(1);
         end
-        $display("PASS: tb_serializer LSB_FIRST=%0b CAPTURE_MODE=%0b", LSB_FIRST, CAPTURE_MODE);
+        $display("PASS: tb_serializer LSB_FIRST=%0b CAPTURE_MODE=%0b WORD_ONEHOT=%0b", LSB_FIRST, CAPTURE_MODE, WORD_ONEHOT);
         $finish;
     end
 

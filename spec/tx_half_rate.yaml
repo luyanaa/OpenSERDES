@@ -1,5 +1,6 @@
-# Half-rate TX endpoint (item 7). target: tx only; there is no verified
-# half-rate RX. clk_bit runs at the line rate; clk_word = clk_bit / 2.
+# Half-rate TX endpoint. target: tx only; the half-rate RX is a separate
+# rx.rate_mode: half package (spec/rx_half_rate.yaml). clk_bit runs at the
+# line rate; clk_word = clk_bit / 2.
 name: tx_half_rate_8x4
 target: tx
 link:

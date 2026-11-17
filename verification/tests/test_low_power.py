@@ -73,8 +73,11 @@ class TestLowPower(unittest.TestCase):
         r, m = self._run(spec)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertNotEqual(m["clocking"]["source"], "source_sync")
-        # 25 Mb/s x OS=8 = 200 MHz, within the icsprout55 400 MHz gate.
-        self.assertEqual(m["clocking"]["sample_clock_mhz"], 200.0)
+        # 25 Mb/s x OS=4 = 100 MHz.  The default for a frequency offset is the
+        # 4x bang-bang loop (0.60x the clock load of 8x adaptive at RATIO=32).
+        self.assertEqual(m["clocking"]["sample_clock_mhz"], 100.0)
+        self.assertEqual(m["architecture"]["rx"]["name"],
+                         "bang_bang_oversampling")
 
     def test_auto_oversample_prefers_os2_with_allow_os2(self) -> None:
         spec = _spec()

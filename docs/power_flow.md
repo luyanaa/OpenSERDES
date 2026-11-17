@@ -64,10 +64,33 @@ carries `ppa_provenance` with the report hash and activity source.
 
 ## What this does NOT close
 
-- **No SAIF/VCD activity annotation was added.**  OpenSTA `report_power` uses
-  default switching activity, so `power__total` is a default-activity
-  estimate, not workload-accurate power.  The record says so in
-  `activity_source`.  Adding SAIF from `make sim` is the next step.
+- **`make sim` still does not annotate a PnR run.**  `collect_power.py`
+  refuses to turn default OpenSTA activity into `energy_j_per_bit`.  E_bit
+  = P_active / R_useful is written only for a named workload (`prbs`,
+  `constant`, `alternating`, `throughput`, `idle`) with a SAIF or VCD file
+  and an annotation coverage in [0, 1].  `R_useful` is the payload rate
+  after training, coding and framing.  `idle` has no payload, so its rate
+  is zero and E_bit stays null.
+- **Half-rate CTS power is not a workload energy.**
+  `scripts/cts_power.py` (`make cts-power`) places `serializer_half_rate`
+  (4x8) and runs `clock_tree_synthesis`.  The recorded CTS number is
+  `report_power` in that OpenROAD session after
+  `estimate_parasitics -placement`.  Activity is the OpenSTA default: the
+  new buffers are not in a pre-CTS VCD, so there is no annotation coverage
+  and `energy_j_per_bit` is null.  Analog stays null.  Placement wire
+  capacitance is not routed SPEF.  See `docs/timing_optimization.md` §4.4.
+- **Pre-route workload annotation is a separate script.**
+  `scripts/annotate_activity.py` maps `serializer` (4x8, capture mode 0),
+  simulates the gate netlist with `-DFUNCTIONAL` (Yosys does not tie the
+  sky130 power pins, and the timing models then drive X), dumps every cell
+  pin, and reads that VCD in OpenSTA.  ABC is told not to use `lpflow*`
+  cells: they mapped `ready` to an isolation cell and the frame never
+  started.  Coverage, power groups and the measured payload rate are
+  written to `build/activity/serializer.json`.  The Clock group is recorded
+  when OpenSTA prints it; with no CTS it is zero, which is a real report
+  value, not a missing bucket.  Analog stays null.  This is ideal-clock,
+  no-SPEF power.  It does not replace a post-route `collect_power.py`
+  record and must not be compared with one.
 - The 4.59 mW point is for the **soft-stdcell analog link** top
   (`serdes_analog_link`), not for an individual generated digital TX/RX
   endpoint package.  It is a flow demonstration, not a per-architecture PPA

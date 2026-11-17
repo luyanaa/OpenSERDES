@@ -34,12 +34,14 @@ class TestOptimization(unittest.TestCase):
             return r, None
         return r, json.loads((out / "manifest.json").read_text())
 
-    def test_budgets_reject_a_candidate(self) -> None:
+    def test_budgets_keep_the_smaller_candidate(self) -> None:
+        # After the shift-register rewrite word_streaming is smaller than
+        # word_group_capture at 32x8, so the same budget accepts it.
         r, m = self._run(BASE)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         sel = m["architecture"]["tx"]["selection"]
-        self.assertIn("word_streaming: area exceeds budget", sel["budget_rejections"])
-        self.assertEqual(m["architecture"]["tx"]["name"], "word_group_capture")
+        self.assertEqual(sel["budget_rejections"], [])
+        self.assertEqual(m["architecture"]["tx"]["name"], "word_streaming")
         self.assertEqual(m["optimization"]["aggregation"], "minmax")
 
     def test_power_only_weights_change_the_winner(self) -> None:
@@ -63,13 +65,12 @@ class TestOptimization(unittest.TestCase):
         # wins under lexicographic ordering.
         self.assertEqual(m["architecture"]["tx"]["name"], "word_streaming")
 
-    def test_no_budget_gives_a_two_candidate_frontier(self) -> None:
+    def test_no_budget_frontier_is_word_streaming(self) -> None:
         spec = json.loads(json.dumps(BASE))
         spec["optimization"]["budgets"] = {}
         r, m = self._run(spec)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        self.assertEqual(sorted(m["architecture"]["tx"]["frontier"]),
-                         ["word_group_capture", "word_streaming"])
+        self.assertEqual(m["architecture"]["tx"]["frontier"], ["word_streaming"])
 
     def test_unknown_weight_key_is_rejected(self) -> None:
         spec = json.loads(json.dumps(BASE))

@@ -123,6 +123,12 @@ Do not claim a timing optimization from the mux-tree prototype alone.
 
 ## 4.2 Half-rate prototype result
 
+The RX side is now integrated: `rx.rate_mode: half` generates
+`serdes_rx_half_rate_digital` (pair handshake + comma-per-frame alignment) and
+`spec/rx_half_rate.yaml` builds it.  See `docs/half_rate.md` for the clock
+contract, scope and test evidence.  The TX numbers below remain the TX
+prototype measurement.
+
 `rtl/serializer_half_rate.sv` adds a true two-clock prototype:
 
 - `clk_word` captures `WORDS` words and owns the input handshake;
@@ -174,6 +180,54 @@ as a complete half-rate RX claim.
 history.  The pair deserializer and sampler are now individually verified;
 wiring them into one frame-aligned RX with valid gaps/CDR/comma alignment is
 still open.
+
+## 4.4 Capture fanout, word select, and half-rate CTS
+
+Three TX experiments, all on sky130 HD TT (`sky130_fd_sc_hd__tt_025C_1v80`).
+ABC was told not to use `lpflow*` cells.  Bit order, frame length and reset
+were unchanged; `tb_serializer` covers LSB, MSB, capture mode, one-hot word
+select, and an 8x8 capture frame.  None of these numbers is post-route.
+
+Mapped `serializer` at 8 words x 8 bits, 5 ns ideal clock, no SPEF:
+
+| Variant | Cells | DFF | Worst slack |
+|---|---:|---:|---:|
+| `WORD_ONEHOT=0` (binary counter) | 227 | 72 | 1.455 ns |
+| `WORD_ONEHOT=1` (one-hot word select) | 221 | 77 | 1.691 ns |
+| `CAPTURE_MODE=1` before local groups | 259 | 81 | 2.754 ns |
+| `CAPTURE_MODE=1` with groups of 4 | 269 | 83 | 2.826 ns |
+
+The one-hot worst path is `active_q` to `word_oh_q[0]` (1.691 ns).  The
+counter worst path is `active_q` to `word_sel_q[0]` (1.455 ns).  That is the
+word-select state update, not a measured delay of the serial mux.  One-hot
+costs five flops and six fewer mapped cells, and it stays off unless
+`WORD_ONEHOT` is set.  Both capture variants have the same worst path,
+`bit_sel_q[0]` to `word_sel_q[0]`.  The first gate decodes all three
+bit-counter bits: NAND3 before the groups, AND3 after.  Local groups move
+that slack by 0.07 ns and add two flops, so they are not a capture-enable
+timing win at 8x8.
+
+Half-rate CTS is a different point: `serializer_half_rate` at 4 words x 8
+bits, `clk_bit` 5 ns and `clk_word` 10 ns.  OpenROAD floorplans at 40%
+utilization, places the design, builds the tree, then reports power in that
+same session after `estimate_parasitics -placement` (met3 clock, met2
+signal).  `clk_bit` has 12 sinks and `clk_word` has 39 before buffering.
+The run inserts 8 `clkbuf_4` plus 3 dummy `clkinv` loads.
+
+| Netlist | Total | Clock group |
+|---|---:|---:|
+| Ideal clock, no wire capacitance | 0.6723 mW | 0 |
+| After CTS, placement wire estimate | 0.8726 mW | 0.1159 mW |
+
+The clock group is the tree under **default** OpenSTA activity.  The total
+also moves because the placement estimate adds signal wire capacitance, so
+the 0.20 mW total delta is not the tree.  There is no VCD of the inserted
+buffers, `energy_j_per_bit` stays null, and this is not routed SPEF.  A run
+with zero sinks, zero buffers, zero clock-wire RC, or zero clock power is
+rejected by `scripts/cts_power.py` and does not write the record.
+
+Do not compare the 0.658 ns half-rate slack in section 4.2 with this 4x8 CTS
+point.  That slack is the default 32x8 mapping before CTS.
 
 ## 5. Recommendation
 

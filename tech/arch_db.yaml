@@ -51,7 +51,11 @@ tx:
   word_streaming:
     module: serdes_tx_stream_digital
     capture_mode: 0
-    supports_link: false
+    # The multi-lane top drives one serializer_stream per lane from a shared
+    # word slot; that is the word_streaming handshake, so this architecture is
+    # the only one a bonded link can use.
+    supports_link: true
+    link_tops: ["serdes_multilane_top"]
     max_ratio_bits: 4096
     max_line_rate_mbps: 150
     latency_factor: 1.25

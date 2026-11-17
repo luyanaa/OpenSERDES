@@ -32,7 +32,7 @@ module tb_deserializer_half_rate #(
     deserializer_half_rate #(
         .DATA_WIDTH(DATA_WIDTH), .WORDS(WORDS), .LSB_FIRST(LSB_FIRST)
     ) dut (
-        .clk_word(clk), .rst_n(rst_n), .enable(enable), .clear(clear),
+        .clk_word(clk), .rst_n(rst_n), .enable(enable), .clear(clear), .align(1'b0),
         .pair_valid(pair_valid), .bit0(bit0), .bit1(bit1),
         .par_data(par_data), .par_valid(par_valid), .busy(busy)
     );

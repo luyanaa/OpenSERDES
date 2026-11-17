@@ -14,6 +14,14 @@
 // TX AXIS frame = WORDS+1 beats: comma (0xBC) + WORDS payload words.
 // RX AXIS frame = WORDS payload words.
 //
+// ENC_8B10B=1 inserts the streaming 8b/10b codec between the AXIS adapters and
+// the serializer/deserializer: the AXIS side stays DATA_WIDTH bits, the line
+// side runs 10-bit symbols.  Beat 0 of every TX frame is encoded as K28.5 and
+// the RX side decodes the trailing comma symbol of each group (dropping it)
+// so the running disparity tracks the transmitter across frames.  K28.5
+// alignment is done by pcs_8b10b_comma and seeds the decoder's disparity;
+// there is no 8-bit comma search in this mode.
+//
 // CSR map (word addresses):
 //   0       CONTROL          RW: [0] tx_enable, [1] rx_enable, [2] rx_flush,
 //                                [3] tx_clear, [4] rx_clear
@@ -64,6 +72,10 @@ module serdes_soc_cdc_wrapper #(
     parameter logic [BIST_PRBS_WIDTH-1:0] BIST_SEED = '1,
     parameter int OVERSAMPLE = 1,
     parameter int CDR_MODE = 2,
+    // Line coding: 0 = raw DATA_WIDTH words, 1 = streaming 8b/10b symbols.
+    parameter bit ENC_8B10B = 1'b0,
+    // Aligned commas required before the RX symbol boundary is trusted.
+    parameter int ALIGN_LOCK_COMMAS = 1,
     parameter bit TRAINING_ENABLE = 1'b0,
     parameter int TRAIN_DWELL_CYCLES = 64,
     parameter int TRAIN_ERROR_WIDTH = 16,
@@ -127,12 +139,24 @@ module serdes_soc_cdc_wrapper #(
     output logic                              train_retrain,
     output logic [PHASE_CTRL_W-1:0]           train_phase,
     output logic [PHASE_CTRL_W-1:0]           train_best_phase,
-    output logic [TRAIN_ERROR_WIDTH-1:0]      train_best_errors
+    output logic [TRAIN_ERROR_WIDTH-1:0]      train_best_errors,
+    // Sticky 8b/10b encode/decode/disparity error (0 when ENC_8B10B=0).
+    output logic                              code_error
 );
 
     localparam int CRC_BYTES = (CRC_WIDTH + DATA_WIDTH - 1) / DATA_WIDTH;
     localparam int TX_WORDS = WORDS + 1 + (CRC_ENABLE ? CRC_BYTES : 0);
     localparam int RX_WORDS = WORDS + (CRC_ENABLE ? CRC_BYTES : 0);
+
+    // With 8b/10b the core is 10 bits wide and the RX group is exactly the
+    // payload (the comma is consumed by the align cycle and re-seeds the
+    // decoder disparity every frame).
+    localparam int CORE_WIDTH     = ENC_8B10B ? 10 : DATA_WIDTH;
+    localparam int CORE_WORDS     = RX_WORDS;
+    localparam int CORE_ALIGN     = ENC_8B10B ? 0 : 2;
+    localparam int CORE_SYNC_LEN  = ENC_8B10B ? 1 : SYNC_LEN;
+    localparam logic [CORE_SYNC_LEN-1:0] CORE_SYNC_PATTERN =
+        ENC_8B10B ? {CORE_SYNC_LEN{1'b1}} : SYNC_PATTERN;
 
     // PRBS width reported in BIST_STATUS[7:5].
     localparam logic [2:0] BIST_WIDTH_CODE = (BIST_PRBS_WIDTH == 7)  ? 3'b001 :
@@ -158,6 +182,7 @@ module serdes_soc_cdc_wrapper #(
 
     logic tx_enable_p, rx_enable_p, rx_flush_p, tx_clear_p, rx_clear_p;
     logic bist_enable_p, bist_start_p, bist_clear_p, bist_inject_p, bist_loopback_p;
+    logic bist_word_mode_p;
     logic tx_enable_tx, tx_clear_tx, tx_clear_tx_d, tx_clear_pulse;
     logic rx_enable_rx, rx_flush_rx, rx_flush_rx_d, rx_flush_pulse;
     logic rx_clear_rx, rx_clear_rx_d, rx_clear_pulse;
@@ -176,6 +201,10 @@ module serdes_soc_cdc_wrapper #(
     assign bist_clear_p    = csr_regs[8][2];
     assign bist_inject_p   = csr_regs[8][3];
     assign bist_loopback_p = csr_regs[8][4];
+    // Bit 6 selects word-BIST: the RX payload stream is consumed by the
+    // word checker instead of the AXIS FIFO (same convention as the
+    // single-clock SoC wrapper).
+    assign bist_word_mode_p = csr_regs[8][6];
 
     assign status = {21'b0, m_axis_valid_p, rx_status_p, tx_status_p, tx_axis_ready_p};
 
@@ -242,7 +271,7 @@ module serdes_soc_cdc_wrapper #(
     // BIST control into the link clock domains
     // -------------------------------------------------------------------------
     logic bist_enable_tx, bist_start_tx, bist_clear_tx, bist_inject_tx, bist_loopback_tx;
-    logic bist_enable_rx, bist_loopback_rx;
+    logic bist_enable_rx, bist_loopback_rx, bist_clear_rx, bist_word_mode_rx;
 
     cdc_sync #(.WIDTH(1)) u_bist_enable_tx (
         .clk(tx_clk), .rst_n(tx_rst_n), .d(bist_enable_p), .q(bist_enable_tx)
@@ -265,6 +294,12 @@ module serdes_soc_cdc_wrapper #(
     );
     cdc_sync #(.WIDTH(1)) u_bist_loopback_rx (
         .clk(rx_clk), .rst_n(rx_rst_n), .d(bist_loopback_p), .q(bist_loopback_rx)
+    );
+    cdc_sync #(.WIDTH(1)) u_bist_clear_rx (
+        .clk(rx_clk), .rst_n(rx_rst_n), .d(bist_clear_p), .q(bist_clear_rx)
+    );
+    cdc_sync #(.WIDTH(1)) u_bist_word_mode_rx (
+        .clk(rx_clk), .rst_n(rx_rst_n), .d(bist_word_mode_p), .q(bist_word_mode_rx)
     );
 
     // -------------------------------------------------------------------------
@@ -347,17 +382,42 @@ module serdes_soc_cdc_wrapper #(
 
     assign tx_core_enable = tx_enable_tx & ~bist_enable_tx;
 
+    // ENC_8B10B: the adapter still hands over DATA_WIDTH words; the codec
+    // stage encodes one byte per cycle and the serializer shifts 10-bit
+    // symbols.  Without coding the word bus is wired straight through.
+    logic [CORE_WIDTH-1:0] ser_word;
+    logic                  ser_valid, ser_ready;
+    logic                  tx_code_error;
+
+    generate
+        if (ENC_8B10B) begin : g_tx_8b10b
+            pcs_8b10b_tx_stream #(.WORDS(TX_WORDS)) u_enc (
+                .clk(tx_clk), .rst_n(tx_rst_n),
+                .enable(tx_core_enable), .flush(tx_clear_pulse),
+                .s_valid(tx_in_valid), .s_ready(tx_in_ready),
+                .s_data(tx_in_word),
+                .m_valid(ser_valid), .m_ready(ser_ready), .m_code(ser_word),
+                .code_error(tx_code_error)
+            );
+        end else begin : g_tx_raw
+            assign ser_word       = tx_in_word;
+            assign ser_valid      = tx_in_valid;
+            assign tx_in_ready    = ser_ready;
+            assign tx_code_error  = 1'b0;
+        end
+    endgenerate
+
     serializer_stream #(
-        .DATA_WIDTH(DATA_WIDTH),
+        .DATA_WIDTH(CORE_WIDTH),
         .WORDS(TX_WORDS),
         .LSB_FIRST(LSB_FIRST)
     ) u_serializer (
         .clk(tx_clk),
         .rst_n(tx_rst_n),
         .enable(tx_core_enable),
-        .in_valid(tx_in_valid),
-        .in_ready(tx_in_ready),
-        .in_word(tx_in_word),
+        .in_valid(ser_valid),
+        .in_ready(ser_ready),
+        .in_word(ser_word),
         .serial_out(tx_core_serial_out),
         .serial_valid(tx_core_serial_valid),
         .busy(tx_busy),
@@ -384,8 +444,15 @@ module serdes_soc_cdc_wrapper #(
     logic bist_error, bist_error_pulse_tx;
     /* verilator lint_on UNUSEDSIGNAL */
     logic [31:0] bist_error_count, bist_bit_count;
-    logic [TRAIN_ERROR_WIDTH-1:0] bist_train_error_count;
     logic bist_running;
+
+    // RX-side word checker.  It runs in rx_clk on the payload stream that the
+    // training FSM observes, so its error count feeds the FSM directly.  This
+    // replaces the previous tx_clk -> rx_clk error-count delta integrator and
+    // its cdc_snapshot.
+    logic bist_word_error;
+    logic [31:0] bist_word_error_count, bist_word_frame_count;
+    logic [TRAIN_ERROR_WIDTH-1:0] train_error_total;
 
     assign tx_serial_out   = bist_enable_tx ? bist_serial_out : tx_core_serial_out;
     assign tx_serial_valid = bist_enable_tx ? bist_start_tx   : tx_core_serial_valid;
@@ -414,49 +481,6 @@ module serdes_soc_cdc_wrapper #(
         .error_count(bist_error_count),
         .bit_count(bist_bit_count)
     );
-
-    // The BIST error event is a single tx_clk-cycle pulse; passing it through a
-    // plain 2FF synchronizer can drop it entirely when tx_clk/rx_clk are
-    // asynchronous.  Instead the cumulative 32-bit error_count is carried to
-    // rx_clk through a coherent snapshot and the RX domain integrates the
-    // delta, which cannot lose an event (the count is monotonic).  A decrease
-    // (BIST clear/restart) resets the local accumulator.
-    logic                      bist_err_snap_valid;
-    logic [31:0]               bist_error_count_rx;
-    logic [31:0]               bist_error_count_rx_d;
-
-    cdc_snapshot #(.WIDTH(32)) u_bist_err_cnt_rx (
-        .dclk(rx_clk), .drst_n(rx_rst_n),
-        .valid(bist_err_snap_valid), .data_o(bist_error_count_rx),
-        .sclk(tx_clk), .srst_n(tx_rst_n),
-        .data_i(bist_error_count)
-    );
-
-    always_ff @(posedge rx_clk or negedge rx_rst_n) begin
-        if (!rx_rst_n) begin
-            bist_error_count_rx_d <= '0;
-            bist_train_error_count <= '0;
-        end else if (rx_clear_pulse | rx_flush_pulse) begin
-            bist_error_count_rx_d  <= bist_error_count_rx;
-            bist_train_error_count <= '0;
-        end else begin
-            bist_error_count_rx_d <= bist_error_count_rx;
-            if (!bist_err_snap_valid) begin
-                bist_error_count_rx_d  <= bist_error_count_rx;
-                bist_train_error_count <= '0;
-            end else if (bist_error_count_rx < bist_error_count_rx_d) begin
-                // BIST counters cleared/restarted in tx_clk domain.
-                bist_train_error_count <= '0;
-            end else begin
-                bist_train_error_count <= bist_train_error_count +
-                    TRAIN_ERROR_WIDTH'(bist_error_count_rx - bist_error_count_rx_d);
-            end
-        end
-    end
-    /* verilator lint_off UNUSEDSIGNAL */
-    logic [TRAIN_ERROR_WIDTH-1:0] train_error_total;
-    assign train_error_total = train_error_count + bist_train_error_count;
-    /* verilator lint_on UNUSEDSIGNAL */
 
     logic bist_snap_valid, bist_error_snap, bist_running_snap;
     logic [31:0] bist_error_count_snap, bist_bit_count_snap;
@@ -539,6 +563,8 @@ module serdes_soc_cdc_wrapper #(
     // RX path: RX core -> adapter -> AXIS async FIFO
     // -------------------------------------------------------------------------
     logic [RX_WORDS-1:0][DATA_WIDTH-1:0] rx_par_data;
+    logic [CORE_WORDS-1:0][CORE_WIDTH-1:0] rx_core_par_data;
+    logic rx_core_par_valid, rx_adapter_par_valid;
     logic rx_frame_valid, rx_par_valid, rx_busy;
     logic rx_lock, rx_lock_stale, rx_frame_locked, rx_frame_overflow;
     logic rx_axis_tvalid, rx_axis_tready, rx_axis_tlast;
@@ -563,6 +589,74 @@ module serdes_soc_cdc_wrapper #(
 
     assign rx_core_enable    = rx_enable_rx & ~bist_enable_rx;
     assign rx_core_serial_in = bist_loopback_rx ? tx_serial_out_rx : rx_serial_in;
+
+    // -------------------------------------------------------------------------
+    // 8b/10b RX: K28.5 symbol alignment on the recovered serial stream, then
+    // sequential decode of the symbol group.  The trailing comma is decoded
+    // (for running disparity) but not forwarded.
+    // -------------------------------------------------------------------------
+    logic rx_core_align;
+    logic rx_comma_pulse, rx_comma_locked, rx_comma_rd_plus;
+    logic rx_dec_frame_valid, rx_dec_idle, rx_comma_seed;
+    logic [RX_WORDS-1:0][DATA_WIDTH-1:0] rx_dec_payload;
+    logic [RX_WORDS-1:0] rx_dec_charisk;
+    logic rx_code_error;
+
+    generate
+        if (ENC_8B10B) begin : g_rx_8b10b
+            // Every frame starts with K28.5: retrigger so each comma
+            // re-establishes the 40-bit group boundary and the disparity seed.
+            pcs_8b10b_comma #(
+                .LOCK_COMMAS(ALIGN_LOCK_COMMAS), .RETRIGGER(1'b1)
+            ) u_comma (
+                .clk(rx_clk), .rst_n(rx_rst_n), .enable(rx_core_enable),
+                .flush(rx_flush_pulse | ~rx_enable_rx | ~rx_lock),
+                .slip_req(1'b0),
+                .serial_in(rx_serial_data), .serial_valid(rx_serial_valid),
+                .align(rx_comma_pulse), .locked(rx_comma_locked),
+                /* verilator lint_off PINCONNECTEMPTY */
+                .comma_seen(),
+                /* verilator lint_on PINCONNECTEMPTY */
+                .comma_rd_plus(rx_comma_rd_plus)
+            );
+
+            assign rx_core_align  = rx_comma_pulse;
+            // Seed the disparity only between groups.  A comma that shows up
+            // while a group is being decoded is a line-idle artefact (valid
+            // 8b/10b payload cannot contain the comma); ignoring its seed
+            // keeps the in-flight group intact, and the next real comma
+            // re-seeds before the following group starts.
+            assign rx_comma_seed = rx_comma_pulse & rx_dec_idle;
+
+            pcs_8b10b_rx_stream #(.SYMBOLS(CORE_WORDS)) u_dec (
+                .clk(rx_clk), .rst_n(rx_rst_n), .enable(rx_core_enable),
+                .flush(rx_flush_pulse | ~rx_enable_rx | ~rx_comma_locked),
+                .par_data(rx_core_par_data), .par_valid(rx_core_par_valid),
+                .rd_init(rx_comma_rd_plus), .rd_load(rx_comma_seed),
+                .payload(rx_dec_payload), .charisk(rx_dec_charisk),
+                .frame_valid(rx_dec_frame_valid),
+                .code_error(rx_code_error), .idle(rx_dec_idle)
+            );
+
+            assign rx_adapter_par_valid = rx_dec_frame_valid & rx_comma_locked;
+            assign rx_par_data          = rx_dec_payload;
+        end else begin : g_rx_raw
+            assign rx_comma_pulse       = 1'b0;
+            assign rx_comma_locked      = 1'b1;
+            assign rx_comma_rd_plus     = 1'b0;
+            assign rx_core_align        = 1'b0;
+            assign rx_dec_frame_valid   = 1'b0;
+            assign rx_dec_payload       = '0;
+            assign rx_dec_charisk       = '0;
+            assign rx_code_error        = 1'b0;
+            assign rx_dec_idle          = 1'b1;
+            assign rx_comma_seed        = 1'b0;
+            assign rx_adapter_par_valid = rx_frame_valid;
+            assign rx_par_data          = rx_core_par_data;
+        end
+    endgenerate
+
+    assign code_error = tx_code_error | rx_code_error;
 
     generate
         if (TRAINING_ENABLE) begin : g_train
@@ -596,30 +690,30 @@ module serdes_soc_cdc_wrapper #(
     endgenerate
 
     serdes_rx_digital #(
-        .DATA_WIDTH(DATA_WIDTH),
-        .WORDS(RX_WORDS),
+        .DATA_WIDTH(CORE_WIDTH),
+        .WORDS(CORE_WORDS),
         .LSB_FIRST(LSB_FIRST),
         .OVERSAMPLE(OVERSAMPLE),
         .CDR_MODE(CDR_MODE),
         .CDR_BYPASS(OVERSAMPLE == 1),
-        .ALIGN_MODE(2),
-        .SYNC_LEN(SYNC_LEN),
-        .SYNC_PATTERN(SYNC_PATTERN),
+        .ALIGN_MODE(CORE_ALIGN),
+        .SYNC_LEN(CORE_SYNC_LEN),
+        .SYNC_PATTERN(CORE_SYNC_PATTERN),
         .ADAPT_FRAC_BITS(ADAPT_FRAC_BITS)
     ) u_rx (
         .rx_clk(rx_clk),
         .rx_rst_n(rx_rst_n),
         .rx_enable(rx_core_enable),
         .rx_flush(rx_flush_pulse),
-        .rx_align(1'b0),
+        .rx_align(rx_core_align),
         .rx_serial_in(rx_core_serial_in),
         .phase_offset(phase_offset),
         .rx_smp(1'b0),  // mode 4 needs an external sampler; modes 0-3 ignore it
         /* verilator lint_off PINCONNECTEMPTY */
         .rx_dll_tap(),
         /* verilator lint_on PINCONNECTEMPTY */
-        .rx_par_data(rx_par_data),
-        .rx_par_valid(rx_par_valid),
+        .rx_par_data(rx_core_par_data),
+        .rx_par_valid(rx_core_par_valid),
         .rx_busy(rx_busy),
         .rx_lock(rx_lock),
         .rx_lock_stale(rx_lock_stale),
@@ -640,7 +734,7 @@ module serdes_soc_cdc_wrapper #(
         .clk(rx_clk),
         .rst_n(rx_rst_n),
         .clear(rx_clear_pulse | rx_flush_pulse),
-        .par_valid(rx_frame_valid),
+        .par_valid(rx_adapter_par_valid),
         .par_data(rx_par_data),
         .m_axis_tvalid(rx_adapter_tvalid),
         .m_axis_tready(rx_adapter_tready),
@@ -684,9 +778,31 @@ module serdes_soc_cdc_wrapper #(
             rx_crc_error_sticky <= 1'b1;
     end
 
-    assign rx_fifo_winc  = rx_axis_tvalid && ~rx_fifo_wfull;
+    // In word-BIST mode the payload stream is consumed by the checker and
+    // must not enter the AXIS FIFO.
+    assign rx_fifo_winc  = rx_axis_tvalid && ~bist_word_mode_rx && ~rx_fifo_wfull;
     assign rx_fifo_wdata = {rx_axis_tlast, rx_axis_tdata};
-    assign rx_axis_tready = ~rx_fifo_wfull;
+    assign rx_axis_tready = bist_word_mode_rx ? 1'b1 : ~rx_fifo_wfull;
+
+    prbs_word_check #(
+        .WIDTH(BIST_PRBS_WIDTH),
+        .DATA_WIDTH(DATA_WIDTH),
+        .WORDS(WORDS),
+        .SEED(BIST_SEED)
+    ) u_bist_word_check (
+        .clk(rx_clk),
+        .rst_n(rx_rst_n),
+        .clear(rx_clear_pulse | rx_flush_pulse | bist_clear_rx),
+        .word_valid(rx_axis_tvalid & bist_word_mode_rx),
+        .word_last(rx_axis_tlast),
+        .word_in(rx_axis_tdata),
+        .error(bist_word_error),
+        .error_count(bist_word_error_count),
+        .frame_count(bist_word_frame_count)
+    );
+
+    assign train_error_total = train_error_count +
+        TRAIN_ERROR_WIDTH'(bist_word_error_count);
     assign rx_fifo_rinc   = m_axis_tvalid && m_axis_tready;
 
     async_fifo #(

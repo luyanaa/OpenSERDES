@@ -31,6 +31,18 @@ def _spec(target: str = "tx", enable: str = "static") -> dict:
     }
 
 
+def _rx_spec(target: str = "rx", **rx_overrides) -> dict:
+    spec = _spec(target=target)
+    spec["tx"] = {"architecture": "word_streaming"}
+    spec["rx"] = {
+        "architecture": "source_sync", "rate_mode": "half", "oversample": 1,
+        "align": "comma_per_frame", "clocking": "source_sync", "ppm": 0,
+        "sync_len": 8, "sync_pattern": 188,
+    }
+    spec["rx"].update(rx_overrides)
+    return spec
+
+
 class TestRateMode(unittest.TestCase):
     def setUp(self) -> None:
         self._tmp = tempfile.TemporaryDirectory()
@@ -81,6 +93,35 @@ class TestRateMode(unittest.TestCase):
         r, _, _ = self._run(spec)
         self.assertEqual(r.returncode, 2)
         self.assertIn("rate_mode", r.stdout + r.stderr)
+
+    def test_half_rate_rx_package(self) -> None:
+        r, m, sdc = self._run(_rx_spec())
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(m["design"], "serdes_rx_half_rate_digital")
+        self.assertEqual(m["rx_rate_mode"], "half")
+        self.assertEqual(m["clocking"]["ports"], ["clk_word", "clk_bit"])
+        self.assertIn("create_clock -name clk_bit", sdc)
+        self.assertIn("create_generated_clock -name clk_word", sdc)
+        self.assertIn("divide_by 2", sdc)
+        files = (self.d / "o0" / "rtl" / "filelist.f")
+        self.assertIn("rx_pair_align.sv", files.read_text())
+        self.assertIn("deserializer_half_rate.sv", files.read_text())
+
+    def test_half_rate_rx_rejected_for_link(self) -> None:
+        r, _, _ = self._run(_rx_spec(target="link"))
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("target: rx", r.stdout + r.stderr)
+
+    def test_half_rate_rx_requires_source_sync(self) -> None:
+        r, _, _ = self._run(_rx_spec(clocking="independent", oversample=4))
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("source_sync", r.stdout + r.stderr)
+
+    def test_half_rate_rx_rejects_non_raw_coding(self) -> None:
+        spec = _rx_spec()
+        spec["link"]["coding"] = "8b10b"
+        r, _, _ = self._run(spec)
+        self.assertEqual(r.returncode, 2)
 
 
 if __name__ == "__main__":

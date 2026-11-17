@@ -211,9 +211,37 @@ CASES = [
     ("prbs31", "tb_prbs", ["rtl/prbs_gen.sv", "rtl/prbs_check.sv"], {"WIDTH": 31}),
     ("serdes_soc_wrapper", "tb_serdes_soc_wrapper", [str(p) for p in sorted((ROOT / "rtl").glob("*.sv"))], {}),
     ("serdes_soc_cdc_wrapper", "tb_serdes_soc_cdc_wrapper", [str(p) for p in sorted((ROOT / "rtl").glob("*.sv"))], {}),
+    ("soc_cdc_8b10b", "tb_soc_cdc_8b10b", [str(p) for p in sorted((ROOT / "rtl").glob("*.sv"))], {}),
+    ("axis_frame_packetizer", "tb_axis_frame_packetizer", ["rtl/axis_frame_packetizer.sv"], {}),
+    ("8b10b", "tb_8b10b", ["rtl/encoder_8b10b.sv", "rtl/decoder_8b10b.sv"], {}),
+    ("pcs_8b10b", "tb_pcs_8b10b",
+     ["rtl/pcs_8b10b_tx.sv", "rtl/pcs_8b10b_rx.sv", "rtl/encoder_8b10b.sv",
+      "rtl/decoder_8b10b.sv"], {}),
+    ("pcs_comma_lock", "tb_pcs_comma_lock",
+     ["rtl/pcs_8b10b_comma.sv", "rtl/pcs_64b66b_lock.sv"], {}),
+    ("pcs_8b10b_realign", "tb_pcs_8b10b_realign",
+     ["rtl/pcs_8b10b_tx.sv", "rtl/pcs_8b10b_rx.sv", "rtl/encoder_8b10b.sv",
+      "rtl/decoder_8b10b.sv", "rtl/pcs_8b10b_comma.sv",
+      "rtl/deserializer.sv", "rtl/deserializer_word.sv"], {}),
+    ("pcs_serial_e2e", "tb_pcs_serial_e2e",
+     ["tb/channel_model.sv"] +
+     [str(p) for p in sorted((ROOT / "rtl").glob("*.sv"))], {}),
+    ("8b10b_kcodes", "tb_8b10b_kcodes",
+     [str(p) for p in sorted((ROOT / "rtl").glob("*.sv"))], {}),
+    ("64b66b", "tb_64b66b", ["rtl/pcs_64b66b.sv"], {}),
+    ("64b66b_gearbox", "tb_64b66b_gearbox", ["rtl/pcs_64b66b.sv"], {}),
+    ("64b66b_rx", "tb_64b66b_rx",
+     ["rtl/pcs_64b66b_rx_gearbox.sv", "rtl/pcs_64b66b_ctrl_decode.sv"], {}),
+    ("64b66b_top", "tb_64b66b_top",
+     [str(p) for p in sorted((ROOT / "rtl").glob("*.sv"))], {}),
     ("serdes_bist7", "tb_serdes_bist", ["rtl/serdes_bist.sv", "rtl/prbs_gen.sv", "rtl/prbs_check.sv"], {"WIDTH": 7}),
     ("serdes_bist15", "tb_serdes_bist", ["rtl/serdes_bist.sv", "rtl/prbs_gen.sv", "rtl/prbs_check.sv"], {"WIDTH": 15}),
     ("serdes_bist31", "tb_serdes_bist", ["rtl/serdes_bist.sv", "rtl/prbs_gen.sv", "rtl/prbs_check.sv"], {"WIDTH": 31}),
+    ("lane_deskew", "tb_lane_deskew", ["rtl/lane_deskew.sv"], {}),
+    ("multilane_axis", "tb_multilane_axis",
+     [str(p) for p in sorted((ROOT / "rtl").glob("*.sv"))], {}),
+    ("multilane_top", "tb_multilane_top",
+     [str(p) for p in sorted((ROOT / "rtl").glob("*.sv"))], {}),
     ("serdes_bist_word", "tb_serdes_bist_word", ["rtl/prbs_word_gen.sv", "rtl/prbs_word_check.sv", "rtl/serializer_stream.sv", "rtl/deserializer.sv", "rtl/deserializer_word.sv"], {}),
 ]
 
@@ -287,7 +315,8 @@ def run_generator_checks() -> tuple[int, int]:
                                        ("soc", "serdes_soc_cdc_wrapper"),
                                        ("tx_half_rate", "serdes_tx_half_rate_digital"),
                                        ("tx_pingpong", "serdes_tx_digital"),
-                                       ("bang_bang_4x", "serdes_rx_digital")):
+                                       ("bang_bang_4x", "serdes_rx_digital"),
+                                       ("multilane", "serdes_multilane_top")):
         total += 1
         out = ROOT / "build" / "gen" / spec_name
         cmd = [py, "scripts/gen_ip.py", "--spec", f"spec/{spec_name}.yaml",

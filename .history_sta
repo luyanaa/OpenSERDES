@@ -1,0 +1,5 @@
+help read_vcd
+help read_saif
+help report_power
+help report_activity_annotation
+help

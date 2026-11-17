@@ -3,6 +3,52 @@ pdk_root: ${PDK_ROOT}
 pdk: gf180mcuD
 scl: gf180mcu_fd_sc_mcu7t5v0
 default_corner: nom_tt_025C_5v00
+scl_variants:
+  # Foundry 9-track 5 V library.  Same three nom corners as the 7T default so
+  # a routed A/B stays on the same voltage; the PDK already ships the
+  # LibreLane config, tracks and SS/TT/FF liberty.
+  gf180mcu_fd_sc_mcu9t5v0:
+    native_dff: gf180mcu_fd_sc_mcu9t5v0__dffrnq_1
+    track_height: 9
+    cell_height_um: 5.04
+    corners:
+      nom_tt_025C_5v00:
+        - ${PDK_LIB_ROOT}/gf180mcuD/libs.ref/gf180mcu_fd_sc_mcu9t5v0/lib/gf180mcu_fd_sc_mcu9t5v0__tt_025C_5v00.lib
+      nom_ss_125C_4v50:
+        - ${PDK_LIB_ROOT}/gf180mcuD/libs.ref/gf180mcu_fd_sc_mcu9t5v0/lib/gf180mcu_fd_sc_mcu9t5v0__ss_125C_4v50.lib
+      nom_ff_n40C_5v50:
+        - ${PDK_LIB_ROOT}/gf180mcuD/libs.ref/gf180mcu_fd_sc_mcu9t5v0/lib/gf180mcu_fd_sc_mcu9t5v0__ff_n40C_5v50.lib
+  # Custom 3.3 V 7-track library under /grid/gf180mcu.  The ciel PDK does not
+  # ship this ref; the flow expects a symlink at
+  # $PDK_LIB_ROOT/gf180mcuD/libs.ref/gf180mcu_as_sc_mcu7t3v3.  No latch or ICG,
+  # so synthesis has to clear those maps (see scripts/run_cross_pdk_pnr.py).
+  gf180mcu_as_sc_mcu7t3v3:
+    native_dff: gf180mcu_as_sc_mcu7t3v3__dfsrtp_2
+    track_height: 7
+    cell_height_um: 3.92
+    corners:
+      nom_tt_025C_3v30:
+        - ${PDK_LIB_ROOT}/gf180mcuD/libs.ref/gf180mcu_as_sc_mcu7t3v3/lib/gf180mcu_as_sc_mcu7t3v3__tt_025C_3v30.lib
+      nom_ss_125C_3v00:
+        - ${PDK_LIB_ROOT}/gf180mcuD/libs.ref/gf180mcu_as_sc_mcu7t3v3/lib/gf180mcu_as_sc_mcu7t3v3__ss_125C_3v00.lib
+      nom_ff_n40C_3v60:
+        - ${PDK_LIB_ROOT}/gf180mcuD/libs.ref/gf180mcu_as_sc_mcu7t3v3/lib/gf180mcu_as_sc_mcu7t3v3__ff_n40C_3v60.lib
+  # OSU 9-track 3.3 V.  The ciel PDK ships the LibreLane config but not the
+  # ref; libs.ref/gf180mcu_osu_sc_gp9t3v3 is a link farm over
+  # /grid/gf180mcu/gf180mcu_osu_sc_gp9t3v3 with the liberty and techlef names
+  # the config globs.  No ICG and no reset latch.  Cell LVS black-boxes
+  # nfet_03v3/pfet_03v3, so a clean top-level LVS is not transistor proof.
+  gf180mcu_osu_sc_gp9t3v3:
+    native_dff: gf180mcu_osu_sc_gp9t3v3__dffsr_1
+    track_height: 9
+    cell_height_um: 6.30
+    corners:
+      nom_tt_025C_3v30:
+        - ${PDK_LIB_ROOT}/gf180mcuD/libs.ref/gf180mcu_osu_sc_gp9t3v3/lib/gf180mcu_osu_sc_gp9t3v3__tt_025C_3v30.lib
+      nom_ss_125C_3v00:
+        - ${PDK_LIB_ROOT}/gf180mcuD/libs.ref/gf180mcu_osu_sc_gp9t3v3/lib/gf180mcu_osu_sc_gp9t3v3__ss_125C_3v00.lib
+      nom_ff_n40C_3v60:
+        - ${PDK_LIB_ROOT}/gf180mcuD/libs.ref/gf180mcu_osu_sc_gp9t3v3/lib/gf180mcu_osu_sc_gp9t3v3__ff_n40C_3v60.lib
 corners:
   nom_tt_025C_5v00:
     - ${PDK_LIB_ROOT}/gf180mcuD/libs.ref/gf180mcu_fd_sc_mcu7t5v0/lib/gf180mcu_fd_sc_mcu7t5v0__tt_025C_5v00.lib

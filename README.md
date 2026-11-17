@@ -178,7 +178,13 @@ AXIS CRC 插入/检查原语。插入器把 CRC beats 追加在 payload 之后�
 
 ### `rtl/pcs_64b66b.sv`
 
-64b/66b 原语：2-bit sync header + 64-bit self-synchronous scrambler payload，支持 data/control block header、非法 sync 拒绝，以及 66-to-64-bit gearbox。`serdes_64b66b_top` 把 64-bit payload 编码到 66-bit line word；generator 在 `payload_width: 64`、`target: link`、`align: external` 时接受 `coding: 64b66b`。完整 IEEE control-field、lane distribution 仍是独立 PCS 工作。
+64b/66b 原语：2-bit sync header + 64-bit self-synchronous scrambler payload，支持 data/control block header、非法 sync 拒绝，以及 66-to-64-bit gearbox。`serdes_64b66b_top` 把 64-bit payload 编码到 66-bit line word；generator 在 `payload_width: 64`、`target: link`、`align: external` 时接受 `coding: 64b66b`。`RX_GEARBOX=1` 时 RX 侧由 `pcs_64b66b_rx_gearbox` 从 1-bit 串行流用 66-bit 滑窗锁块，`pcs_64b66b_ctrl_decode` 区分纯数据/全控制/混合起止块（`rx_ctrl_kind`/`rx_block_type`）；该模式限定 `WORDS==1`，TX 在帧间插入 IEEE 全控制 idle 块以保持块边界。完整 control-field 提取与 lane distribution 仍是独立 PCS 工作。详见 `docs/pcs_coding.md`。
+
+### 多 Lane 与链路层
+
+`rtl/serdes_multilane_top.sv` 把多路 source-sync / bang-bang 通道（每 lane 一个 `serializer_stream` + `serdes_rx_digital` + `async_fifo`）合成一个 word 流：TX 在所有 lane 的同一 word slot 发送，每 `MARKER_PERIOD` 个 payload word 插入一个带 epoch 的 marker，空闲时发 idle；RX 侧 `rtl/lane_deskew.sv` 用 per-lane 弹性缓冲吸收 lane 间整字偏移，从 marker 边界锁步放行，输出只有 payload（`marker_ok` 每 `MARKER_PERIOD` 个输出字 pulse 一次）。参数约束 `MARKER_PERIOD > MAX_SKEW`、`DESKEW_DEPTH >= 2*MARKER_PERIOD + MAX_SKEW`（2 的幂）在 elaboration 期 fail-closed；`CDR_MODE != 2` 时要求 `OVERSAMPLE >= 4` 且 `CDR_BYPASS=0`。SoC 侧由 `rtl/axis_lane_bonder.sv` 的 `axis_lane_bonder`/`axis_lane_debonder` 做宽 AXIS（`LANES*DATA_WIDTH`）与逐 lane word 之间的转换，debonder 用 `link_ok` 门控并在 `underflow` 计数被丢弃的 beat。`preset: multilane` 可直接生成该 package（`spec/multilane.yaml`，2/4/8 lane）。见 `docs/multilane.md`。
+
+`rtl/axis_frame_packetizer.sv` 把变长 AXIS 帧切片成 `axis_tx_adapter` 要求的固定 `WORDS` beat 帧（头 beat 带 `last_frag`/`frag_len`），`axis_frame_depacketizer` 负责还原。`rtl/axis_reliable_link.sv` 提供 go-back-N 可靠传输：`axis_crc_inserter/checker`（`STORE_AND_FORWARD=1`）+ 极简 Sequence ID + 累计 ACK/NAK，坏帧丢弃、重复帧重 ACK、超时/NAK 回退，超过 `RETRY_LIMIT` 置 sticky `link_error`。两者都是协议逻辑，`tlast`/`tuser` 是 sideband，接到串行链路需要 in-band 帧边界。见 `docs/link_layers.md`。
 
 ### `rtl/receiver_sampler.sv`
 
@@ -369,16 +375,16 @@ limits:
 - fixed/adaptive/source-sync 三种 CDR。
 - word-streaming serializer 架构。
 - spec-driven package generator、三级 SDC、qualification gate。
-- 8b/10b、64b/66b 编码层 package（`serdes_8b10b_top` / `serdes_64b66b_top`，generator 的 `coding:` 选择）、scrambler（`pcs_64b66b`）、CRC 原语（`crc_frame` / `axis_crc_*`，CRC-16/32 已验证）。**边界**：编码层 package 不是完整 PCS——8b10b 的 `enc_ctrl` 恒为 0、不产生 K 码/comma，64b66b 无完整 IEEE control-field / lane distribution；CRC 尚未接入生成包的 frame 路径。限制记录在 `manifest.capabilities.coding.limitations` 与 `docs/digital_training_crc.md`。
+- 8b/10b、64b/66b 编码层 package（`serdes_8b10b_top` / `serdes_64b66b_top`，generator 的 `coding:` 选择）、scrambler（`pcs_64b66b`）、CRC 原语（`crc_frame` / `axis_crc_*`，CRC-16/32 已验证）。8b/10b 的 K 码控制通路已打通（`tx_charisk/rx_charisk` 直通到 `pcs_8b10b_tx.ctrl`，`/I/ /S/ /T/` 可用），comma 对齐改为 10-bit K28.5 正负极性检测并支持 `RETRIGGER=1` per-frame 重对齐；64b/66b 增加了 66-bit 滑窗块锁、控制块类型解码和 RX gearbox。**边界**：8b10b package 的 `enc_ctrl` 仍恒为 0（K 码要经 `tx_charisk` 显式驱动，generator 不生成 K 码流）；64b66b 的 control-field 只做分类不做字节提取，无 lane distribution；CRC 尚未接入生成包的 frame 路径。限制记录在 `manifest.capabilities.coding.limitations` 与 `docs/pcs_coding.md`。
 
 仍未实现 / 不在本目录承诺：
 
-- FEC、完整 PCS（8b/10b K 码生成、64b/66b control/lane distribution 与完整 gearbox）、CRC 的生成包 frame 接入。
+- FEC、完整 PCS（K 码有序集调度、64b/66b control-field 提取与 lane distribution、多 lane 64b/66b gearbox）、CRC/可靠传输的生成包 frame 接入。
 - 单时钟 `serdes_soc_wrapper`、多时钟 `serdes_soc_cdc_wrapper`、pad BIST 和 word/数据通路 BIST 已实现并测试；APB 控制的注入/环回/快照已集成。仍缺 calibration、non-source-sync SoC CDR 集成，以及 CDC wrapper 的 word BIST（当前只在单时钟 wrapper 中）。
 - Scan/DFT、clock gating、BIST/calibration、DFT signoff。
 - 模拟 TX/RX 的 Verilog-A/RNM wrapper、PEX、SI/PI、jitter/BER、silicon correlation。
 - 目标 PDK 的 cellmap/floorplan/post-route signoff adapter；当前 `native_dff` 仍是文档字段，尚无自动 `dfflibmap` runner。
-- 标准单元目录/可用性见 [`docs/library_catalog.md`](docs/library_catalog.md)，结构优化路线见 [`docs/timing_optimization.md`](docs/timing_optimization.md)，sky130 PVT 证据见 [`docs/pvt_sky130.md`](docs/pvt_sky130.md)，PEX 状态见 [`docs/pex_status.md`](docs/pex_status.md)，PDK MC（ngspice 局部失配 / Xyce 全局 process）见 [`docs/mc_pdk.md`](docs/mc_pdk.md)，generated-top SoC E2E 见 [`docs/soc_e2e.md`](docs/soc_e2e.md)，模拟宏契约见 [`docs/analog_contracts.md`](docs/analog_contracts.md)，混合信号 PEX 链与 RX PEX 数字恢复见 [`docs/mixed_signal.md`](docs/mixed_signal.md)，宏 PnR 状态见 [`docs/analog_pnr.md`](docs/analog_pnr.md)，跨工艺宏生成器见 [`docs/macro_generator.md`](docs/macro_generator.md)。
+- 标准单元目录/可用性见 [`docs/library_catalog.md`]，sky130 各家族的逐 cell DRC/LVS 与 9-track 混合库（`hd`+`hdll`）布线与 PPA 见 [`docs/sky130_ifamily_mix.md`](docs/sky130_ifamily_mix.md)，结构优化路线见 [`docs/timing_optimization.md`](docs/timing_optimization.md)，sky130 PVT 证据见 [`docs/pvt_sky130.md`](docs/pvt_sky130.md)，PEX 状态见 [`docs/pex_status.md`](docs/pex_status.md)，PDK MC（ngspice 局部失配 / Xyce 全局 process）见 [`docs/mc_pdk.md`](docs/mc_pdk.md)，generated-top SoC E2E 见 [`docs/soc_e2e.md`](docs/soc_e2e.md)，模拟宏契约见 [`docs/analog_contracts.md`](docs/analog_contracts.md)，混合信号 PEX 链与 RX PEX 数字恢复见 [`docs/mixed_signal.md`](docs/mixed_signal.md)，宏 PnR 状态见 [`docs/analog_pnr.md`](docs/analog_pnr.md)，跨工艺宏生成器见 [`docs/macro_generator.md`](docs/macro_generator.md)。
 
 ## 7. 原生 DFF 映射策略
 

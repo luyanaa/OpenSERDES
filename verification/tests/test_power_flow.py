@@ -69,6 +69,46 @@ class TestPowerFlow(unittest.TestCase):
         self.assertEqual(d["metrics_sha256"],
                          hashlib.sha256((run / "final/metrics.json").read_bytes()).hexdigest())
         self.assertIn("default", d["activity_source"])
+        self.assertFalse(d["activity"]["workload_power"])
+        self.assertIsNone(d["energy_j_per_bit"])
+        self.assertIsNone(d["power_buckets_w"]["clock_tree"])
+        self.assertIsNone(d["power_buckets_w"]["analog"])
+
+    def test_default_activity_rejects_a_workload_rate(self) -> None:
+        run = _fixture_run(self.d)
+        p = subprocess.run(
+            [sys.executable, str(COLLECT), "--run", str(run),
+             "--out", str(self.d / "r.json"), "--useful-rate-mbps", "12.5"],
+            cwd=ROOT, text=True, capture_output=True, timeout=60)
+        self.assertNotEqual(p.returncode, 0)
+        self.assertIn("default activity", p.stdout + p.stderr)
+
+    def test_workload_without_annotation_is_rejected(self) -> None:
+        run = _fixture_run(self.d)
+        p = subprocess.run(
+            [sys.executable, str(COLLECT), "--run", str(run),
+             "--out", str(self.d / "r.json"), "--activity", "prbs",
+             "--useful-rate-mbps", "12.5", "--annotation-coverage", "1"],
+            cwd=ROOT, text=True, capture_output=True, timeout=60)
+        self.assertNotEqual(p.returncode, 0)
+        self.assertIn("--saif or --vcd", p.stdout + p.stderr)
+
+    def test_annotated_workload_emits_energy_per_bit(self) -> None:
+        run = _fixture_run(self.d)
+        saif = self.d / "act.saif"
+        saif.write_text("SAIF")
+        record = self.d / "r.json"
+        p = subprocess.run(
+            [sys.executable, str(COLLECT), "--run", str(run), "--out", str(record),
+             "--activity", "prbs", "--saif", str(saif),
+             "--annotation-coverage", "0.9", "--useful-rate-mbps", "100"],
+            cwd=ROOT, text=True, capture_output=True, timeout=60)
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        d = json.loads(record.read_text())
+        self.assertTrue(d["activity"]["workload_power"])
+        self.assertEqual(d["activity"]["scenario"], "prbs")
+        self.assertEqual(d["activity"]["annotation_coverage"], 0.9)
+        self.assertAlmostEqual(d["energy_j_per_bit"], 0.004 / 100e6)
 
     def test_full_chain_is_accepted(self) -> None:
         run = _fixture_run(self.d)

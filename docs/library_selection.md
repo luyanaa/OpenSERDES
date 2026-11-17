@@ -16,7 +16,7 @@ different track heights, drive strengths and leakage:
 | Library | Class | Relative speed | Relative area/leakage | Use |
 |---|---|---|---|---|
 | `sky130_fd_sc_hd` | high density, 9-track | baseline | baseline | current default; area-efficient |
-| `sky130_fd_sc_hs` | high speed, 11-track | **fastest** | larger, highest leakage | speed-critical digital |
+| `sky130_fd_sc_hs` | high speed, 11-track | measured fastest (TT only) | larger, highest leakage | **not installed** — no LEF/lib/GDS in this ciel tree |
 | `sky130_fd_sc_ms` | medium speed | between ls/hs | medium | speed/leakage compromise |
 | `sky130_fd_sc_ls` | low speed | slower | lower leakage | low-power, non-critical |
 | `sky130_fd_sc_lp` | low power | low speed | low leakage | sleep/low-power |
@@ -87,19 +87,15 @@ GF180MCU physical flow.
 
 - **DRC:** Magic `drc check` on every `.mag` cell:
   - 106/106 cells: **0 DRC errors**.
-- **LVS:** Magic extraction + Netgen against the delivered `.spice`, using the
-  GF180MCU-D Netgen setup:
-  - 95 cells: **Netlists do not match**;
-  - 11 cells: unknown/no match result;
-  - 0 cells: match uniquely.
+- **LVS:** the older `nfet_03p3` mismatch is stale.  The current spice uses
+  `nfet_03v3` / `pfet_03v3`, and the delivered Netgen reports say 45 cells
+  match uniquely.  Four physical-only cells (`fill_4/8/16`, `antfill`) have
+  no devices and were not checked.  Those reports black-box the transistors,
+  so this is not transistor-level proof.
 
-The observed cause is a device-model/process mismatch: OSU schematics use
-`nfet_03p3` / `pfet_03p3`, while the D setup knows `nfet_03v3` /
-`pfet_03v3`; the OSU `.mag` files also identify themselves as
-`gf180mcuC`.  An alias-only Netgen attempt still failed on device parameters.
-
-**Do not use the OSU 3.3 V cells in this flow until their model/process
-mapping is fixed and LVS is clean.**  DRC-clean alone is not sufficient.
+The 9T library is selectable as `gf180mcu_osu_sc_gp9t3v3` for a routed
+evaluation.  It has `dffsr_1` (active-low set and reset) and no ICG or reset
+latch.  A clean top-level LVS still does not prove the cell internals.
 
 ### OCD `gf180mcu_ocd_sc_rt12t3v3`
 
@@ -146,7 +142,7 @@ The `/grid` inventory in `docs/library_catalog.md` shows the requested GF180
 | Requested | Found | Status |
 |---|---|---|
 | 7T 3.3 V | `gf180mcu_as_sc_mcu7t3v3` | evaluation; WiP; DRC/LVS evidence in this note |
-| 9T 3.3 V | no foundry `mcu9t3v3`; only `gf180mcu_osu_sc_gp9t3v3` | OSU LVS blocked |
+| 9T 3.3 V | no foundry `mcu9t3v3`; `gf180mcu_osu_sc_gp9t3v3` | evaluation variant; cell LVS black-boxes the transistors |
 | 12T 3.3 V | `gf180mcu_ocd_sc_rt12t3v3`, `gf180mcu_osu_sc_gp12t3v3` | OCD small-cell candidate; OSU LVS blocked |
 
 The catalog counts modules, not characterized cells; do not treat "available"
@@ -156,24 +152,47 @@ as "usable".  The 9T request has no foundry GF180 3.3 V library in `/grid`.
 
 ### Sky130 custom libraries
 
-`/grid/sky130` also contains:
+`/grid/sky130` also contains (full inventory, DRC/LVS evidence and the
+9-track mixed-library experiment: `docs/sky130_ifamily_mix.md`):
 
+- `sky130_fd_sc_hdll` / `ms` / `ls` / `lp`: the upstream skywater-pdk source
+  trees, i.e. **per-cell GDS + abstract LEF + magic.lef + SPICE + CDL + per
+  corner `*.lib.json`** for every drive strength.  They are missing only the
+  consolidated `<lib>__<corner>.lib` and the Magic `.mag` layouts, so they are
+  *convertible*, not "tech/model data only" as previously recorded.  Heights:
+  `hdll` 2.72 µm (same 9-track as `hd`), `ms`/`ls`/`lp` 3.33 µm.
+  `scripts/sky_json2lib.py` converts the JSON to Liberty (validated against the
+  installed `hd` Liberty: identical numbers) and
+  `scripts/sky_install_family.py` builds the `libs.ref` + SCL view.
+  Per-cell magic DRC and netgen LVS: `make lib-check LIBCHECK_FAMILY=...`.
 - `sky130_as_sc_hs`: custom 0.46 × 2.72 µm (9-track) high-speed library,
-  84 cells, TT/SS/FF Liberty.  README labels it WiP; it has no async-reset
-  flop in the core set (only `dfxtp`/`dfxtn`/`dfxbp`/`dfxfp` and dynamic
-  variants), so our async-reset RTL cannot map directly.  No delivered
-  DRC/LVS report.
-- `sky130_osu_sc_t12` / `sky130_osu_sc_t15`: OSU 12-track / 15-track
-  libraries, 72 cells each, with TT/SS/FF and intermediate voltage corners.
-  The 12T cell height is 4.44 µm, the 15T height 5.55 µm.  A Magic DRC spot
-  check (`inv_1`, `nand2_1`, `dffsr_1`) gave 0 errors, but the default
-  Sky130A Netgen setup did not resolve the extracted top-level pin names
-  (`GND/VDD/A/Y`); a library-specific port map is needed before claiming LVS
-  clean.
+  74 LEF macros / 85 layouts, Liberty TT (`tt_025C_1v80`), SS
+  (`ss_055C_1v70`), FF (`ff_005C_1v90`), GDS/LEF/Magic, no CDL/SPICE.
+  **Cell DRC 85/85 clean** (Magic `drc(full)`); cell-level LVS has no golden
+  netlist, so connectivity is only proven on a routed design.  README labels
+  it WiP, and it has no async-reset flop in the core set
+  (`dfxtp`/`dfxtn`/`dfxbp`/`dfxfp` and dynamic variants only), so our
+  async-reset RTL cannot map directly.
+- `sky130_osu_sc_t12` / `t15` / `t18`: OSU 12/15/18-track libraries
+  (4.44 / 5.55 / 6.66 µm cell height), 66-75 LEF macros each, TT/SS/FF plus
+  intermediate voltage corners, GDS + LEF + Magic.  A Magic DRC spot check
+  gave 0 errors but the default Sky130A Netgen setup does not resolve the
+  extracted top-level pin names (`GND/VDD/A/Y`); a library-specific port map
+  is needed before claiming LVS clean.  Their heights make them unusable next
+  to `hd` rows.
+- `sky130RHBDlib`: radiation-hardened, 7.76 µm cells, 82 LEF macros.  Not a
+  PPA candidate.
 
-For now, the foundry `sky130_fd_sc_hs` remains the safest measured speed
-upgrade.  The custom libraries are candidates only after their own DRC/LVS
-and reset-cell strategy are resolved.
+`sky130_fd_sc_hs` is **not installed**: `~/.ciel/.../skywater-pdk/libraries/
+sky130_fd_sc_hs` holds only empty version directories and there is no
+`libs.ref` view, so the earlier TT-only "+1.1 ns" measurement cannot be
+reproduced or routed here.  `hd` remains the speed/area baseline.
+
+Mixed same-height libraries (the ics55 H7CL/H7CH/H7CR pattern) are now
+buildable: `hd` + `hdll` merge into one 752-cell 2.72 µm library
+(`sky130_mix9t`, declared in `tech/sky130/tech.yaml` as an `scl_variants`
+entry) so synthesis, repair and CTS can pick per cell.  Results:
+`docs/sky130_ifamily_mix.md`.
 
 ### IHP `ez130_8t_v1p1`
 
@@ -200,31 +219,47 @@ before using it for a commit or a tapeout-oriented flow.
   baseline.
 - GF180: `gf180mcu_fd_sc_mcu9t5v0` at 5.0 V is the fastest validated option of
   the foundry libraries; mcu7 5 V is the area option.
-- OSU 3.3 V: DRC clean, **LVS not clean** (model/process mismatch) — blocked.
+- OSU 9T 3.3 V: selectable for evaluation.  Delivered cell LVS matches 45
+  cells but black-boxes `nfet_03v3`/`pfet_03v3`; not transistor-level proof.
 - OCD 3.3 V: DRC/LVS clean; 18-cell, per-cell-Liberty integration needed;
   small-block candidate.
 - AS 3.3 V: DRC clean; 102 functional cells LVS-clean, 21 physical-only
   unknowns, 0 failures; WiP and not yet naive-flow compatible — best 3.3 V
   evaluation candidate.
-- Sky130 custom `as_sc_hs`/OSU t12/t15/t18: need DRC/LVS and reset-cell
-  integration; do not replace vendor `hs` yet.  The official `hdll/lp/ls/ms`
-  repos under `/grid` contain tech/model data but no complete
-  Liberty/LEF/GDS/Verilog cell set in this installation.
+- Sky130 custom `as_sc_hs`: cell DRC 85/85 clean, no CDL/SPICE golden for
+  cell LVS, no async-reset flop — blocked for this RTL.
+- Sky130 `hdll/lp/ls/ms` source repos under `/grid` are complete per-cell
+  libraries (GDS/LEF/SPICE/CDL/lib.json); Liberty is generated with
+  `scripts/sky_json2lib.py` and installed by `scripts/sky_install_family.py`.
+  `hd + hdll` (same 2.72 µm height) are merged into the `sky130_mix9t`
+  variant; see `docs/sky130_ifamily_mix.md`.
 - IHP EZ130 8T: measured +2.1 ns serializer advantage over `sg13g2_stdcell`;
   validation is the remaining gate.
 
 ### Generator-selectable variants (item 9)
 
-`tech/ihp-sg13g2/tech.yaml` now declares `scl_variants.ez130_8t_v1p1`
-(Liberty + LEF present under `/grid/ihp130/ez130_8t_v1p1`, active-low-reset
-DFF `DFFRQX2`, 8-track 0.42 x 3.36 um).  Select it with
+`tech/ihp-sg13g2/tech.yaml` declares `scl_variants.ez130_8t_v1p1`
+(Liberty + LEF + GDS + CDL under `/grid/ihp130/ez130_8t_v1p1`, active-low-reset
+DFF `DFFRQX2`, 8-track 0.42 x 3.36 um, rails VDD/VSS).  Select it with
 `tech: {tx: {name: ihp-sg13g2, scl: ez130_8t_v1p1}, ...}`;
-`spec/ihp_ez130.yaml` is the reference and generates with
-`pdk_lib_files_present: true`.  The icsprout55 H7CH/H7CL/H7CR variants remain
-available.  sky130 `hs`/`hdll` and gf180 `mcu9t5v0` are still **not**
-selectable: no complete Liberty set for them exists in this installation, so
-adding a profile would only produce an unresolvable `pdk_lib_files_present:
-false` entry.
+`spec/ihp_ez130.yaml` is the reference.  The PDK flow view is a local install
+under the ciel `ihp-sg13g2` tree (`libs.ref/ez130_8t_v1p1` plus
+`libs.tech/librelane/ez130_8t_v1p1`): tech LEF `ez130_sg13g2_tech.lef`, site
+`CoreSite`, tracks at the library's 0.42 um Metal1-5 pitch.  It has no reset
+latch, so the latch map only covers `$_DLATCH_P_` / `$_DLATCH_N_`.  No routed
+DRC/LVS evidence yet.
+
+`tech/gf180mcuD/tech.yaml` now also declares `gf180mcu_fd_sc_mcu9t5v0` (foundry
+9-track 5 V, same three nom corners as the 7T default; PDK config and liberty
+already in the ciel tree) and `gf180mcu_as_sc_mcu7t3v3` (custom 3.3 V 7-track
+from `/grid/gf180mcu`, symlinked into `libs.ref`).  AS has `dfsrtp_2` and
+transparent latches only: no reset latch, no clock gate, tap is `tap_2`, diode
+is `diode_2`.  The icsprout55 H7CH/H7CL/H7CR variants remain available.
+sky130 `hs`/`hdll` are still **not** selectable: no SS/FF liberty for them in
+this installation.  `gf180mcu_osu_sc_gp9t3v3` is the OSU 9-track 3.3 V
+variant: TT/SS/FF liberty, `dffsr_1`, no ICG, no reset latch, and `fill_4` as
+the tap because the library has no `fill_1`.  Its cell LVS black-boxes the
+transistors.
 
 Per-endpoint libraries: a single `target: link` netlist must use one scl.
 Generate `target: tx` and `target: rx` separately (optionally with different

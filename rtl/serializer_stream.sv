@@ -8,14 +8,16 @@
 // "word_streaming" capture mode:
 //
 //   - in_ready is high while the input bank has room.
-//   - in_valid && in_ready captures one word at capture_idx_q.
+//   - in_valid && in_ready captures one word per cycle.
 //   - after the last word, serialization starts automatically.
 //   - the upstream source only has to hold a word for the accepted cycle; it
 //     does NOT have to hold the complete WORDS x DATA_WIDTH frame.
 //
-// This removes the "ready goes low for WORDS cycles and the external bus must
-// remain stable" contract of the parallel capture mode.  The cost is WORDS
-// input handshake cycles and a narrower input bus.
+// Storage is a shift register, not an indexed write.  The word being
+// serialized is always data_q[0]; a completed word shifts the next one down.
+// This removes the WORDS-way write decoder, the per-word bit-select mux and
+// the WORDS-way output mux that an indexed `data_q[word_sel]` read synthesises
+// into (the 32x8 case measured 1977 generic cells before this change).
 // -----------------------------------------------------------------------------
 module serializer_stream #(
     parameter int DATA_WIDTH = 32,
@@ -40,39 +42,46 @@ module serializer_stream #(
     localparam logic [WORD_W-1:0] LAST_WORD = WORD_W'(WORDS-1);
 
     logic [WORDS-1:0][DATA_WIDTH-1:0] data_q;
+    logic [WORDS-1:0][DATA_WIDTH-1:0] data_capture;
+    logic [WORDS-1:0][DATA_WIDTH-1:0] data_advance;
     logic [BIT_W-1:0]                 bit_sel_q;
     logic [WORD_W-1:0]                word_sel_q;
     logic [WORD_W-1:0]                capture_idx_q;
     logic                             capturing_q;
     logic                             active_q;
     logic                             frame_done_q;
-    logic [WORDS-1:0]                 word_bit;
     logic                             serial_mux;
 
-    assign in_ready     = capturing_q & ~active_q;
+    // WORDS==1 is the continuous Raw PCS mode: the next word can be accepted
+    // on the cycle that emits the last bit, so serial_valid has no bubble
+    // between words.
+    logic last_bit_cycle;
+    assign last_bit_cycle = active_q && (word_sel_q == LAST_WORD) &&
+                            (bit_sel_q == LAST_BIT);
+    assign in_ready     = (capturing_q & ~active_q) |
+                          ((WORDS == 1) && last_bit_cycle);
     assign serial_valid = active_q;
     assign busy         = active_q;
     assign frame_done   = frame_done_q;
     assign serial_out   = serial_mux;
 
-    // Operand isolation: the wide bit-select muxes are held at 0 whenever the
-    // block is not emitting a valid bit, so they do not toggle with bit_sel_q
-    // during capture/idle.  serial_valid = active_q, so this is bit-exact.
+    // Shift-register forms.  WORDS==1 has no neighbour to shift from, so it
+    // is a plain register instead of a reversed part-select.
     generate
-        for (genvar w = 0; w < WORDS; w++) begin : g_word_bit
-            assign word_bit[w] = active_q & (LSB_FIRST
-                ? data_q[w][bit_sel_q]
-                : data_q[w][LAST_BIT-bit_sel_q]);
+        if (WORDS == 1) begin : g_one_word
+            assign data_capture = in_word;
+            assign data_advance = '0;
+        end else begin : g_shift
+            assign data_capture = {in_word, data_q[WORDS-1:1]};
+            assign data_advance = {DATA_WIDTH'(0), data_q[WORDS-1:1]};
         end
     endgenerate
 
-    always_comb begin
-        serial_mux = 1'b0;
-        for (int w = 0; w < WORDS; w++) begin
-            if (word_sel_q == WORD_W'(w))
-                serial_mux = word_bit[w];
-        end
-    end
+    // Operand isolation: the bit mux is held at 0 whenever the block is not
+    // emitting a valid bit.  serial_valid = active_q, so this is bit-exact.
+    assign serial_mux = active_q & (LSB_FIRST
+        ? data_q[0][bit_sel_q]
+        : data_q[0][LAST_BIT-bit_sel_q]);
 
     always_ff @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
@@ -89,21 +98,30 @@ module serializer_stream #(
             if (active_q) begin
                 if (enable) begin
                     if (word_sel_q == LAST_WORD && bit_sel_q == LAST_BIT) begin
-                        active_q     <= 1'b0;
-                        capturing_q  <= 1'b1;
-                        capture_idx_q<= '0;
-                        bit_sel_q    <= '0;
-                        word_sel_q   <= '0;
                         frame_done_q <= 1'b1;
+                        if ((WORDS == 1) && in_valid) begin
+                            // Back-to-back word: reload and keep emitting.
+                            data_q     <= data_capture;
+                            bit_sel_q  <= '0;
+                            word_sel_q <= '0;
+                        end else begin
+                            active_q     <= 1'b0;
+                            capturing_q  <= 1'b1;
+                            capture_idx_q<= '0;
+                            bit_sel_q    <= '0;
+                            word_sel_q   <= '0;
+                        end
                     end else if (bit_sel_q == LAST_BIT) begin
                         bit_sel_q  <= '0;
                         word_sel_q <= word_sel_q + 1'b1;
+                        // Move the next word to data_q[0].
+                        data_q     <= data_advance;
                     end else begin
                         bit_sel_q <= bit_sel_q + 1'b1;
                     end
                 end
             end else if (capturing_q && in_valid) begin
-                data_q[capture_idx_q] <= in_word;
+                data_q <= data_capture;
                 if (capture_idx_q == LAST_WORD) begin
                     capturing_q  <= 1'b0;
                     active_q     <= 1'b1;

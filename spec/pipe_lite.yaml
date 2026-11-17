@@ -1,0 +1,33 @@
+# PIPE-Lite digital compatibility shell: 16-bit PIPE data, 8b10b, K codes,
+# RxStatus, elastic buffer, PowerDown and a digital TxDetectRx/PhyStatus stub.
+# This is PIPE_DIGITAL_COMPAT, not a PCIe/USB/SATA electrical PHY.
+name: pipe_lite_16
+target: rx
+link:
+  payload_width: 16
+  words: 1
+  line_rate_mbps: 25
+  coding: 8b10b
+  bit_order: lsb_first
+tx:
+  architecture: word_streaming
+rx:
+  architecture: source_sync
+  oversample: 1
+  align: external
+  clocking: source_sync
+  ppm: 0
+  sync_len: 8
+  sync_pattern: 0xBC
+tech:
+  tx: sky130
+  rx: sky130
+interface:
+  preset: pipe_lite
+  data: valid_ready
+  control: native
+  cdc: none
+  enable_mode: static
+constraints:
+  uncertainty_setup_ns: 0.100
+  uncertainty_hold_ns: 0.050

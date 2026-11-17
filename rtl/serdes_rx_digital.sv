@@ -263,7 +263,8 @@ module serdes_rx_digital #(
                 .slip_req(rx_align),
                 .align(comma_align_pulse),
                 .locked(comma_locked),
-                .comma_seen()
+                .comma_seen(),
+                .comma_rd_plus()
             );
             /* verilator lint_on PINCONNECTEMPTY */
         end else if (ALIGN_MODE == 1 || ALIGN_MODE == 2) begin : g_comma

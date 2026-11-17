@@ -1,0 +1,42 @@
+# Bonded multi-lane link: N source-synchronous lanes, one wide AXIS port.
+# Each lane is an independent 1-bit serial channel with its own recovered clock
+# and async FIFO; the RX deskew removes the lane-to-lane word skew from
+# periodic alignment markers and releases all lanes in lockstep.
+#
+# Aggregate goodput = lanes x line_rate x marker_period/(marker_period+1)
+# (the marker steals one word per period; the sync word is sent once).
+name: multilane_4x8
+target: link
+link:
+  payload_width: 8
+  words: 1
+  lanes: 4
+  line_rate_mbps: 25
+  coding: raw
+  bit_order: lsb_first
+deskew:
+  marker_period: 16
+  max_skew: 8
+tx:
+  architecture: word_streaming
+rx:
+  architecture: source_sync
+  oversample: 1
+  align: comma
+  clocking: source_sync
+  ppm: 0
+  sync_len: 8
+  sync_pattern: 0xBC
+tech:
+  tx: sky130
+  rx: sky130
+interface:
+  preset: multilane
+  data: axi4_stream
+  control: native
+  cdc: async_fifo
+  enable_mode: dynamic
+  fifo_depth: 16
+constraints:
+  uncertainty_setup_ns: 0.100
+  uncertainty_hold_ns: 0.050

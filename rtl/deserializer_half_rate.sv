@@ -20,6 +20,7 @@ module deserializer_half_rate #(
     input  logic                              rst_n,
     input  logic                              enable,
     input  logic                              clear,
+    input  logic                              align,
     input  logic                              pair_valid,
     input  logic                              bit0,
     input  logic                              bit1,
@@ -62,9 +63,21 @@ module deserializer_half_rate #(
                 bit_idx_q  <= '0;
                 word_idx_q <= '0;
                 busy_q     <= 1'b0;
+            end else if (align && !(enable && pair_valid)) begin
+                // External align with no pair in flight: restart the frame.
+                bit_idx_q  <= '0;
+                word_idx_q <= '0;
+                busy_q     <= 1'b0;
             end else if (enable && pair_valid) begin
                 busy_q <= 1'b1;
-                if (bit_idx_q == LAST_BIT) begin
+                if (align) begin
+                    // First pair of a new frame: word0 bits 0 and 1.  The
+                    // pattern's last bit was already dropped by rx_pair_align.
+                    word_q[0][LSB_FIRST ? 0 : (DATA_WIDTH-1)] <= bit0;
+                    word_q[0][LSB_FIRST ? 1 : (DATA_WIDTH-2)] <= bit1;
+                    bit_idx_q  <= BIT_W'(2);
+                    word_idx_q <= '0;
+                end else if (bit_idx_q == LAST_BIT) begin
                     // Odd-width tail: only bit0 belongs to this word.
                     word_q[word_idx_q][LSB_FIRST ? int'(bit_idx_q)
                                                  : (DATA_WIDTH-1-int'(bit_idx_q))] <= bit0;

@@ -31,6 +31,8 @@ module serdes_8b10b_top #(
     input  logic                              tx_enable,
     input  logic                              tx_load,
     input  logic [WORDS-1:0][DATA_WIDTH-1:0]  tx_par_data,
+    // Per-byte control flag: 1 selects a K code (idle /I/, SOP /S/, EOP /T/).
+    input  logic [WORDS-1:0]                  tx_charisk,
     output logic                              tx_ready,
     output logic                              tx_serial_out,
     output logic                              tx_serial_valid,
@@ -44,6 +46,7 @@ module serdes_8b10b_top #(
     input  logic                              rx_align,
     input  logic                              rx_serial_in,
     output logic [WORDS-1:0][DATA_WIDTH-1:0]  rx_par_data,
+    output logic [WORDS-1:0]                  rx_charisk,
     output logic                              rx_par_valid,
     output logic                              rx_busy,
     output logic                              rx_lock,
@@ -75,7 +78,9 @@ module serdes_8b10b_top #(
     logic [WORDS-1:0][LINE_WIDTH-1:0] tx_line_q;
     logic [WORDS-1:0][LINE_WIDTH-1:0] rx_line_q;
     logic [WORDS-1:0][DATA_WIDTH-1:0] tx_payload_q;
+    logic [WORDS-1:0]                 tx_charisk_q;
     logic [WORDS-1:0][DATA_WIDTH-1:0] rx_payload_q;
+    logic [WORDS-1:0]                 rx_charisk_q;
     logic [IDX_W-1:0] tx_idx_q, rx_idx_q;
 
     logic tx_core_load, tx_core_ready, tx_core_done;
@@ -107,7 +112,7 @@ module serdes_8b10b_top #(
     assign enc_valid = (tx_state_q == T_ENC);
     assign enc_data  = tx_payload_q[tx_idx_q];
     logic enc_ctrl;
-    assign enc_ctrl = 1'b0;
+    assign enc_ctrl = tx_charisk_q[tx_idx_q];
 
     pcs_8b10b_tx u_enc (
         .clk(tx_clk), .rst_n(tx_rst_n), .enable(tx_enable),
@@ -134,6 +139,7 @@ module serdes_8b10b_top #(
                 T_IDLE: begin
                     if (tx_load && tx_core_ready) begin
                         tx_payload_q <= tx_par_data;
+                        tx_charisk_q <= tx_charisk;
                         tx_idx_q     <= '0;
                         tx_state_q   <= T_ENC;
                     end
@@ -182,9 +188,45 @@ module serdes_8b10b_top #(
     assign dec_valid = (rx_state_q == R_DEC);
     assign dec_code  = rx_line_q[rx_idx_q];
 
+    // 10-bit K28.5 comma alignment (ALIGN_MODE=3) runs in this wrapper on the
+    // recovered serial stream, not inside serdes_rx_digital, so the decoder's
+    // running disparity can be seeded from the comma polarity.
+    logic        comma_pulse, comma_locked, comma_rd_plus, rx_align_int;
+    logic        comma_seen_unused;
+    localparam int CORE_ALIGN = (ALIGN_MODE == 3) ? 0 : ALIGN_MODE;
+
+    generate
+        if (ALIGN_MODE == 3) begin : g_comma_8b10b
+            pcs_8b10b_comma #(.LOCK_COMMAS(1)) u_comma (
+                .clk(rx_clk), .rst_n(rx_rst_n), .enable(rx_enable),
+                .flush(rx_flush | ~rx_lock), .slip_req(rx_align),
+                .serial_in(rx_serial_data), .serial_valid(rx_serial_valid),
+                .align(comma_pulse), .locked(comma_locked),
+                .comma_seen(comma_seen_unused),
+                .comma_rd_plus(comma_rd_plus)
+            );
+            assign rx_align_int = rx_align | comma_pulse;
+        end else begin : g_no_comma
+            assign comma_pulse   = 1'b0;
+            assign comma_locked  = 1'b1;
+            assign comma_rd_plus = 1'b0;
+            assign comma_seen_unused = 1'b0;
+            assign rx_align_int  = rx_align;
+        end
+    endgenerate
+
+    wire rx_frame_ok = (ALIGN_MODE == 3) ? comma_locked : rx_core_frame_locked;
+    // The symbol collector holds until alignment so the first emitted frame
+    // starts on a symbol boundary.  The decoder must NOT be held: the align
+    // pulse that produces the lock is the same cycle that seeds the running
+    // disparity, and holding it in reset would swallow that seed.
+    wire rx_hold = !rx_rst_n || !rx_frame_ok;
+
     pcs_8b10b_rx u_dec (
         .clk(rx_clk), .rst_n(rx_rst_n), .enable(rx_enable),
-        .valid(dec_valid), .code(dec_code), .data(dec_data), .ctrl(dec_ctrl),
+        .valid(dec_valid), .code(dec_code),
+        .rd_init(comma_rd_plus), .rd_load(comma_pulse),
+        .data(dec_data), .ctrl(dec_ctrl),
         .data_valid(dec_data_valid), .code_error(dec_code_error),
         .disp_error(dec_disp_error)
     );
@@ -192,7 +234,7 @@ module serdes_8b10b_top #(
     assign code_error = dec_code_error | dec_disp_error | enc_error;
 
     always_ff @(posedge rx_clk or negedge rx_rst_n) begin
-        if (!rx_rst_n) begin
+        if (rx_hold) begin
             rx_state_q <= R_IDLE;
             rx_idx_q   <= '0;
             rx_line_q  <= '0;
@@ -203,7 +245,7 @@ module serdes_8b10b_top #(
         end else begin
             rx_par_valid   <= 1'b0;
             rx_frame_valid <= 1'b0;
-            rx_frame_locked <= rx_core_frame_locked;
+            rx_frame_locked <= rx_frame_ok;
             if (rx_flush) begin
                 rx_state_q <= R_IDLE;
                 rx_idx_q   <= '0;
@@ -220,6 +262,7 @@ module serdes_8b10b_top #(
                     R_DEC_WAIT: begin
                         if (dec_data_valid) begin
                             rx_payload_q[rx_idx_q] <= dec_data;
+                            rx_charisk_q[rx_idx_q] <= dec_ctrl;
                             if (rx_idx_q == IDX_W'(WORDS-1)) begin
                                 rx_state_q <= R_OUT;
                             end else begin
@@ -230,6 +273,7 @@ module serdes_8b10b_top #(
                     end
                     R_OUT: begin
                         rx_par_data  <= rx_payload_q;
+                        rx_charisk   <= rx_charisk_q;
                         rx_par_valid <= 1'b1;
                         rx_frame_valid <= 1'b1;
                         rx_state_q   <= R_IDLE;
@@ -244,12 +288,12 @@ module serdes_8b10b_top #(
         .DATA_WIDTH(LINE_WIDTH), .WORDS(WORDS), .LSB_FIRST(LSB_FIRST),
         .OVERSAMPLE(OVERSAMPLE), .SYNC_STAGES(SYNC_STAGES),
         .LOCK_THRESH(LOCK_THRESH), .LOCK_STALE_BITS(LOCK_STALE_BITS),
-        .CDR_MODE(CDR_MODE), .CDR_BYPASS(CDR_BYPASS), .ALIGN_MODE(ALIGN_MODE),
+        .CDR_MODE(CDR_MODE), .CDR_BYPASS(CDR_BYPASS), .ALIGN_MODE(CORE_ALIGN),
         .SYNC_LEN(SYNC_LEN), .SYNC_PATTERN(SYNC_PATTERN),
         .ADAPT_FRAC_BITS(ADAPT_FRAC_BITS), .ADAPT_LOOP_GAIN(ADAPT_LOOP_GAIN)
     ) u_rx (
         .rx_clk(rx_clk), .rx_rst_n(rx_rst_n), .rx_enable(rx_enable),
-        .rx_flush(rx_flush), .rx_align(rx_align), .rx_serial_in(rx_serial_in),
+        .rx_flush(rx_flush), .rx_align(rx_align_int), .rx_serial_in(rx_serial_in),
         .phase_offset('0), .rx_smp(1'b0),  // mode 4 needs an external sampler; modes 0-3 ignore it
         /* verilator lint_off PINCONNECTEMPTY */
         .rx_dll_tap(),

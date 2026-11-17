@@ -7,7 +7,7 @@ per candidate.  Synthesis contradicted it:
 
 | Candidate | old `area` | measured cells ratio (8x4) |
 |---|---:|---:|
-| `word_streaming` | 0.80 (20% smaller) | **2.83x larger** |
+| `word_streaming` | 0.80 (20% smaller) | 2.83x larger before the shift-register rewrite; 1.02x at 8x4 / 0.70x at 32x8 after |
 | `word_group_capture` | 1.05 | 1.30x |
 | `adaptive_oversampling` | 1.25 | **3.89x** |
 | `source_sync` | 0.70 | 0.55x |
@@ -28,6 +28,12 @@ f_clock(TX)  = line_rate_mbps
 f_clock(RX)  = line_rate_mbps x OVERSAMPLE
 ```
 
+The `word_streaming` row was re-measured after replacing the indexed
+`data_q[capture_idx]` write and WORDS-way read mux with a shift register whose
+current word is fixed at `data_q[0]`: 298 -> 111 cells at 8x4 and
+1983 -> 407 at 32x8.  The DFF series is unchanged (the rewrite is
+flop-count neutral).
+
 Measurements (sky130 generic `yosys synth; stat`, 25 Mb/s, parameters taken
 from the generated `pnr/librelane.yaml` `SYNTH_PARAMETERS`, not RTL defaults):
 
@@ -35,7 +41,7 @@ from the generated `pnr/librelane.yaml` `SYNTH_PARAMETERS`, not RTL defaults):
 |---|---|---|---:|---:|
 | `parallel_mux` | 109 / 41 | 582 / 268 | 41.4 | 2.112 |
 | `word_group_capture` | 142 / 46 | 626 / 277 | 72.8 | 2.161 |
-| `word_streaming` | 308 / 44 | 1977 / 272 | 69.6 | 7.451 |
+| `word_streaming` | 111 / 44 | 407 / 272 | 68.7 | 1.321 |
 | `fixed_oversampling` OS=4 | 218 / 67 | 758 / 319 | 140.8 | 2.411 |
 | `fixed_oversampling` OS=8 | 228 / 68 | 767 / 320 | (same model) | |
 | `adaptive_oversampling` OS=8 | 847 / 115 | 1382 / 367 | 770.7 | 2.384 |

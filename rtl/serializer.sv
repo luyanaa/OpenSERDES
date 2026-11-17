@@ -19,7 +19,12 @@
 //   - 0: single-cycle capture; one enable fans out to all RATIO input flops.
 //   - 1: one word per clock using a one-hot capture select.  ready is low for
 //        WORDS cycles, and the external parallel source must hold the frame
-//        stable.  Each capture select bit drives only DATA_WIDTH flops.
+//        stable.  Capture flops are enabled in groups of four words, and the
+//        per-word select still gates the flops inside the active group.
+//
+// WORD_ONEHOT:
+//   - 0: binary word counter.
+//   - 1: one-hot word select.  Bit order, frame length and reset are unchanged.
 //
 // There are no derived clocks; all state advances only when enable is high.
 // -----------------------------------------------------------------------------
@@ -27,7 +32,11 @@ module serializer #(
     parameter int DATA_WIDTH   = 32,
     parameter int WORDS        = 8,
     parameter bit LSB_FIRST    = 1'b1,
-    parameter bit CAPTURE_MODE = 1'b0
+    parameter bit CAPTURE_MODE = 1'b0,
+    // 0: binary word counter.  1: one-hot word select.  The frame order,
+    // the bit order and the cycle count stay the same; only the select
+    // network changes.
+    parameter bit WORD_ONEHOT  = 1'b0
 ) (
     input  logic                              clk,
     input  logic                              rst_n,
@@ -50,6 +59,7 @@ module serializer #(
     logic [WORDS-1:0]                 word_bit;
     logic [BIT_W-1:0]                 bit_sel_q;
     logic [WORD_W-1:0]                word_sel_q;
+    logic [WORDS-1:0]                 word_oh_q;
     logic                             active_q;
     logic                             capture_q;
     logic                             serial_mux;
@@ -73,11 +83,14 @@ module serializer #(
         end
     endgenerate
 
-    // Parameterized WORDS:1 word mux.
+    // Word select.  Counter: equality against word_sel_q.  One-hot: the
+    // select bit itself.  Only the selected network is updated, so the other
+    // register is unread and drops out of the mapped netlist.
+    wire last_word = WORD_ONEHOT ? word_oh_q[WORDS-1] : (word_sel_q == LAST_WORD);
     always_comb begin
         serial_mux = 1'b0;
         for (int w = 0; w < WORDS; w++) begin
-            if (word_sel_q == WORD_W'(w))
+            if (WORD_ONEHOT ? word_oh_q[w] : (word_sel_q == WORD_W'(w)))
                 serial_mux = word_bit[w];
         end
     end
@@ -85,13 +98,18 @@ module serializer #(
     generate
         if (CAPTURE_MODE) begin : g_capture
             logic [WORDS-1:0] cap_sel_q;
-            // One capture enable per word.  The one-hot select bit drives
-            // DATA_WIDTH flops, not the whole RATIO bank.
+            // Local enable groups.  cap_grp_q is one bit per GROUP_W words,
+            // so a capture pulse reaches one group instead of every word
+            // decoder.  The per-word cap_sel_q bit still gates the flops, so
+            // a word outside the active group cannot capture.
+            localparam int GROUP_W = 4;
+            localparam int NGROUP  = (WORDS + GROUP_W - 1) / GROUP_W;
+            logic [NGROUP-1:0] cap_grp_q;
             for (genvar w = 0; w < WORDS; w++) begin : g_word_capture
                 always_ff @(posedge clk or negedge rst_n) begin
                     if (!rst_n)
                         data_q[w] <= '0;
-                    else if (capture_q && cap_sel_q[w])
+                    else if (capture_q && cap_grp_q[w / GROUP_W] && cap_sel_q[w])
                         data_q[w] <= par_data[w];
                 end
             end
@@ -100,7 +118,9 @@ module serializer #(
                 if (!rst_n) begin
                     bit_sel_q    <= '0;
                     word_sel_q   <= '0;
+                    word_oh_q    <= '0;
                     cap_sel_q    <= '0;
+                    cap_grp_q    <= '0;
                     active_q     <= 1'b0;
                     capture_q    <= 1'b0;
                     frame_done_q <= 1'b0;
@@ -113,25 +133,40 @@ module serializer #(
                             active_q   <= 1'b1;
                             bit_sel_q  <= '0;
                             word_sel_q <= '0;
+                            word_oh_q  <= {{(WORDS-1){1'b0}}, 1'b1};
                             cap_sel_q  <= '0;
+                            cap_grp_q  <= '0;
                         end else begin
                             // Logical shift avoids the WORDS=1 part-select
                             // cap_sel_q[-1:0] that breaks elaboration.
                             cap_sel_q <= cap_sel_q << 1;
+                            // Advance the group enable when the one-hot
+                            // select crosses a group boundary.  The index is
+                            // a constant per generated copy, so this is a
+                            // shift of a one-hot, not a decoder of cap_sel_q.
+                            for (int g = 0; g < NGROUP - 1; g++) begin
+                                if (cap_sel_q[(g + 1) * GROUP_W - 1])
+                                    cap_grp_q <= cap_grp_q << 1;
+                            end
                         end
                     end else if (!active_q) begin
                         if (load && ready) begin
                             capture_q <= 1'b1;
                             cap_sel_q <= '0;
                             cap_sel_q[0] <= 1'b1;
+                            cap_grp_q <= '0;
+                            cap_grp_q[0] <= 1'b1;
                         end
                     end else if (enable) begin
-                        if (word_sel_q == LAST_WORD && bit_sel_q == LAST_BIT) begin
+                        if (last_word && bit_sel_q == LAST_BIT) begin
                             active_q     <= 1'b0;
                             frame_done_q <= 1'b1;
                         end else if (bit_sel_q == LAST_BIT) begin
-                            bit_sel_q  <= '0;
-                            word_sel_q <= word_sel_q + 1'b1;
+                            bit_sel_q <= '0;
+                            if (WORD_ONEHOT)
+                                word_oh_q <= word_oh_q << 1;
+                            else
+                                word_sel_q <= word_sel_q + 1'b1;
                         end else begin
                             bit_sel_q <= bit_sel_q + 1'b1;
                         end
@@ -144,6 +179,7 @@ module serializer #(
                     data_q       <= '0;
                     bit_sel_q    <= '0;
                     word_sel_q   <= '0;
+                    word_oh_q    <= '0;
                     active_q     <= 1'b0;
                     capture_q    <= 1'b0;
                     frame_done_q <= 1'b0;
@@ -155,15 +191,19 @@ module serializer #(
                             data_q     <= par_data;
                             bit_sel_q  <= '0;
                             word_sel_q <= '0;
+                            word_oh_q  <= {{(WORDS-1){1'b0}}, 1'b1};
                             active_q   <= 1'b1;
                         end
                     end else if (enable) begin
-                        if (word_sel_q == LAST_WORD && bit_sel_q == LAST_BIT) begin
+                        if (last_word && bit_sel_q == LAST_BIT) begin
                             active_q     <= 1'b0;
                             frame_done_q <= 1'b1;
                         end else if (bit_sel_q == LAST_BIT) begin
-                            bit_sel_q  <= '0;
-                            word_sel_q <= word_sel_q + 1'b1;
+                            bit_sel_q <= '0;
+                            if (WORD_ONEHOT)
+                                word_oh_q <= word_oh_q << 1;
+                            else
+                                word_sel_q <= word_sel_q + 1'b1;
                         end else begin
                             bit_sel_q <= bit_sel_q + 1'b1;
                         end

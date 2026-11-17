@@ -1,0 +1,32 @@
+# Raw PCS endpoint: flat 32-bit word bus, word clock = clk / 32, comma
+# alignment with a runtime rx_slide bitslip.  target: rx or tx only.
+name: raw_pcs_32
+target: rx
+link:
+  payload_width: 32
+  words: 1
+  line_rate_mbps: 25
+  coding: raw
+  bit_order: lsb_first
+tx:
+  architecture: word_streaming
+rx:
+  architecture: source_sync
+  oversample: 1
+  align: comma
+  clocking: source_sync
+  ppm: 0
+  sync_len: 32
+  sync_pattern: 0xBC
+tech:
+  tx: sky130
+  rx: sky130
+interface:
+  preset: raw_pcs
+  data: valid_ready
+  control: native
+  cdc: none
+  enable_mode: static
+constraints:
+  uncertainty_setup_ns: 0.100
+  uncertainty_hold_ns: 0.050

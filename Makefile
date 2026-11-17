@@ -15,6 +15,11 @@ SIGNOFF_LEVEL ?= POST_ROUTE_TIMING
 PPA_DB   ?= tech/ppa_measured.yaml
 PPA_CSV  ?=
 PPA_OUT  ?= tech/ppa_measured.yaml
+ACTIVITY_LIB ?= /home/yanlu/.ciel/ciel/sky130/versions/8afc8346a57fe1ab7934ba5a6056ea8b43078e71/sky130A/libs.ref/sky130_fd_sc_hd/lib/sky130_fd_sc_hd__tt_025C_1v80.lib
+ACTIVITY_PRIM ?= /home/yanlu/.ciel/ciel/sky130/versions/8afc8346a57fe1ab7934ba5a6056ea8b43078e71/sky130A/libs.ref/sky130_fd_sc_hd/verilog/primitives.v /home/yanlu/.ciel/ciel/sky130/versions/8afc8346a57fe1ab7934ba5a6056ea8b43078e71/sky130A/libs.ref/sky130_fd_sc_hd/verilog/sky130_fd_sc_hd.v
+ACTIVITY_OUT ?= $(BUILD)/activity/serializer.json
+CTS_LEF ?= /home/yanlu/.ciel/ciel/sky130/versions/8afc8346a57fe1ab7934ba5a6056ea8b43078e71/sky130A/libs.ref/sky130_fd_sc_hd/lef/sky130_fd_sc_hd.lef
+CTS_OUT ?= $(BUILD)/cts/half_rate.json
 POWER_RUN    ?= build/analog_pnr_sky130/runs/analog_link_signoff
 POWER_RECORD ?= $(BUILD)/verify/power_evidence.json
 PPA_TECH ?= sky130
@@ -64,7 +69,7 @@ RTL   := $(wildcard rtl/*.sv)
 SV2V_DIR := $(BUILD)/sv2v
 SV2V_RTL := $(SV2V_DIR)/rtl.v
 
-.PHONY: all sim lint synth regress gen qualify signoff ppa-import ppa-power-import clean si-eye si-bathtub si-jtol si-rtl-jtol verify-link analog-pcell-probe analog-pcell-inv analog-pcell-tx analog-pcell-tx-verify analog-pcell-tx-views analog-pcell-tx-1-4-16 analog-pcell-tx-1-4-16-verify analog-pcell-rx-fb analog-pcell-rx-fb-verify analog-pcell-rx-fb-views analog-freepdk45-probe analog-etri050-probe m3-noise m3-holdout m3-closure analog-stdcell-gen analog-macro-gen analog-contracts analog-gds analog-gds-audit analog-views analog-package analog-macro-pex analog-drc analog-rx-dc analog-rx-pvt dll-feasibility dll-lock ics55-drc-lvs mixed-signal-e2e rx-pex-digital-e2e pex-jtol-sweep cross-pdk-pnr ms-phy-baseline phy-link-closure soc-e2e soc-e2e-stress analog-lut sky130-lut analog-lut-demo analog-tech-check sky130-pvt pvt-margin pdk-mc xyce-global-mc magic-pex magic-pex-compare sky130-mc pex-compare lib-catalog timing-compare analog-macro-package
+.PHONY: all sim lint synth regress gen qualify signoff ppa-import ppa-power-import activity-annotate cts-power clean si-eye si-bathtub si-jtol si-rtl-jtol verify-link analog-pcell-probe analog-pcell-inv analog-pcell-tx analog-pcell-tx-verify analog-pcell-tx-views analog-pcell-tx-1-4-16 analog-pcell-tx-1-4-16-verify analog-pcell-rx-fb analog-pcell-rx-fb-verify analog-pcell-rx-fb-views analog-freepdk45-probe analog-etri050-probe m3-noise m3-holdout m3-closure analog-stdcell-gen analog-macro-gen analog-contracts analog-gds analog-gds-audit analog-views analog-package analog-macro-pex analog-drc analog-rx-dc analog-rx-pvt dll-feasibility dll-lock ics55-drc-lvs mixed-signal-e2e rx-pex-digital-e2e pex-jtol-sweep cross-pdk-pnr ms-phy-baseline phy-link-closure soc-e2e soc-e2e-stress analog-lut sky130-lut analog-lut-demo analog-tech-check sky130-pvt pvt-margin pdk-mc xyce-global-mc magic-pex magic-pex-compare sky130-mc pex-compare lib-catalog timing-compare analog-macro-package
 
 all: sim
 
@@ -88,7 +93,16 @@ $(BUILD)/tb_serializer_msb: tb/tb_serializer.sv rtl/serializer.sv | $(BUILD)
 $(BUILD)/tb_serializer_capture: tb/tb_serializer.sv rtl/serializer.sv | $(BUILD)
 	$(IVERILOG) -g2012 -Wall -DTB_LSB_FIRST=1 -DTB_CAPTURE_MODE=1 -o $@ $^
 
+$(BUILD)/tb_serializer_onehot: tb/tb_serializer.sv rtl/serializer.sv | $(BUILD)
+	$(IVERILOG) -g2012 -Wall -DTB_LSB_FIRST=1 -DTB_WORD_ONEHOT=1 -o $@ $^
+
+$(BUILD)/tb_serializer_capture_wide: tb/tb_serializer.sv rtl/serializer.sv | $(BUILD)
+	$(IVERILOG) -g2012 -Wall -DTB_LSB_FIRST=1 -DTB_CAPTURE_MODE=1 -Ptb_serializer.WORDS=8 -Ptb_serializer.DATA_WIDTH=8 -o $@ $^
+
 $(BUILD)/tb_serializer_stream: tb/tb_serializer_stream.sv rtl/serializer_stream.sv | $(BUILD)
+	$(IVERILOG) -g2012 -Wall -o $@ $^
+
+$(BUILD)/tb_serializer_stream_cont: tb/tb_serializer_stream_cont.sv rtl/serializer_stream.sv | $(BUILD)
 	$(IVERILOG) -g2012 -Wall -o $@ $^
 
 $(BUILD)/tb_serializer_hier_2to1: tb/tb_serializer_hier_2to1.sv rtl/serializer_stream.sv rtl/serializer_hier_2to1.sv | $(BUILD)
@@ -134,6 +148,33 @@ $(BUILD)/tb_deserializer_half_rate: tb/tb_deserializer_half_rate.sv rtl/deserial
 
 $(BUILD)/tb_receiver_pair_sampler: tb/tb_receiver_pair_sampler.sv rtl/receiver_pair_sampler.sv | $(BUILD)
 	$(IVERILOG) -g2012 -Wall -o $@ $^
+
+RAW_PCS_RTL := rtl/serdes_raw_pcs_top.sv rtl/serializer_stream.sv \
+               rtl/serdes_rx_digital.sv rtl/reset_sync.sv rtl/receiver_sampler.sv \
+               rtl/cdr_sync.sv rtl/cdr_oversampling.sv rtl/cdr_adaptive.sv \
+               rtl/cdr_bang_bang.sv rtl/cdr_multiphase.sv rtl/comma_align.sv \
+               rtl/deserializer.sv rtl/deserializer_word.sv
+
+PIPE_RTL := rtl/serdes_pipe_lite_top.sv rtl/pipe_elastic_buffer.sv \
+            rtl/encoder_8b10b.sv rtl/decoder_8b10b.sv $(RAW_PCS_RTL)
+
+$(BUILD)/tb_pipe_elastic_buffer: tb/tb_pipe_elastic_buffer.sv rtl/pipe_elastic_buffer.sv | $(BUILD)
+	$(IVERILOG) -g2012 -Wall -o $@ $^
+
+$(BUILD)/tb_pipe_lite: tb/tb_pipe_lite.sv $(PIPE_RTL) | $(BUILD)
+	$(IVERILOG) -g2012 -Wall -o $@ $^
+
+$(BUILD)/tb_raw_pcs: tb/tb_raw_pcs.sv $(RAW_PCS_RTL) | $(BUILD)
+	$(IVERILOG) -g2012 -Wall -Ptb_raw_pcs.DATA_WIDTH=16 -o $@ $^
+
+$(BUILD)/tb_raw_pcs_32: tb/tb_raw_pcs.sv $(RAW_PCS_RTL) | $(BUILD)
+	$(IVERILOG) -g2012 -Wall -Ptb_raw_pcs.DATA_WIDTH=32 -o $@ $^
+
+$(BUILD)/tb_rx_half_rate: tb/tb_rx_half_rate.sv rtl/reset_sync.sv rtl/receiver_sampler.sv rtl/comma_align.sv rtl/rx_pair_align.sv rtl/deserializer_half_rate.sv rtl/serdes_rx_half_rate_digital.sv | $(BUILD)
+	$(IVERILOG) -g2012 -Wall -o $@ $^
+
+$(BUILD)/tb_rx_half_rate_32: tb/tb_rx_half_rate.sv rtl/reset_sync.sv rtl/receiver_sampler.sv rtl/comma_align.sv rtl/rx_pair_align.sv rtl/deserializer_half_rate.sv rtl/serdes_rx_half_rate_digital.sv | $(BUILD)
+	$(IVERILOG) -g2012 -Wall -Ptb_rx_half_rate.DATA_WIDTH=32 -Ptb_rx_half_rate.WORDS=8 -o $@ $^
 
 $(BUILD)/tb_deserializer_lsb: tb/tb_deserializer.sv rtl/deserializer_word.sv rtl/deserializer.sv | $(BUILD)
 	$(IVERILOG) -g2012 -Wall -DTB_LSB_FIRST=1 -o $@ $^
@@ -207,6 +248,12 @@ $(BUILD)/tb_64b66b: tb/tb_64b66b.sv rtl/pcs_64b66b.sv | $(BUILD)
 $(BUILD)/tb_64b66b_gearbox: tb/tb_64b66b_gearbox.sv rtl/pcs_64b66b.sv | $(BUILD)
 	$(IVERILOG) -g2012 -Wall -o $@ $^
 
+$(BUILD)/tb_64b66b_rx: tb/tb_64b66b_rx.sv rtl/pcs_64b66b_rx_gearbox.sv rtl/pcs_64b66b_ctrl_decode.sv | $(BUILD)
+	$(IVERILOG) -g2012 -Wall -o $@ $^
+
+$(BUILD)/tb_64b66b_top: tb/tb_64b66b_top.sv $(RTL) | $(BUILD)
+	$(IVERILOG) -g2012 -Wall -o $@ $^
+
 $(BUILD)/tb_pcs_8b10b: tb/tb_pcs_8b10b.sv rtl/pcs_8b10b_tx.sv rtl/pcs_8b10b_rx.sv rtl/encoder_8b10b.sv rtl/decoder_8b10b.sv | $(BUILD)
 	$(IVERILOG) -g2012 -Wall -o $@ $^
 
@@ -219,10 +266,22 @@ $(BUILD)/tb_pcs_8b10b_realign: tb/tb_pcs_8b10b_realign.sv rtl/pcs_8b10b_tx.sv rt
 $(BUILD)/tb_pcs_serial_e2e: tb/tb_pcs_serial_e2e.sv tb/channel_model.sv $(RTL) | $(BUILD)
 	$(IVERILOG) -g2012 -Wall -o $@ $^
 
+$(BUILD)/tb_8b10b_kcodes: tb/tb_8b10b_kcodes.sv $(RTL) | $(BUILD)
+	$(IVERILOG) -g2012 -Wall -o $@ $^
+
 $(BUILD)/tb_soc_cdc_training: tb/tb_soc_cdc_training.sv $(RTL) | $(BUILD)
 	$(IVERILOG) -g2012 -Wall -o $@ $^
 
 $(BUILD)/tb_soc_cdc_crc: tb/tb_soc_cdc_crc.sv $(RTL) | $(BUILD)
+	$(IVERILOG) -g2012 -Wall -o $@ $^
+
+$(BUILD)/tb_soc_cdc_word_bist: tb/tb_soc_cdc_word_bist.sv $(RTL) | $(BUILD)
+	$(IVERILOG) -g2012 -Wall -o $@ $^
+
+$(BUILD)/tb_soc_cdc_8b10b: tb/tb_soc_cdc_8b10b.sv $(RTL) | $(BUILD)
+	$(IVERILOG) -g2012 -Wall -o $@ $^
+
+$(BUILD)/tb_axis_frame_packetizer: tb/tb_axis_frame_packetizer.sv rtl/axis_frame_packetizer.sv | $(BUILD)
 	$(IVERILOG) -g2012 -Wall -o $@ $^
 
 $(BUILD)/tb_crc_tx_endpoint: tb/tb_crc_tx_endpoint.sv $(RTL) | $(BUILD)
@@ -270,11 +329,21 @@ $(BUILD)/tb_serdes_bist_15: tb/tb_serdes_bist.sv rtl/serdes_bist.sv rtl/prbs_gen
 $(BUILD)/tb_serdes_bist_31: tb/tb_serdes_bist.sv rtl/serdes_bist.sv rtl/prbs_gen.sv rtl/prbs_check.sv | $(BUILD)
 	$(IVERILOG) -g2012 -Wall -Ptb_serdes_bist.WIDTH=31 -o $@ $^
 
+$(BUILD)/tb_lane_deskew: tb/tb_lane_deskew.sv rtl/lane_deskew.sv | $(BUILD)
+	$(IVERILOG) -g2012 -Wall -o $@ $^
+
+$(BUILD)/tb_multilane_axis: tb/tb_multilane_axis.sv $(RTL) | $(BUILD)
+	$(IVERILOG) -g2012 -Wall -o $@ $^
+
+$(BUILD)/tb_multilane_top: tb/tb_multilane_top.sv $(RTL) | $(BUILD)
+	$(IVERILOG) -g2012 -Wall -o $@ $^
+
 $(BUILD)/tb_serdes_bist_word: tb/tb_serdes_bist_word.sv rtl/prbs_word_gen.sv rtl/prbs_word_check.sv rtl/serializer_stream.sv rtl/deserializer.sv rtl/deserializer_word.sv | $(BUILD)
 	$(IVERILOG) -g2012 -Wall -o $@ $^
 
 SIM_BINS := $(BUILD)/tb_serializer_lsb $(BUILD)/tb_serializer_msb \
-            $(BUILD)/tb_serializer_capture $(BUILD)/tb_serializer_stream \
+            $(BUILD)/tb_serializer_capture $(BUILD)/tb_serializer_onehot \
+            $(BUILD)/tb_serializer_capture_wide $(BUILD)/tb_serializer_stream $(BUILD)/tb_serializer_stream_cont \
             $(BUILD)/tb_serializer_hier_2to1 $(BUILD)/tb_serializer_half_rate \
             $(BUILD)/tb_serializer_pingpong $(BUILD)/tb_cdr_bang_bang \
             $(BUILD)/tb_cdr_phase_offset $(BUILD)/tb_cdr_leak \
@@ -282,6 +351,9 @@ SIM_BINS := $(BUILD)/tb_serializer_lsb $(BUILD)/tb_serializer_msb \
             $(BUILD)/tb_rx_endpoint_cdr \
             $(BUILD)/tb_rx_endpoint_dll \
             $(BUILD)/tb_deserializer_half_rate $(BUILD)/tb_receiver_pair_sampler \
+            $(BUILD)/tb_rx_half_rate $(BUILD)/tb_rx_half_rate_32 \
+            $(BUILD)/tb_raw_pcs $(BUILD)/tb_raw_pcs_32 \
+            $(BUILD)/tb_pipe_lite $(BUILD)/tb_pipe_elastic_buffer \
             $(BUILD)/tb_deserializer_lsb $(BUILD)/tb_deserializer_msb \
             $(BUILD)/tb_serdes_loopback_lsb $(BUILD)/tb_serdes_loopback_msb \
             $(BUILD)/tb_serdes_default $(BUILD)/tb_serdes_channel $(BUILD)/tb_channel \
@@ -290,11 +362,14 @@ SIM_BINS := $(BUILD)/tb_serializer_lsb $(BUILD)/tb_serializer_msb \
             $(BUILD)/tb_apb_csr $(BUILD)/tb_async_fifo \
             $(BUILD)/tb_link_training_fsm $(BUILD)/tb_crc_frame \
             $(BUILD)/tb_axis_crc $(BUILD)/tb_axis_crc_saf $(BUILD)/tb_8b10b $(BUILD)/tb_64b66b \
-            $(BUILD)/tb_64b66b_gearbox $(BUILD)/tb_pcs_8b10b \
+            $(BUILD)/tb_64b66b_gearbox $(BUILD)/tb_64b66b_rx \
+            $(BUILD)/tb_64b66b_top $(BUILD)/tb_pcs_8b10b \
             $(BUILD)/tb_pcs_comma_lock $(BUILD)/tb_pcs_8b10b_realign \
-            $(BUILD)/tb_pcs_serial_e2e \
+            $(BUILD)/tb_pcs_serial_e2e $(BUILD)/tb_8b10b_kcodes \
             $(BUILD)/tb_crc_tx_endpoint $(BUILD)/tb_crc_rx_endpoint \
             $(BUILD)/tb_soc_cdc_training $(BUILD)/tb_soc_cdc_crc \
+            $(BUILD)/tb_soc_cdc_word_bist $(BUILD)/tb_soc_cdc_8b10b \
+            $(BUILD)/tb_axis_frame_packetizer \
             $(BUILD)/tb_serdes_training $(BUILD)/tb_serdes_training_loop \
             $(BUILD)/tb_serdes_training_loop_adapt \
             $(BUILD)/tb_axis_tx_adapter $(BUILD)/tb_axis_rx_adapter \
@@ -302,13 +377,18 @@ SIM_BINS := $(BUILD)/tb_serializer_lsb $(BUILD)/tb_serializer_msb \
             $(BUILD)/tb_prbs_7 $(BUILD)/tb_prbs_15 $(BUILD)/tb_prbs_31 \
             $(BUILD)/tb_serdes_soc_wrapper $(BUILD)/tb_serdes_soc_cdc_wrapper \
             $(BUILD)/tb_serdes_bist_7 $(BUILD)/tb_serdes_bist_15 $(BUILD)/tb_serdes_bist_31 \
-            $(BUILD)/tb_serdes_bist_word
+            $(BUILD)/tb_serdes_bist_word \
+            $(BUILD)/tb_lane_deskew $(BUILD)/tb_multilane_top \
+            $(BUILD)/tb_multilane_axis
 
 sim: $(SIM_BINS)
 	$(VVP) $(BUILD)/tb_serializer_lsb
 	$(VVP) $(BUILD)/tb_serializer_msb
 	$(VVP) $(BUILD)/tb_serializer_capture
+	$(VVP) $(BUILD)/tb_serializer_onehot
+	$(VVP) $(BUILD)/tb_serializer_capture_wide
 	$(VVP) $(BUILD)/tb_serializer_stream
+	$(VVP) $(BUILD)/tb_serializer_stream_cont
 	$(VVP) $(BUILD)/tb_serializer_hier_2to1
 	$(VVP) $(BUILD)/tb_serializer_half_rate
 	$(VVP) $(BUILD)/tb_serializer_pingpong
@@ -326,6 +406,12 @@ sim: $(SIM_BINS)
 	$(VVP) $(BUILD)/tb_rx_endpoint_dll +PPM=-700
 	$(VVP) $(BUILD)/tb_deserializer_half_rate
 	$(VVP) $(BUILD)/tb_receiver_pair_sampler
+	$(VVP) $(BUILD)/tb_rx_half_rate
+	$(VVP) $(BUILD)/tb_rx_half_rate_32
+	$(VVP) $(BUILD)/tb_raw_pcs
+	$(VVP) $(BUILD)/tb_raw_pcs_32
+	$(VVP) $(BUILD)/tb_pipe_elastic_buffer
+	$(VVP) $(BUILD)/tb_pipe_lite
 	$(VVP) $(BUILD)/tb_deserializer_lsb
 	$(VVP) $(BUILD)/tb_deserializer_msb
 	$(VVP) $(BUILD)/tb_serdes_loopback_lsb
@@ -348,14 +434,18 @@ sim: $(SIM_BINS)
 	$(VVP) $(BUILD)/tb_8b10b
 	$(VVP) $(BUILD)/tb_64b66b
 	$(VVP) $(BUILD)/tb_64b66b_gearbox
+	$(VVP) $(BUILD)/tb_64b66b_rx
+	$(VVP) $(BUILD)/tb_64b66b_top
 	$(VVP) $(BUILD)/tb_pcs_8b10b
 	$(VVP) $(BUILD)/tb_pcs_comma_lock
 	$(VVP) $(BUILD)/tb_pcs_8b10b_realign
 	$(VVP) $(BUILD)/tb_pcs_serial_e2e
+	$(VVP) $(BUILD)/tb_8b10b_kcodes
 	$(VVP) $(BUILD)/tb_crc_tx_endpoint
 	$(VVP) $(BUILD)/tb_crc_rx_endpoint
 	$(VVP) $(BUILD)/tb_soc_cdc_training
 	$(VVP) $(BUILD)/tb_soc_cdc_crc
+	$(VVP) $(BUILD)/tb_soc_cdc_word_bist
 	$(VVP) $(BUILD)/tb_serdes_training
 	$(VVP) $(BUILD)/tb_serdes_training_loop
 	$(VVP) $(BUILD)/tb_serdes_training_loop_adapt
@@ -372,6 +462,9 @@ sim: $(SIM_BINS)
 	$(VVP) $(BUILD)/tb_serdes_bist_15
 	$(VVP) $(BUILD)/tb_serdes_bist_31
 	$(VVP) $(BUILD)/tb_serdes_bist_word
+	$(VVP) $(BUILD)/tb_lane_deskew
+	$(VVP) $(BUILD)/tb_multilane_top
+	$(VVP) $(BUILD)/tb_multilane_axis
 
 lint:
 	$(VERILATOR) --lint-only -Wall --top-module serdes_digital_top $(RTL)
@@ -477,6 +570,21 @@ timing-compare:
 
 lib-catalog:
 	$(PYTHON) scripts/library_catalog.py --out $(BUILD)/library_catalog.json --markdown $(BUILD)/library_catalog.md
+
+# Cell-level DRC + LVS for the extra sky130 families in /grid/sky130.
+# FAMILY selects one family (default: the hdll mix candidate).
+LIBCHECK_FAMILY ?= sky130_fd_sc_hdll
+lib-check:
+	$(PYTHON) scripts/library_drc_lvs.py --family $(LIBCHECK_FAMILY) --out $(BUILD)/library_checks
+
+# Install a family (or a mixed same-height library) into the ciel sky130A views
+# and declare it as a tech.yaml scl variant.  MIX=1 merges hd + hdll.
+SKY_LIB_SCL ?= sky130_mix9t
+sky-lib-install:
+	$(PYTHON) scripts/sky_install_family.py --scl $(SKY_LIB_SCL) \
+		--family sky130_fd_sc_hd:installed \
+		--family sky130_fd_sc_hdll=/grid/sky130/sky130_fd_sc_hdll \
+		--corners tt_025C_1v80,ss_100C_1v60 --install
 
 pvt-margin:
 	$(PYTHON) scripts/pvt_margin.py --pvt $(PVT_OUT) --out $(PVT_MARGIN_OUT)
@@ -783,6 +891,15 @@ ppa-import:
 
 # Derive a provenance-complete measured PPA row from a completed LibreLane run.
 # collect_power.py fails closed if final/metrics.json has no power__* keys.
+activity-annotate:
+	$(PYTHON) scripts/annotate_activity.py --liberty $(ACTIVITY_LIB) \
+		--primitives $(ACTIVITY_PRIM) --out $(ACTIVITY_OUT)
+
+# Placement-estimate CTS power.  Default activity; not energy/bit.
+cts-power:
+	$(PYTHON) scripts/cts_power.py --liberty $(ACTIVITY_LIB) --lef $(CTS_LEF) \
+		--out $(CTS_OUT)
+
 ppa-power-import:
 	$(PYTHON) scripts/collect_power.py --run $(POWER_RUN) --out $(POWER_RECORD) \
 		--csv-out $(PPA_CSV) --tech $(PPA_TECH) --scl $(PPA_SCL) \

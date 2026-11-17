@@ -3,18 +3,24 @@
 // fractional NCO.
 //
 // Structure
-//   - cdr_sync oversamples the line; phase_q is a fractional phase
-//     accumulator that advances by inc_v clock periods per clock and wraps
-//     once per UI (ONE = OVERSAMPLE clock periods).
+//   - cdr_sync oversamples the line.  phase_q is only the top FAST
+//     fractional bits plus the integer sample count.  It advances by the
+//     registered fast increment once per sample clock and wraps once per UI.
+//   - freq_q stays at NCO_FRAC bits and is updated on the centre event, i.e.
+//     once per UI.  The low NCO_FRAC-FAST bits do not enter the fast adder.
+//     They accumulate in resid_q; the carry out of that adder is registered
+//     and added on the next clock.  The average increment is therefore the
+//     full-precision value, while the per-clock adder does not grow with
+//     NCO_FRAC.  A one-clock delay of at most one fast LSB is the
+//     quantization compensation, not a truncated frequency word.
 //   - The PD and the loop filter are registered: the vote sampled at a data
 //     centre updates freq_q (integral) and emits a one-clock kick_q
 //     (proportional).  Keeping them out of the always_comb removes the
 //     combinational loop vote -> kick -> phase_next -> center_hit -> vote.
-//   - inc_v is monotonic (clamped to [0.25, 1.25] clock periods), so phase_q
-//     never moves backwards.  This matters: subtracting the proportional
-//     term from phase_w after a wrap could push the phase just below the UI
-//     boundary when phase_w < KP, and the next clock would wrap a second
-//     time - a runt UI, a forced edge and a duplicate strobe.
+//   - The fast increment is monotonic (clamped to [0.25, 1.25] clock
+//     periods), so phase_q never moves backwards.  Subtracting the
+//     proportional term from phase_w after a wrap could push the phase just
+//     below the UI boundary and the next clock would wrap a second time.
 //
 // Event generation
 //   edge_e   = OVERSAMPLE/2 clock periods (the line boundary)
@@ -86,8 +92,16 @@ module cdr_bang_bang #(
     localparam int PWQ     = FR + PH_W;
     localparam int PWN     = PWQ + 1;
     localparam int FW      = FR + 2;
+    // Fast phase fraction.  8 keeps the per-clock adder at FAST+PH_W bits.
+    // The remaining FR-FAST bits are the slow residue, not a shorter freq_q.
+    localparam int FAST    = 8;
+    localparam int SLOW    = FR - FAST;
+    localparam int FPW     = FAST + PH_W;
+    localparam int FPN     = FPW + 1;
     localparam logic [PWQ-1:0] CENTER = PWQ'(1 << (PWQ - 1));
     localparam logic [PWQ-1:0] CLKINC = PWQ'(1 << FR);
+    localparam logic [FPW-1:0] FCENTER = FPW'(1 << (FPW - 1));
+    localparam logic [FPN-1:0] FCLKINC = FPN'(1 << FAST);
     localparam logic signed [FW-1:0] KP   = FW'(1 << (FR - KP_SHIFT));
     localparam logic signed [FW-1:0] KI_S = FW'(KI);
     localparam logic signed [FW-1:0] FMAX = FW'(1 << (FR - 2));
@@ -106,17 +120,23 @@ module cdr_bang_bang #(
 
     logic [N-1:0]             samples;
     logic                     s;
-    logic [PWQ-1:0]           phase_q;
+    logic [FPW-1:0]           phase_q;
     logic signed [FW-1:0]     freq_q;
     logic signed [FW-1:0]     kick_q;
     logic signed [FW-1:0]     delta;
-    logic [PWN-1:0]           inc_c;   // control path (freq_q/kick_q)
-    logic [PWN-1:0]           inc_r;   // NCO control word, registered
+    logic [PWN-1:0]           inc_full;    // full-precision control increment
+    logic [FPN-1:0]           inc_fast_c;  // top bits, registered into the fast path
+    logic [SLOW-1:0]          inc_low_c;   // residue increment
+    logic [FPN-1:0]           inc_fast_r;
+    logic [SLOW-1:0]          inc_low_r;
+    logic [SLOW-1:0]          resid_q;
+    logic                     resid_carry_q;
+    logic [SLOW:0]            resid_sum;
     logic signed [FW-1:0]     freq_next;
-    logic [PWN-1:0]           phase_next;
-    logic [PWQ-1:0]           phase_w;
-    logic [PWQ-1:0]           center_e;
-    logic [PWQ-1:0]           edge_e;
+    logic [FPN-1:0]           phase_next;
+    logic [FPW-1:0]           phase_w;
+    logic [FPW-1:0]           center_e;
+    logic [FPW-1:0]           edge_e;
     logic                     wrap;
     logic                     cx_c;
     logic                     cx_e;
@@ -158,16 +178,24 @@ module cdr_bang_bang #(
         // compare instead of two 20-bit ones on the loop path.
         delta = freq_q - kick_q;
         if (delta > FMAX) delta = FMAX;
-        inc_c = PWN'(CLKINC) + PWN'(delta);
+        // Wide add, then split.  inc_fast_c / inc_low_c are registered, so
+        // this width is not on the phase-compare path.
+        inc_full   = PWN'(CLKINC) + PWN'(delta);
+        // Shift and mask, not a variable part-select: Icarus keeps every bit
+        // of a select inside always_comb, which leaves the wide adder in the
+        // fast cone.  These widths are constant.
+        inc_low_c  = SLOW'(inc_full & PWN'((1 << SLOW) - 1));
+        inc_fast_c = FPN'(inc_full >> SLOW);
 
-        // phase_next carries one extra bit: bit PWQ is the wrap, and the low
-        // PWQ bits equal phase_next - ONE when it wrapped.  The wrap is a bit
-        // test and the wrap subtraction is a truncation, no comparator or mux.
-        // Fast path: phase += the registered NCO control word, so freq_q
-        // is not in this loop.  inc_r is produced by the control path.
-        phase_next = PWN'(phase_q) + PWN'(inc_r);
-        wrap       = phase_next[PWQ];
-        phase_w    = phase_next[PWQ-1:0];
+        // Fast path: short phase word plus the registered increment and the
+        // registered residue carry.  freq_q itself is not in this adder.
+        // bit FPW is the wrap; the low FPW bits are the wrapped phase.
+        phase_next = FPN'(phase_q) + inc_fast_r + FPN'(resid_carry_q);
+        wrap       = phase_next[FPW];
+        phase_w    = phase_next[FPW-1:0];
+        // Residue.  Its carry is consumed next clock, so this adder is not
+        // in the phase-compare cone either.
+        resid_sum  = {1'b0, resid_q} + {1'b0, inc_low_r};
 
         // Event positions.  The loop closes on the edge sample, so the
         // absolute phase origin (and therefore the sync delay) is absorbed;
@@ -185,11 +213,10 @@ module cdr_bang_bang #(
         // boundary (unusable), and the values in between walk the sample
         // across the eye.  A centre threshold of 0 coincides with the wrap
         // and is detected by the "next UI" branch below.
-        edge_e   = CENTER;
-        // CENTER + CENTER == ONE and (x + ONE) & (ONE-1) == x for x < ONE, so
-        // the old add/multiply/mask reduces to phase_offset * CLKINC (a shift;
-        // phase_offset <= 3 so 3*CLKINC still fits in PWQ bits).
-        center_e = PWQ'(phase_offset) * CLKINC;
+        edge_e   = FCENTER;
+        // Same reduction as the full-width form: centre = phase_offset
+        // clock periods, now in fast-phase LSBs.
+        center_e = FPW'(phase_offset) << FAST;
 
         // Wrap-aware fractional threshold crossing.  On a wrap the traversed
         // interval is (phase_q, ONE) - the UI that is ending - followed by
@@ -256,7 +283,8 @@ module cdr_bang_bang #(
     always_ff @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             phase_q <= '0; freq_q <= '0; kick_q <= '0;
-            inc_r <= PWN'(CLKINC);
+            inc_fast_r <= FCLKINC; inc_low_r <= '0;
+            resid_q <= '0; resid_carry_q <= 1'b0;
             d_q <= 1'b0; d_prev_q <= 1'b0; e_q <= 1'b0; d_out_q <= 1'b0;
             strobe_q <= 1'b0; clk_hi_q <= 1'b0;
             c_done_q <= 1'b0; e_done_q <= 1'b0; leak_cnt_q <= '0;
@@ -264,15 +292,19 @@ module cdr_bang_bang #(
             edge_cnt_q <= '0; stale_cnt_q <= '0; lock_q <= 1'b0; stale_q <= 1'b0;
         end else if (flush) begin
             phase_q <= '0; freq_q <= '0; kick_q <= '0;
-            inc_r <= PWN'(CLKINC);
+            inc_fast_r <= FCLKINC; inc_low_r <= '0;
+            resid_q <= '0; resid_carry_q <= 1'b0;
             d_q <= 1'b0; d_prev_q <= 1'b0; e_q <= 1'b0; d_out_q <= 1'b0;
             strobe_q <= 1'b0; clk_hi_q <= 1'b0;
             c_done_q <= 1'b0; e_done_q <= 1'b0; leak_cnt_q <= '0;
             trans_ui_q <= 1'b0;
             edge_cnt_q <= '0; stale_cnt_q <= '0; lock_q <= 1'b0; stale_q <= 1'b0;
         end else if (enable) begin
-            inc_r   <= inc_c;
-            phase_q <= phase_w;
+            inc_fast_r    <= inc_fast_c;
+            inc_low_r     <= inc_low_c;
+            resid_q       <= resid_sum[SLOW-1:0];
+            resid_carry_q <= resid_sum[SLOW];
+            phase_q       <= phase_w;
             strobe_q <= 1'b0;
             // The proportional kick is a single-clock increment offset, so it
             // must not repeat on the following cycles.

@@ -12,6 +12,10 @@ module decoder_8b10b (
     input  logic       i_reset_n,
     input  logic       i_en,
     input  logic [9:0] i_10b,
+    // Load the running disparity from the comma polarity: a K28.5 RD- comma
+    // leaves RD=+1, its RD+ variant leaves RD=-1.
+    input  logic       i_rd_init,
+    input  logic       i_rd_load,
     output logic [7:0] o_8b,
     output logic       o_ctrl,
     output logic       o_code_err,
@@ -33,6 +37,11 @@ module decoder_8b10b (
             o_code_err <= 1'b0;
             o_disp_err <= 1'b0;
             rd         <= 1'b0;
+
+        end else if (i_rd_load) begin
+
+            // comma alignment: set the starting disparity, no symbol decoded
+            rd <= i_rd_init;
 
         end else if (!i_en) begin
 

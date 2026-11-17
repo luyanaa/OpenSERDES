@@ -51,7 +51,7 @@ tech:
   tx: {name: icsprout55, scl: ics55_LLSC_H7CL}
   rx: {name: icsprout55, scl: ics55_LLSC_H7CL}
 interface:
-  preset: default       # minimal | default | soc | phy_ip
+  preset: default       # minimal | default | soc | phy_ip | raw_pcs | pipe_lite
   enable_mode: static   # static | dynamic
   user_clock_mhz: 100
 optimization:
@@ -260,11 +260,12 @@ optimization:
   `alternative_clock_load_ratio` from `ppa_model.py`, and the requirement
   (forwarded clock, or `allow_os2`).  It is advisory only -- the generator
   never silently changes clocking.
-- `spec/power_tradeoff.yaml` demonstrates a two-candidate frontier at 32x8
-  (`word_group_capture` vs `word_streaming`) with a budget that rejects the
-  larger one.  A restricted `fixed_oversampling_os2` RX candidate is reachable
-  with `rx.oversample: 2` + `rx.allow_os2: true` and has ~0.5x the clock load
-  of OS=4.
+- `spec/power_tradeoff.yaml` runs the 32x8 minmax selection.  After the
+  shift-register write-path rewrite `word_streaming` is smaller than
+  `word_group_capture` (407 vs 626 generic cells) and has the lower clock
+  load, so it wins and the frontier is `["word_streaming"]`.  A restricted
+  `fixed_oversampling_os2` RX candidate is reachable with `rx.oversample: 2` +
+  `rx.allow_os2: true` and has ~0.5x the clock load of OS=4.
 
 Current candidates:
 
@@ -272,9 +273,9 @@ Current candidates:
 |---|---|---|
 | TX | parallel_mux | single-cycle capture; RATIO <= 128 |
 | TX | word_group_capture | one word per cycle internally; external bus must be held for WORDS cycles |
-| TX | word_streaming | true per-word valid/ready; narrow input; endpoint only |
+| TX | word_streaming | true per-word valid/ready; narrow input; shift-register bank; endpoint only |
 | RX | fixed_oversampling | frequency-locked clocks |
-| RX | adaptive_oversampling | first-order ppm tracking; OS >= 8 |
+| RX | adaptive_oversampling | first-order ppm tracking; OS >= 8; no longer the default for a frequency offset |
 | RX | source_sync | forwarded bit clock; no CDR acquisition |
 
 ## 4. Interface presets
@@ -285,6 +286,9 @@ Current candidates:
 | default | valid/ready parallel | native | auto | complete |
 | soc | AXI4-Stream | APB | none or async FIFO | serdes_soc_wrapper / serdes_soc_cdc_wrapper available (source-sync link) |
 | phy_ip | valid/ready + optional blocks | APB | async FIFO + BIST/calibration/DFT | APB/FIFO primitives exist; BIST/DFT/top integration is scaffold |
+| raw_pcs | flat DATA_WIDTH word bus | native | none | serdes_raw_pcs_top; widths 16/20/32/40/64; word clock = clk/W; rx_slide bitslip |
+| pipe_lite | flat 16-bit PIPE data + K | native | none | serdes_pipe_lite_top; 8b10b + K + RxStatus + elastic buffer; PIPE_DIGITAL_COMPAT |
+| multilane | one wide AXIS beat (lanes x width) | native | async FIFO per lane | serdes_multilane_top; 2/4/8 bonded lanes, marker/epoch deskew, wide AXIS bonder; `link.lanes` + `deskew.marker_period`/`max_skew` |
 
 soc now has two real wrappers: `serdes_soc_wrapper` for a single clock and
 `serdes_soc_cdc_wrapper` for separate pclk/AXIS/tx/rx clocks with async FIFOs
@@ -295,8 +299,15 @@ is still open.  Both wrappers integrate the pad-level PRBS BIST behind APB: BIST
 snapshots at 10/11 and BIST_STATUS at 12.  The single-clock wrapper also
 supports the word/datapath BIST (BIST_CTRL[6]), which drives an AXIS PRBS frame
 source through the serializer and checks the RX AXIS frames; its counters are
-at registers 13/14.  `phy_ip` remains a scaffold until
-calibration/DFT integration exists.  `target: tx`/`rx` with
+at registers 13/14.  The CDC wrapper reuses the same word checker: BIST_CTRL[6]
+routes the RX payload stream into `prbs_word_check` and its error count feeds
+`link_training_fsm` directly in rx_clk.  The previous tx_clk -> rx_clk serial
+error-count delta integrator and its snapshot were removed; the serial BIST
+counters remain for CSR telemetry only.  `phy_ip` remains a scaffold until
+calibration/DFT integration exists.  `raw_pcs` and `pipe_lite` are endpoint
+presets (`target: rx` or `tx`) with a flat word bus and a divided word clock;
+see `docs/raw_pcs.md` and `docs/pipe_lite.md`.  `pipe_lite` is labelled
+`PIPE_DIGITAL_COMPAT` in the manifest and is not a PCIe/USB/SATA PHY.  `target: tx`/`rx` with
 `interface.data: axi4_stream` generates a real endpoint package.  The presets
 fail fast unless --allow-incomplete is passed.  A scaffold package now records
 `manifest.missing_blocks` + `features_missing`, emits a warning, and adds a
@@ -308,6 +319,28 @@ bound SI/BER gate and only then records a validated rate, profile hash and the
 `RTL_LINK_SMOKE` evidence block.  The generator itself never invents a
 link-rate claim.  The generated soc packages include
 `serdes_bist.sv`, `bist_snapshot.sv` and the word BIST primitives.
+
+### Layer blocks
+
+The coding and link-layer blocks are separate modules, not presets: they are
+instantiated by the design that needs them and are not selectable from the spec
+yet.
+
+| block | module(s) | doc |
+|---|---|---|
+| 8b/10b control path + 10-bit comma lock | `pcs_8b10b_tx`, `pcs_8b10b_rx`, `pcs_8b10b_comma`, `pcs_8b10b_tx_stream`, `pcs_8b10b_rx_stream` | `docs/pcs_coding.md` |
+| 64b/66b block lock + control decode + gearbox | `pcs_64b66b_rx_gearbox`, `pcs_64b66b_ctrl_decode` | `docs/pcs_coding.md` |
+| variable-length framing | `axis_frame_packetizer`, `axis_frame_depacketizer` | `docs/link_layers.md` |
+| go-back-N reliable transport | `axis_reliable_tx`, `axis_reliable_rx` | `docs/link_layers.md` |
+| multi-lane + lane-to-lane deskew | `serdes_multilane_top`, `lane_deskew`, `axis_lane_bonder` | `docs/multilane.md` |
+
+`serdes_64b66b_top` and `serdes_soc_cdc_wrapper` expose the coding choice as a
+module parameter (`RX_GEARBOX`, `ENC_8B10B`), and their generated file lists now
+carry the gearbox / 8b10b datapath files so the parameter can be enabled without
+editing the file list.  The spec does not drive those parameters: the generator
+rejects `coding: 8b10b/64b66b` for the soc preset and emits the default raw
+configuration, so an enabled coding path is an explicit integration decision, not
+a spec option.
 
 ## 5. Package layout
 

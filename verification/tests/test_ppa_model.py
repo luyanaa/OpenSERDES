@@ -21,7 +21,7 @@ class TestPpaModel(unittest.TestCase):
         measured = {
             "parallel_mux": (109, 582),
             "word_group_capture": (142, 626),
-            "word_streaming": (308, 1977),
+            "word_streaming": (111, 407),
             "fixed_oversampling": (218, 758),
             "adaptive_oversampling": (847, 1382),
             "source_sync": (120, 656),
@@ -46,12 +46,14 @@ class TestPpaModel(unittest.TestCase):
         adaptive8 = ppa_model.relative_metrics("rx", "adaptive_oversampling", 32, 8, 25.0)
         self.assertLess(bb["power"], adaptive8["power"])
 
-    def test_word_streaming_is_not_smaller_than_parallel_mux(self) -> None:
-        # The old arch_db claimed area 0.80 for word_streaming.  Synthesis says
-        # it is ~2.8x the cells; the model must not reintroduce the inversion.
-        a = ppa_model.relative_metrics("tx", "parallel_mux", 32, 4, 25.0)
-        b = ppa_model.relative_metrics("tx", "word_streaming", 32, 4, 25.0)
-        self.assertGreater(b["area"], a["area"] * 2.0)
+    def test_word_streaming_shift_register_is_smaller_at_256(self) -> None:
+        # The indexed write plus WORDS-way read mux measured 1977 cells at
+        # 32x8.  The shift-register rewrite is 407 cells, below parallel_mux
+        # at the same ratio; the model must follow the measured points.
+        a = ppa_model.relative_metrics("tx", "parallel_mux", 256, 4, 25.0)
+        b = ppa_model.relative_metrics("tx", "word_streaming", 256, 4, 25.0)
+        self.assertLess(b["area"], a["area"])
+        self.assertLess(b["area"], 0.8)
 
     def test_adaptive_clock_load_exceeds_fixed(self) -> None:
         fixed = ppa_model.relative_metrics("rx", "fixed_oversampling", 32, 4, 25.0)

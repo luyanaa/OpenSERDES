@@ -57,6 +57,14 @@ limits:
         LVS deck measured CP 10.84 ns / WNS -0.61 ns, 2627 cells, 2.37 uW,
         Magic/KLayout DRC 38484/4767 and a KLayout LVS failure (four std
         cells get an extra internal pin); still not DRC/LVS clean."
+clock_gate:
+  # sg13g2_stdcell ICG (clock_gating_integrated_cell).  Pins verified in the
+  # typ/fast liberty: CLK in, GATE enable, GCLK gated clock.
+  icg_cell: sg13g2_lgcp_1
+  enable_pin: GATE
+  clk_pin: CLK
+  gated_clk_pin: GCLK
+  min_width: 8
 cts:
   target_skew_ps: 50
   max_slew_ns: 0.5

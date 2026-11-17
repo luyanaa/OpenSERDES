@@ -38,6 +38,7 @@ module tb_pcs_serial_e2e;
     logic rx_serial_data, rx_serial_valid;
     logic signed [12:0] rx_freq_trim;
     logic code_error;
+    logic [WORDS-1:0] rx_charisk;
 
     logic ch_corrupt, ch_slip;
     logic ch_out, ch_valid;
@@ -59,12 +60,14 @@ module tb_pcs_serial_e2e;
         .ALIGN_MODE(0), .SYNC_LEN(8), .SYNC_PATTERN(8'hBC)
     ) dut (
         .tx_clk(tx_clk), .tx_rst_n(tx_rst_n), .tx_enable(tx_enable),
-        .tx_load(tx_load), .tx_par_data(tx_data), .tx_ready(tx_ready),
+        .tx_load(tx_load), .tx_par_data(tx_data), .tx_charisk('0),
+        .tx_ready(tx_ready),
         .tx_serial_out(tx_serial_out), .tx_serial_valid(tx_serial_valid),
         .tx_busy(tx_busy), .tx_frame_done(tx_frame_done),
         .rx_clk(rx_clk), .rx_rst_n(rx_rst_n), .rx_enable(rx_enable),
         .rx_flush(rx_flush), .rx_align(rx_align), .rx_serial_in(ch_out),
-        .rx_par_data(rx_data), .rx_par_valid(rx_par_valid), .rx_busy(rx_busy),
+        .rx_par_data(rx_data), .rx_charisk(rx_charisk),
+        .rx_par_valid(rx_par_valid), .rx_busy(rx_busy),
         .rx_lock(rx_lock), .rx_lock_stale(rx_lock_stale),
         .rx_sample_strobe(rx_sample_strobe), .rx_clk_out(rx_clk_out),
         .rx_frame_locked(rx_frame_locked), .rx_frame_valid(rx_frame_valid),
