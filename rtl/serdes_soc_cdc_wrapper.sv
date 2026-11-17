@@ -12,6 +12,13 @@
 //   m_axis_aclk : RX AXIS output, RX FIFO read side
 //
 // TX AXIS frame = WORDS+1 beats: comma (0xBC) + WORDS payload words.
+//
+// PKT_ENABLE=1 inserts the variable-length framing layer on both AXIS sides:
+// the SoC port then carries *variable-length* frames (Ethernet, AXI bursts)
+// instead of exactly WORDS beats, and `axis_frame_packetizer` /
+// `axis_frame_depacketizer` do the slicing.  Without it the port must present
+// exactly WORDS beats per frame with tlast on the last one -- the
+// `axis_tx_adapter` contract.
 // RX AXIS frame = WORDS payload words.
 //
 // ENC_8B10B=1 inserts the streaming 8b/10b codec between the AXIS adapters and
@@ -75,6 +82,7 @@ module serdes_soc_cdc_wrapper #(
     // Line coding: 0 = raw DATA_WIDTH words, 1 = streaming 8b/10b symbols.
     parameter bit ENC_8B10B = 1'b0,
     // Aligned commas required before the RX symbol boundary is trusted.
+    parameter bit PKT_ENABLE  = 1'b0,
     parameter int ALIGN_LOCK_COMMAS = 1,
     parameter bit TRAINING_ENABLE = 1'b0,
     parameter int TRAIN_DWELL_CYCLES = 64,
@@ -141,7 +149,10 @@ module serdes_soc_cdc_wrapper #(
     output logic [PHASE_CTRL_W-1:0]           train_best_phase,
     output logic [TRAIN_ERROR_WIDTH-1:0]      train_best_errors,
     // Sticky 8b/10b encode/decode/disparity error (0 when ENC_8B10B=0).
-    output logic                              code_error
+    output logic                              code_error,
+    // Framing-layer telemetry (0 when PKT_ENABLE=0).
+    output logic                              pkt_tx_frame_error,
+    output logic                              pkt_rx_frame_error
 );
 
     localparam int CRC_BYTES = (CRC_WIDTH + DATA_WIDTH - 1) / DATA_WIDTH;
@@ -245,6 +256,21 @@ module serdes_soc_cdc_wrapper #(
     end
     assign tx_clear_pulse = tx_clear_tx & ~tx_clear_tx_d;
 
+    // The framing layer runs in the AXIS clock domain, so it needs the clear
+    // pulse synchronised there rather than the tx_clk one.
+    logic tx_clear_s_axis, tx_clear_s_axis_d;
+    cdc_sync #(.WIDTH(1)) u_tx_clear_s_axis (
+        .clk(s_axis_aclk), .rst_n(s_axis_aresetn),
+        .d(tx_clear_p), .q(tx_clear_s_axis)
+    );
+    always_ff @(posedge s_axis_aclk or negedge s_axis_aresetn) begin
+        if (!s_axis_aresetn)
+            tx_clear_s_axis_d <= 1'b0;
+        else
+            tx_clear_s_axis_d <= tx_clear_s_axis;
+    end
+    wire tx_clear_pulse_s_axis = tx_clear_s_axis & ~tx_clear_s_axis_d;
+
     // Control into RX domain.
     cdc_sync #(.WIDTH(1)) u_rx_enable (
         .clk(rx_clk), .rst_n(rx_rst_n), .d(rx_enable_p), .q(rx_enable_rx)
@@ -266,6 +292,21 @@ module serdes_soc_cdc_wrapper #(
     end
     assign rx_flush_pulse = rx_flush_rx & ~rx_flush_rx_d;
     assign rx_clear_pulse = rx_clear_rx & ~rx_clear_rx_d;
+
+    // The RX framing layer runs in the m_axis clock domain, so it needs the
+    // clear pulse synchronised there (same pattern as the TX side).
+    logic rx_clear_m_axis, rx_clear_m_axis_d;
+    cdc_sync #(.WIDTH(1)) u_rx_clear_m_axis (
+        .clk(m_axis_aclk), .rst_n(m_axis_aresetn),
+        .d(rx_clear_p | rx_flush_p), .q(rx_clear_m_axis)
+    );
+    always_ff @(posedge m_axis_aclk or negedge m_axis_aresetn) begin
+        if (!m_axis_aresetn)
+            rx_clear_m_axis_d <= 1'b0;
+        else
+            rx_clear_m_axis_d <= rx_clear_m_axis;
+    end
+    wire rx_clear_pulse_m_axis = rx_clear_m_axis & ~rx_clear_m_axis_d;
 
     // -------------------------------------------------------------------------
     // BIST control into the link clock domains
@@ -316,9 +357,70 @@ module serdes_soc_cdc_wrapper #(
     logic tx_adapter_ready, tx_pipe_tvalid, tx_pipe_tlast;
     logic [DATA_WIDTH-1:0] tx_pipe_tdata;
 
-    assign s_axis_tready  = ~tx_fifo_wfull;
-    assign tx_fifo_winc   = s_axis_tvalid && ~tx_fifo_wfull;
-    assign tx_fifo_wdata  = {s_axis_tlast, s_axis_tdata};
+    // Variable-length framing: the SoC port speaks frames of any length, the
+    // internal path needs exactly WORDS beats.  With PKT_ENABLE=0 the port is
+    // wired straight through (the axis_tx_adapter contract applies).
+    logic                   pkt_tvalid, pkt_tready, pkt_tlast, pkt_tuser;
+    logic [DATA_WIDTH-1:0]  pkt_tdata;
+
+    generate
+        if (PKT_ENABLE) begin : g_tx_packetizer
+            /* verilator lint_off PINCONNECTEMPTY */
+            axis_frame_packetizer #(
+                .DATA_WIDTH(DATA_WIDTH), .WORDS(WORDS)
+            ) u_pkt (
+                .clk(s_axis_aclk), .rst_n(s_axis_aresetn),
+                .clear(tx_clear_pulse_s_axis),
+                .s_axis_tvalid(s_axis_tvalid), .s_axis_tready(s_axis_tready),
+                .s_axis_tdata(s_axis_tdata), .s_axis_tlast(s_axis_tlast),
+                .m_axis_tvalid(pkt_tvalid), .m_axis_tready(pkt_tready),
+                .m_axis_tdata(pkt_tdata), .m_axis_tlast(pkt_tlast),
+                .m_axis_tuser(pkt_tuser),
+                .frame_error(pkt_tx_frame_error)
+            );
+            /* verilator lint_on PINCONNECTEMPTY */
+        end else begin : g_tx_no_packetizer
+            assign s_axis_tready    = pkt_tready;
+            assign pkt_tvalid       = s_axis_tvalid;
+            assign pkt_tdata        = s_axis_tdata;
+            assign pkt_tlast        = s_axis_tlast;
+            assign pkt_tx_frame_error = 1'b0;
+        end
+    endgenerate
+
+    // The internal frame contract is `comma + WORDS payload` beats and
+    // axis_tx_adapter requires tlast on the last beat; the framer emits the
+    // payload beats only, so the ordered set is put back here.
+    logic              framer_tvalid, framer_tready, framer_tlast;
+    logic [DATA_WIDTH-1:0] framer_tdata;
+    logic [15:0]       tx_set_count;
+
+    generate
+        if (PKT_ENABLE) begin : g_tx_set_insert
+            axis_ordered_set_insert #(
+                .DATA_WIDTH(DATA_WIDTH), .SET_WORD(SYNC_PATTERN[DATA_WIDTH-1:0])
+            ) u_set (
+                .clk(s_axis_aclk), .rst_n(s_axis_aresetn),
+                .clear(tx_clear_pulse_s_axis),
+                .enable(tx_enable_p),
+                .s_tvalid(pkt_tvalid), .s_tready(pkt_tready),
+                .s_tdata(pkt_tdata), .s_tlast(pkt_tlast),
+                .m_tvalid(framer_tvalid), .m_tready(framer_tready),
+                .m_tdata(framer_tdata), .m_tlast(framer_tlast),
+                .set_count(tx_set_count)
+            );
+        end else begin : g_tx_no_set_insert
+            assign framer_tvalid = pkt_tvalid;
+            assign framer_tdata  = pkt_tdata;
+            assign framer_tlast  = pkt_tlast;
+            assign pkt_tready    = framer_tready;
+            assign tx_set_count  = '0;
+        end
+    endgenerate
+
+    assign tx_fifo_winc   = framer_tvalid && ~tx_fifo_wfull;
+    assign tx_fifo_wdata  = {framer_tlast, framer_tdata};
+    assign framer_tready  = ~tx_fifo_wfull;
     assign tx_fifo_valid   = ~tx_fifo_rempty;
     assign tx_fifo_rinc    = tx_fifo_valid && tx_fifo_ready;
 
@@ -803,7 +905,15 @@ module serdes_soc_cdc_wrapper #(
 
     assign train_error_total = train_error_count +
         TRAIN_ERROR_WIDTH'(bist_word_error_count);
-    assign rx_fifo_rinc   = m_axis_tvalid && m_axis_tready;
+    // With the framing layer the FIFO feeds the depacketizer, which in turn
+    // drives the SoC port; the FIFO read must follow the depacketizer's ready.
+    logic                   rx_fifo_tlast;
+    logic                   dep_tvalid, dep_tready, dep_tlast;
+    logic [DATA_WIDTH-1:0]  dep_tdata;
+    logic                   dep_ready;
+
+    assign rx_fifo_rinc   = (PKT_ENABLE ? dep_ready : m_axis_tready)
+                            && ~rx_fifo_rempty;
 
     async_fifo #(
         .DATA_WIDTH(DATA_WIDTH + 1),
@@ -822,9 +932,40 @@ module serdes_soc_cdc_wrapper #(
         .rempty(rx_fifo_rempty)
     );
 
-    assign m_axis_tvalid = ~rx_fifo_rempty;
-    assign m_axis_tdata  = rx_fifo_rdata[DATA_WIDTH-1:0];
-    assign m_axis_tlast  = rx_fifo_rdata[DATA_WIDTH];
+    assign rx_fifo_tlast = rx_fifo_rdata[DATA_WIDTH];
+
+    generate
+        if (PKT_ENABLE) begin : g_rx_depacketizer
+            /* verilator lint_off PINCONNECTEMPTY */
+            axis_frame_depacketizer #(
+                .DATA_WIDTH(DATA_WIDTH), .WORDS(WORDS)
+            ) u_depkt (
+                .clk(m_axis_aclk), .rst_n(m_axis_aresetn),
+                .clear(rx_clear_pulse_m_axis),
+                .s_axis_tvalid(~rx_fifo_rempty),
+                .s_axis_tready(dep_ready),
+                .s_axis_tdata(rx_fifo_rdata[DATA_WIDTH-1:0]),
+                .s_axis_tlast(rx_fifo_tlast),
+                .m_axis_tvalid(m_axis_tvalid), .m_axis_tready(m_axis_tready),
+                .m_axis_tdata(m_axis_tdata), .m_axis_tlast(m_axis_tlast),
+                .frame_error(pkt_rx_frame_error)
+            );
+            /* verilator lint_on PINCONNECTEMPTY */
+            assign dep_tvalid = 1'b0;
+            assign dep_tready = 1'b0;
+            assign dep_tlast  = 1'b0;
+            assign dep_tdata  = '0;
+        end else begin : g_rx_no_depacketizer
+            assign m_axis_tvalid = ~rx_fifo_rempty;
+            assign m_axis_tdata  = rx_fifo_rdata[DATA_WIDTH-1:0];
+            assign m_axis_tlast  = rx_fifo_tlast;
+            assign dep_ready     = m_axis_tready;
+            assign dep_tvalid    = 1'b0;
+            assign dep_tlast     = 1'b0;
+            assign dep_tdata     = '0;
+            assign pkt_rx_frame_error = 1'b0;
+        end
+    endgenerate
 
     always_ff @(posedge rx_clk or negedge rx_rst_n) begin
         if (!rx_rst_n)

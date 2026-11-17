@@ -1,0 +1,38 @@
+# SoC streaming peripheral with the variable-length framing layer.
+#
+# serdes_soc_cdc_wrapper with PKT_ENABLE=1: the AXI4-Stream port accepts frames
+# of any length (Ethernet, AXI bursts) and axis_frame_packetizer /
+# axis_frame_depacketizer slice them into the internal fixed WORDS-beat frames.
+# The APB control plane and all clock-domain crossings are unchanged.
+name: soc_stream
+target: link
+link:
+  payload_width: 8
+  words: 4
+  line_rate_mbps: 25
+  coding: raw
+  bit_order: lsb_first
+tx:
+  architecture: word_streaming
+rx:
+  architecture: source_sync
+  oversample: 1
+  align: comma
+  clocking: source_sync
+  ppm: 0
+  sync_len: 8
+  sync_pattern: 0xBC
+tech:
+  tx: sky130
+  rx: sky130
+interface:
+  preset: soc
+  data: axi4_stream
+  control: apb
+  cdc: async_fifo
+  enable_mode: dynamic
+  fifo_depth: 16
+  framing: variable
+constraints:
+  uncertainty_setup_ns: 0.100
+  uncertainty_hold_ns: 0.050

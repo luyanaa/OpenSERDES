@@ -140,6 +140,7 @@ DESIGN_FILES = {
         "cdr_oversampling.sv", "cdr_adaptive.sv", "cdr_bang_bang.sv",
         "cdr_multiphase.sv", "comma_align.sv",
         "receiver_sampler.sv", "reset_sync.sv", "serdes_rx_digital.sv",
+        "axis_frame_packetizer.sv", "axis_ordered_set_insert.sv",
         "serdes_soc_cdc_wrapper.sv",
     ],
 }
@@ -1120,6 +1121,26 @@ def validate(spec: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
     if enable_mode not in ("static", "dynamic"):
         fail("interface.enable_mode must be static or dynamic")
 
+    # Framing layer: "beats" is the raw axis_tx_adapter contract (exactly WORDS
+    # beats per frame), "variable" inserts axis_frame_packetizer on the SoC
+    # port so Ethernet / AXI-burst traffic can be accepted directly.
+    framing = str(interface.get("framing", "beats")).lower()
+    if framing not in ("beats", "variable"):
+        fail("interface.framing must be beats or variable")
+    if framing == "variable":
+        if preset != "soc":
+            fail("interface.framing: variable is implemented for preset: soc "
+                 "(the streaming wrapper owns the framing layer)")
+        if soc_any is False:
+            fail("interface.framing: variable needs the AXIS/APB/CDC wrapper")
+        if coding != "raw":
+            fail("interface.framing: variable and link.coding: 8b10b/64b66b "
+                 "are not integrated yet (the codec owns the word cadence); "
+                 "use raw")
+        if words < 3:
+            fail("interface.framing: variable reserves one header beat; "
+                 "link.words must be >= 3")
+
     align = str(rx.get("align", "external")).lower()
     align_map = {"external": 0, "comma": 1, "comma_per_frame": 2,
                  "comma_8b10b": 3, "block_lock": 4}
@@ -1300,6 +1321,7 @@ def validate(spec: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
         "cdc": cdc,
         "features": features,
         "enable_mode": enable_mode,
+        "framing": framing,
         "align_mode": align_map[align],
         "sync_pattern": sync_pattern_int,
         "sync_len": sync_len,
@@ -1431,6 +1453,7 @@ def build_plan(cfg: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
         })
     if design == "serdes_soc_cdc_wrapper":
         params["FIFO_DEPTH"] = cfg["fifo_depth"]
+        params["PKT_ENABLE"] = 1 if cfg["framing"] == "variable" else 0
     if design == "serdes_multilane_top":
         deskew = cfg["deskew"]
         marker_period = deskew["marker_period"]

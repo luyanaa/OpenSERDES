@@ -330,9 +330,10 @@ yet.
 |---|---|---|
 | 8b/10b control path + 10-bit comma lock | `pcs_8b10b_tx`, `pcs_8b10b_rx`, `pcs_8b10b_comma`, `pcs_8b10b_tx_stream`, `pcs_8b10b_rx_stream` | `docs/pcs_coding.md` |
 | 64b/66b block lock + control decode + gearbox | `pcs_64b66b_rx_gearbox`, `pcs_64b66b_ctrl_decode` | `docs/pcs_coding.md` |
-| variable-length framing | `axis_frame_packetizer`, `axis_frame_depacketizer` | `docs/link_layers.md` |
+| variable-length framing | `axis_frame_packetizer`, `axis_frame_depacketizer`, `axis_ordered_set_insert` | `docs/link_layers.md`, `docs/soc_streaming.md` |
 | go-back-N reliable transport | `axis_reliable_tx`, `axis_reliable_rx` | `docs/link_layers.md` |
 | multi-lane + lane-to-lane deskew | `serdes_multilane_top`, `lane_deskew`, `axis_lane_bonder` | `docs/multilane.md` |
+| jitter/phase reference model | `tb/jitter_clock.sv`, `verification.channel.phase_model` | `docs/phase_model.md` |
 
 `serdes_64b66b_top` and `serdes_soc_cdc_wrapper` expose the coding choice as a
 module parameter (`RX_GEARBOX`, `ENC_8B10B`), and their generated file lists now

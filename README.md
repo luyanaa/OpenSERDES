@@ -180,11 +180,15 @@ AXIS CRC 插入/检查原语。插入器把 CRC beats 追加在 payload 之后�
 
 64b/66b 原语：2-bit sync header + 64-bit self-synchronous scrambler payload，支持 data/control block header、非法 sync 拒绝，以及 66-to-64-bit gearbox。`serdes_64b66b_top` 把 64-bit payload 编码到 66-bit line word；generator 在 `payload_width: 64`、`target: link`、`align: external` 时接受 `coding: 64b66b`。`RX_GEARBOX=1` 时 RX 侧由 `pcs_64b66b_rx_gearbox` 从 1-bit 串行流用 66-bit 滑窗锁块，`pcs_64b66b_ctrl_decode` 区分纯数据/全控制/混合起止块（`rx_ctrl_kind`/`rx_block_type`）；该模式限定 `WORDS==1`，TX 在帧间插入 IEEE 全控制 idle 块以保持块边界。完整 control-field 提取与 lane distribution 仍是独立 PCS 工作。详见 `docs/pcs_coding.md`。
 
+### 抖动/相位参考模型
+
+`verification/channel/phase_model.py` 与 `tb/jitter_clock.sv` 是**同一个模型的两份实现**，使用完全相同的整数运算（16-bit xorshift、Irwin-Hall 高斯替代、64 项 Q1.15 正弦表、截断 ppm 斜坡），因此 RTL 与 Python 的 TIE 序列逐位一致；`tb/tb_phase_model.sv` 读 Python 写出的向量并逐边沿比对，`make phase-model-rtl` 与 4 个 `phase_model_*` 回归用例守住这个等价性。支持 RJ / SJ / ppm / DCD 四个轴，已覆盖 6 种配置。边界：不是信道模型（无 ISI/反射/CTLE-DFE/SSC），高斯是有界的 ±6σ 替代，`tj_at_ber` 是 dual-Dirac 预算而非实测 BER。见 `docs/phase_model.md`。
+
 ### 多 Lane 与链路层
 
 `rtl/serdes_multilane_top.sv` 把多路 source-sync / bang-bang 通道（每 lane 一个 `serializer_stream` + `serdes_rx_digital` + `async_fifo`）合成一个 word 流：TX 在所有 lane 的同一 word slot 发送，每 `MARKER_PERIOD` 个 payload word 插入一个带 epoch 的 marker，空闲时发 idle；RX 侧 `rtl/lane_deskew.sv` 用 per-lane 弹性缓冲吸收 lane 间整字偏移，从 marker 边界锁步放行，输出只有 payload（`marker_ok` 每 `MARKER_PERIOD` 个输出字 pulse 一次）。参数约束 `MARKER_PERIOD > MAX_SKEW`、`DESKEW_DEPTH >= 2*MARKER_PERIOD + MAX_SKEW`（2 的幂）在 elaboration 期 fail-closed；`CDR_MODE != 2` 时要求 `OVERSAMPLE >= 4` 且 `CDR_BYPASS=0`。SoC 侧由 `rtl/axis_lane_bonder.sv` 的 `axis_lane_bonder`/`axis_lane_debonder` 做宽 AXIS（`LANES*DATA_WIDTH`）与逐 lane word 之间的转换，debonder 用 `link_ok` 门控并在 `underflow` 计数被丢弃的 beat。`preset: multilane` 可直接生成该 package（`spec/multilane.yaml`，2/4/8 lane）。见 `docs/multilane.md`。
 
-`rtl/axis_frame_packetizer.sv` 把变长 AXIS 帧切片成 `axis_tx_adapter` 要求的固定 `WORDS` beat 帧（头 beat 带 `last_frag`/`frag_len`），`axis_frame_depacketizer` 负责还原。`rtl/axis_reliable_link.sv` 提供 go-back-N 可靠传输：`axis_crc_inserter/checker`（`STORE_AND_FORWARD=1`）+ 极简 Sequence ID + 累计 ACK/NAK，坏帧丢弃、重复帧重 ACK、超时/NAK 回退，超过 `RETRY_LIMIT` 置 sticky `link_error`。两者都是协议逻辑，`tlast`/`tuser` 是 sideband，接到串行链路需要 in-band 帧边界。见 `docs/link_layers.md`。
+`rtl/axis_frame_packetizer.sv` 把变长 AXIS 帧切片成 `axis_tx_adapter` 要求的固定 `WORDS` beat 帧（头 beat 带 `last_frag`/`frag_len`），`axis_frame_depacketizer` 负责还原；`rtl/axis_ordered_set_insert.sv` 在每个分片链前补回 `comma` 有序集。`serdes_soc_cdc_wrapper` 的 `PKT_ENABLE=1` 把这一层接在 `s_axis` 前端 / `m_axis` 后端，SoC 侧可直接收发任意长度帧（以太网、AXI burst），`tb_soc_cdc_packetizer` 端到端验证 5 帧 36 字节逐字节一致。见 `docs/soc_streaming.md`。`rtl/axis_reliable_link.sv` 提供 go-back-N 可靠传输：`axis_crc_inserter/checker`（`STORE_AND_FORWARD=1`）+ 极简 Sequence ID + 累计 ACK/NAK，坏帧丢弃、重复帧重 ACK、超时/NAK 回退，超过 `RETRY_LIMIT` 置 sticky `link_error`。两者都是协议逻辑，`tlast`/`tuser` 是 sideband，接到串行链路需要 in-band 帧边界。见 `docs/link_layers.md`。
 
 ### `rtl/receiver_sampler.sv`
 

@@ -211,6 +211,8 @@ CASES = [
     ("prbs31", "tb_prbs", ["rtl/prbs_gen.sv", "rtl/prbs_check.sv"], {"WIDTH": 31}),
     ("serdes_soc_wrapper", "tb_serdes_soc_wrapper", [str(p) for p in sorted((ROOT / "rtl").glob("*.sv"))], {}),
     ("serdes_soc_cdc_wrapper", "tb_serdes_soc_cdc_wrapper", [str(p) for p in sorted((ROOT / "rtl").glob("*.sv"))], {}),
+    ("soc_cdc_packetizer", "tb_soc_cdc_packetizer",
+     [str(p) for p in sorted((ROOT / "rtl").glob("*.sv"))], {}),
     ("soc_cdc_8b10b", "tb_soc_cdc_8b10b", [str(p) for p in sorted((ROOT / "rtl").glob("*.sv"))], {}),
     ("axis_frame_packetizer", "tb_axis_frame_packetizer", ["rtl/axis_frame_packetizer.sv"], {}),
     ("8b10b", "tb_8b10b", ["rtl/encoder_8b10b.sv", "rtl/decoder_8b10b.sv"], {}),
@@ -238,6 +240,24 @@ CASES = [
     ("serdes_bist15", "tb_serdes_bist", ["rtl/serdes_bist.sv", "rtl/prbs_gen.sv", "rtl/prbs_check.sv"], {"WIDTH": 15}),
     ("serdes_bist31", "tb_serdes_bist", ["rtl/serdes_bist.sv", "rtl/prbs_gen.sv", "rtl/prbs_check.sv"], {"WIDTH": 31}),
     ("lane_deskew", "tb_lane_deskew", ["rtl/lane_deskew.sv"], {}),
+    # Jitter / phase reference model: 4 configurations, each compiled with the
+    # parameters the Python vector was generated from.
+    ("phase_model_rj", "tb_phase_model",
+     ["tb/jitter_clock.sv"], {},
+     {"vector": str(ROOT / "build/phase_model/vec_rj.hex")},
+     ["-DTB_RJ=1311", "-DTB_SEED=44257", "-DTB_N_EDGES=64"]),
+    ("phase_model_sj", "tb_phase_model",
+     ["tb/jitter_clock.sv"], {},
+     {"vector": str(ROOT / "build/phase_model/vec_sj.hex")},
+     ["-DTB_SJ=16384", "-DTB_SJ_FREQ=5000000", "-DTB_N_EDGES=64"]),
+    ("phase_model_ppm", "tb_phase_model",
+     ["tb/jitter_clock.sv"], {},
+     {"vector": str(ROOT / "build/phase_model/vec_ppm.hex")},
+     ["-DTB_PPM=150", "-DTB_N_EDGES=64"]),
+    ("phase_model_dcd", "tb_phase_model",
+     ["tb/jitter_clock.sv"], {},
+     {"vector": str(ROOT / "build/phase_model/vec_dcd.hex")},
+     ["-DTB_DCD=6554", "-DTB_DCD_PATTERN=1", "-DTB_N_EDGES=64"]),
     ("multilane_axis", "tb_multilane_axis",
      [str(p) for p in sorted((ROOT / "rtl").glob("*.sv"))], {}),
     ("multilane_top", "tb_multilane_top",
@@ -247,12 +267,15 @@ CASES = [
 
 
 def run_case(name: str, top: str, sources: list[str], params: dict,
-             plusargs: dict | None = None, incdirs: list[str] | None = None) -> tuple[bool, str]:
+             plusargs: dict | None = None, incdirs: list[str] | None = None,
+             defines: list[str] | None = None) -> tuple[bool, str]:
     BUILD.mkdir(parents=True, exist_ok=True)
     exe = BUILD / name
     cmd = [IVERILOG, "-g2012", "-Wall", "-o", str(exe)]
     for d in incdirs or []:
         cmd.append(f"-I{d}")
+    for d in defines or []:
+        cmd.append(d)
     for key, value in params.items():
         if isinstance(value, float):
             cmd.append(f"-P{top}.{key}={value}")
@@ -316,7 +339,8 @@ def run_generator_checks() -> tuple[int, int]:
                                        ("tx_half_rate", "serdes_tx_half_rate_digital"),
                                        ("tx_pingpong", "serdes_tx_digital"),
                                        ("bang_bang_4x", "serdes_rx_digital"),
-                                       ("multilane", "serdes_multilane_top")):
+                                       ("multilane", "serdes_multilane_top"),
+                                       ("soc_stream", "serdes_soc_cdc_wrapper")):
         total += 1
         out = ROOT / "build" / "gen" / spec_name
         cmd = [py, "scripts/gen_ip.py", "--spec", f"spec/{spec_name}.yaml",
@@ -617,10 +641,30 @@ def main() -> int:
         print("iverilog/vvp not found", file=sys.stderr)
         return 2
     failures = 0
-    for name, top, sources, params in CASES:
+    # The phase-model cases compare against vectors written by the Python twin;
+    # regenerate them here so a fresh checkout has them.
+    vec_dir = BUILD / "phase_model"
+    vec_dir.mkdir(parents=True, exist_ok=True)
+    for tag, extra in (
+            ("rj", ["--rj-rms-ui-q", "1311", "--seed", "44257"]),
+            ("sj", ["--sj-peak-ui-q", "16384", "--sj-freq-hz", "5000000"]),
+            ("ppm", ["--ppm", "150"]),
+            ("dcd", ["--dcd-peak-ui-q", "6554", "--dcd-alternate"])):
+        proc = subprocess.run(
+            [sys.executable, "-m", "verification.channel.phase_model",
+             "--edges", "64", "--ui-ps", "10000",
+             "--out", str(vec_dir / f"vec_{tag}.hex"), *extra],
+            cwd=ROOT, text=True, capture_output=True, timeout=120)
+        if proc.returncode != 0:
+            print(f"FAIL phase_vector_{tag}: "
+                  f"{(proc.stdout + proc.stderr).strip()[-200:]}")
+            failures += 1
+    for name, top, sources, params, *rest in CASES:
+        plusargs = rest[0] if len(rest) > 0 else PLUSARGS.get(name)
+        defines = rest[1] if len(rest) > 1 else None
         try:
             ok, detail = run_case(name, top, sources, params,
-                                  plusargs=PLUSARGS.get(name))
+                                  plusargs=plusargs, defines=defines)
         except subprocess.TimeoutExpired:
             ok, detail = False, "timeout"
         print(f"{'PASS' if ok else 'FAIL'} {name}: {detail}")
