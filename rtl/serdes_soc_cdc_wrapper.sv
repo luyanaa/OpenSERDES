@@ -31,11 +31,15 @@
 //
 // CSR map (word addresses):
 //   0       CONTROL          RW: [0] tx_enable, [1] rx_enable, [2] rx_flush,
-//                                [3] tx_clear, [4] rx_clear
+//                                [3] tx_clear, [4] rx_clear,
+//                                [5] clear the link-health counters,
+//                                [6] latch the TX/RX cycle counters
 //   1..6                     RW scratch / reserved
-//   7       STATUS           RO: link status (status_i, layout unchanged)
+//   7       STATUS           RO: link status (status_i) with, in the spare bits,
+//                                [8] comma_lock_stuck ([9]/[10] a link-health
+//                                counter saturated)
 //   8       BIST_CTRL        RW: [0] enable, [1] start, [2] clear, [3] inject,
-//                                [4] loopback, [5] snapshot
+//                                [4] loopback, [5] snapshot, [6] word BIST mode
 //   9                        RW reserved
 //   10      BIST_ERROR_COUNT RO: snapshot of the tx_clk error counter
 //   11      BIST_BIT_COUNT   RO: snapshot of the tx_clk bit counter
@@ -43,7 +47,17 @@
 //                                start & enable), [2] snap_valid (live pclk),
 //                                [3] loopback (live), [4] inject (live),
 //                                [7:5] PRBS width code
-//   13..15                   RW reserved
+//   13      TRAIN_BEST_ERR   RO: training best_errors (coherent snapshot)
+//   14      TRAIN_STATUS     RO: [0] locked, [1] busy, [2] retrain, then the
+//                                phase / best_phase fields
+//   15      TRAIN_FLAGS      RO: [0] crc_error_sticky, [1] snapshot valid
+//   16      CODE_ERROR_COUNT RO: 8b/10b errors, saturating (clear by CSR0[5])
+//   17      LINK_DROP_COUNT  RO: "was framed, lost framing" transitions
+//   18      CLOCK_TX_CYCLES  RO: TX cycles, latched with 19 by CSR0[6]
+//   19      CLOCK_RX_CYCLES  RO: RX cycles (the pair measures ppm)
+//
+// A Wishbone SoC reaches the same map through `wb_apb_bridge` (control plane)
+// and `wb_axis_fifo` (data plane); neither duplicates a register.
 //
 // BIST placement: the PRBS generator and checker run in tx_clk; the serial
 // stream is continuous at one bit per clock and must not cross clock domains.

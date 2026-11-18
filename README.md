@@ -184,6 +184,12 @@ AXIS CRC 插入/检查原语。插入器把 CRC beats 追加在 payload 之后�
 
 三轮外部研究（LiteICLink、LitePCIe soft PHY 与 PR #250、USB3-PIPE、LiteEth basex）之后补齐的"作为 USB/PCIe PHY 的 SerDes 基础层"：`rtl/link_watchdog.sv`（"还在试"vs"卡死"）、`rtl/saturating_counter.sv`（饱和不回转的误码/掉链计数）、`rtl/clock_cycles.sv`（Gray 计数跨域，实测 ppm 对照相位模型）、`rtl/tx_ctrl_align.sv`（控制输入与在途数据对齐，PR #250 的 `tx_idle_delay`）；`pcs_8b10b_rx_stream` 新增 `SUBSTITUTE_ERROR`（把解码/极性错误替换成 K28.4 带上 charisk 上报，PCIe 6.3.1.4），`pcs_8b10b_comma` 新增搜索看门狗并贯通 `serdes_rx_digital`；SoC wrapper 新增 CSR16–19（误码计数、掉链计数、TX/RX 周期）与 `CSR0[5]/[6]`、`CSR7[8..10]`。见 `docs/phy_base_layer.md`。
 
+### SoC 集成的总线适配
+
+`serdes_soc_cdc_wrapper` 的数据面是 AXI4-Stream、控制面是 APB（CSR0 控制、CSR7 状态、CSR8–12 BIST、CSR13–15 训练/CRC、CSR16–19 链路健康与周期测量），`PKT_ENABLE=1` 时 `s_axis` 前端已接入 Packetizer 支持变长帧。
+
+Wishbone SoC 通过两个适配器接入，**不复制任何寄存器**：`rtl/wb_apb_bridge.sv`（Wishbone B4 从口 → APB 主口，访问同一份 CSR，含越界/非对齐/部分 `sel` 的错误路径，被拒的请求不会触达寄存器组）与 `rtl/wb_axis_fifo.sv`（Wishbone 从口 ↔ AXIS：写推 TX 字、读弹 RX 字，FIFO 满/空以 `wb_err` 上报而非静默丢弃，`tx_flush` 可丢弃已入队的 TX 字）。两者均为单时钟，跨到 SerDes 字时钟由 wrapper 内已有的 `async_fifo` 承担。见 `docs/soc_streaming.md`。
+
 ### 抖动/相位参考模型
 
 `verification/channel/phase_model.py` 与 `tb/jitter_clock.sv` 是**同一个模型的两份实现**，使用完全相同的整数运算（16-bit xorshift、Irwin-Hall 高斯替代、64 项 Q1.15 正弦表、截断 ppm 斜坡），因此 RTL 与 Python 的 TIE 序列逐位一致；`tb/tb_phase_model.sv` 读 Python 写出的向量并逐边沿比对，`make phase-model-rtl` 与 4 个 `phase_model_*` 回归用例守住这个等价性。支持 RJ / SJ / ppm / DCD 四个轴，已覆盖 6 种配置。边界：不是信道模型（无 ISI/反射/CTLE-DFE/SSC），高斯是有界的 ±6σ 替代，`tj_at_ber` 是 dual-Dirac 预算而非实测 BER。见 `docs/phase_model.md`。

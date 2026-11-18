@@ -366,6 +366,13 @@ phase-model-rtl: $(BUILD)/tb_phase_model phase-model-vector
 		-o $(BUILD)/tb_phase_dcd tb/tb_phase_model.sv tb/jitter_clock.sv
 	$(VVP) $(BUILD)/tb_phase_dcd +vector=$(PHASE_VEC)_dcd.hex
 
+$(BUILD)/tb_wb_apb_bridge: tb/tb_wb_apb_bridge.sv rtl/wb_apb_bridge.sv \
+		rtl/apb_csr.sv | $(BUILD)
+	$(IVERILOG) -g2012 -Wall -o $@ $^
+
+$(BUILD)/tb_wb_axis_fifo: tb/tb_wb_axis_fifo.sv rtl/wb_axis_fifo.sv | $(BUILD)
+	$(IVERILOG) -g2012 -Wall -o $@ $^
+
 $(BUILD)/tb_link_health: tb/tb_link_health.sv rtl/link_watchdog.sv \
 		rtl/saturating_counter.sv rtl/clock_cycles.sv | $(BUILD)
 	$(IVERILOG) -g2012 -Wall -o $@ $^
@@ -436,6 +443,7 @@ SIM_BINS := $(BUILD)/tb_serializer_lsb $(BUILD)/tb_serializer_msb \
             $(BUILD)/tb_lane_deskew $(BUILD)/tb_multilane_top \
             $(BUILD)/tb_multilane_axis $(BUILD)/tb_soc_cdc_packetizer \
             $(BUILD)/tb_lane_width $(BUILD)/tb_multilane_width \
+            $(BUILD)/tb_wb_apb_bridge $(BUILD)/tb_wb_axis_fifo \
             $(BUILD)/tb_link_health $(BUILD)/tb_tx_ctrl_align \
             $(BUILD)/tb_8b10b_rx_protocol
 
@@ -526,6 +534,8 @@ sim: $(SIM_BINS)
 	$(VVP) $(BUILD)/tb_soc_cdc_packetizer
 	$(VVP) $(BUILD)/tb_lane_width
 	$(VVP) $(BUILD)/tb_multilane_width
+	$(VVP) $(BUILD)/tb_wb_apb_bridge
+	$(VVP) $(BUILD)/tb_wb_axis_fifo
 	$(VVP) $(BUILD)/tb_link_health
 	$(VVP) $(BUILD)/tb_tx_ctrl_align
 	$(VVP) $(BUILD)/tb_8b10b_rx_protocol

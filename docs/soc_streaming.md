@@ -101,6 +101,48 @@ apb_read(0x08, &v); v[4] = snapshot request
 apb_read(0x0A, &err); apb_read(0x0B, &bits);
 ```
 
+## Wishbone integration
+
+Two adapters, no duplicated register: the APB register file stays the single
+source of truth, and the AXIS port stays the single data path.
+
+| module | plane | function |
+|---|---|---|
+| `rtl/wb_apb_bridge.sv` | control | Wishbone B4 slave -> APB master, so a Wishbone SoC reaches the exact same 20 CSRs |
+| `rtl/wb_axis_fifo.sv` | data | Wishbone B4 slave <-> AXIS: write pushes a TX word, read pops an RX word |
+
+`wb_apb_bridge` is deliberately "Wishbone to APB" and not the reverse: the
+wrapper is the thing that exists, and a shim is smaller than a second CSR file
+(which would be two implementations of one contract, guaranteed to drift).
+
+Error paths are part of the contract, not an afterthought:
+
+- out-of-range address, non-word address and a partial `wb_sel` all raise
+  `wb_err` **and do not reach the register file** — `apb_csr` has no byte
+  enables, so forwarding a partial write would commit the whole word;
+- writing a read-only register is accepted and ignored, exactly as on APB;
+- a rejected request is answered in the same cycle budget (one `wb_ack` xor one
+  `wb_err`, never both, never neither).
+
+`wb_axis_fifo` maps one stream word per access and reports the two losses that a
+byte-stream port otherwise cannot express: writing into a full TX FIFO and
+reading an empty RX FIFO both raise `wb_err` instead of silently dropping or
+duplicating, and the status word publishes both FIFO levels, `tx_full`,
+`rx_empty` and a saturating empty-read count.  `tx_flush` (write `[0]` of
+`0x8`) drops the queued TX words, which lets a Wishbone master abandon a packet
+it has started.
+
+```text
+0x0  write : push one TX word          read : pop one RX word
+0x4  read  : status  [7:0] tx_level, [15:8] rx_level, [16] tx_full,
+                     [17] rx_empty, [20:18] underflow, [21] tx_flush
+0x8  write : [0] tx_flush
+```
+
+Both are single-clock on purpose (a synchronous FIFO); crossing into the SerDes
+word clock is what the wrapper's `async_fifo` already does, so these sit in
+front of either side rather than re-implementing CDC.
+
 ## Verification
 
 | test | covers |
@@ -109,6 +151,8 @@ apb_read(0x0A, &err); apb_read(0x0B, &bits);
 | `tb_soc_cdc_8b10b` | per-frame 8b/10b with disparity re-seed |
 | `tb_soc_cdc_packetizer` | `PKT_ENABLE=1`: frame lengths 1, WORDS-1, WORDS, 2*WORDS+3 and 17 round-trip byte-exactly through the serial loopback, `tlast` reconstructed by the deframer, no framing or code error |
 | `tb_soc_cdc_training`, `tb_soc_cdc_crc`, `tb_soc_cdc_word_bist` | training FSM, CRC path, word BIST |
+| `tb_wb_apb_bridge` | Wishbone read/write/RO/range/alignment/select/burst through the real `apb_csr` |
+| `tb_wb_axis_fifo` | TX/RX ordering, full-FIFO and empty-FIFO errors, flush, status word |
 
 `tb_soc_cdc_packetizer` is the one that proves the adaptation layer end to end:
 5 frames, 36 bytes, verified on the SoC port after a full serial round trip.
