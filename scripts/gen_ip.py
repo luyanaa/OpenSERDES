@@ -278,6 +278,20 @@ class Tech:
     clock_gate: dict[str, Any]
 
 
+def check_clock_gating(tech: Tech) -> None:
+    """Fail closed when clock gating is asked for but the SCL has no ICG cell.
+
+    Emitting a Yosys `SYNTH_CLOCKGATE_*` config for a library that has no
+    integrated clock gate produces an unmapped cell much later in the flow, so
+    the request is rejected here instead.  Pulled out of `main` so the contract
+    can be tested directly: every shipped `tech/*/tech.yaml` now declares an
+    ICG cell, so there is no real profile left that fails this check.
+    """
+    if not tech.clock_gate.get("icg_cell"):
+        fail(f"optimization.clock_gating requested but {tech.name}/{tech.scl} "
+             "does not declare clock_gate.icg_cell in tech.yaml")
+
+
 def load_tech(name: str, scl_override: str | None) -> Tech:
     path = ROOT / "tech" / name / "tech.yaml"
     if not path.exists():
@@ -919,9 +933,8 @@ def validate(spec: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
     else:
         tech = rx_tech
 
-    if optimization["clock_gating"] and not tech.clock_gate.get("icg_cell"):
-        fail(f"optimization.clock_gating requested but {tech.name}/{tech.scl} "
-             "does not declare clock_gate.icg_cell in tech.yaml")
+    if optimization["clock_gating"]:
+        check_clock_gating(tech)
 
     limit_key = "max_link_line_rate_mbps" if target == "link" else "max_endpoint_line_rate_mbps"
     limit = tech.limits.get(limit_key, tech.limits.get("serial_mbps"))

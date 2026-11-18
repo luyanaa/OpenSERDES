@@ -82,22 +82,35 @@ class TestIcs55FlowOverrides(unittest.TestCase):
         # switches are not valid for the IHP runset.
         self.assertEqual(cfg["KLAYOUT_LVS_OPTIONS"], {"run_mode": "deep"})
 
-    def test_ez130_cdl_drops_well_pins_only(self) -> None:
+    def test_ez130_cdl_keeps_well_pins(self) -> None:
+        """The wells must stay: dropping them made every cell mismatch.
+
+        The GDS extraction emits VNW/VPW as real ports and the deck compares by
+        port list, so a CDL without them fails all 78 used cells with "circuits
+        could not be compared".  build/pnr/ez130_lvs.json is the run where
+        keeping them made every cell compare.
+        """
         module = _load()
         import tempfile
         with tempfile.TemporaryDirectory() as tmp:
             src = Path(tmp) / "in.cdl"
             src.write_text(
                 ".SUBCKT AND2X1 A B VDD VNW VPW VSS Y\n"
+                "*.PININFO A:I B:I Y:O VDD:B VNW:B VPW:B VSS:B\n"
                 "M0 Y A VSS VPW nfet\n"
                 ".ENDS\n")
             dst = Path(tmp) / "out.cdl"
             module._ez130_lvs_cdl(src, dst)
             text = dst.read_text().splitlines()
-            self.assertEqual(text[0], ".SUBCKT AND2X1 A B VDD VSS Y")
+            # Wells kept, in the vendor order.
+            self.assertEqual(text[0], ".SUBCKT AND2X1 A B VDD VNW VPW VSS Y")
+            # PININFO dropped: the deck does not read it and it would declare
+            # VNW/VPW as schematic-only ports.
+            self.assertFalse(any(l.startswith("*.PININFO") for l in text))
+            # The device line is untouched.
             self.assertIn("VPW", text[1])
-            self.assertIn(".SUBCKT FILLER1 VDD VSS", text)
-            self.assertEqual(text.count(".SUBCKT FILLER1 VDD VSS"), 1)
+            # Fillers get the same port list as the vendor cells.
+            self.assertEqual(text.count(".SUBCKT FILLER1 VDD VNW VPW VSS"), 1)
 
     def test_ihp_lvs_path_uses_the_pdk_family_directory(self) -> None:
         module = _load()
@@ -277,6 +290,28 @@ class TestIhpPdnRail(unittest.TestCase):
             cfg, Path("/pdk/ihp-sg13g2"), Path("librelane.yaml"))
         self.assertEqual(cfg["PDN_RAIL_LAYER"], "Metal1")
         self.assertEqual(cfg["PDN_RAIL_WIDTH"], 0.44)
+
+    def test_ez130_rail_width_matches_its_own_rail(self) -> None:
+        """ez130's Metal1 rail is 0.32 um, not sg13g2's 0.44 um.
+
+        Using 0.44 for both was the root cause of the entire ez130 DRC report:
+        the row FOLLOWPIN overhung the cell rail by 0.12 um and the full-design
+        M1 long-run spacing rule fired next to every row (27603 items).  With
+        the per-SCL width the same design routes DRC-clean; see
+        build/pnr/ez130_rail.json.
+        """
+        module = _load()
+        cfg: dict = {"PDK": "ihp-sg13g2",
+                     "STD_CELL_LIBRARY": "ez130_8t_v1p1"}
+        # ez130 has a CDL post-processing step that writes next to the config
+        # file, so the config path must live in a scratch dir -- passing a bare
+        # "librelane.yaml" here would drop a 245 KB CDL into the repo root.
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            module._ihp_flow_overrides(
+                cfg, Path("/pdk/ihp-sg13g2"), Path(tmp) / "librelane.yaml")
+        self.assertEqual(cfg["PDN_RAIL_LAYER"], "Metal1")
+        self.assertEqual(cfg["PDN_RAIL_WIDTH"], 0.32)
 
 
 class TestSclFlowPatches(unittest.TestCase):

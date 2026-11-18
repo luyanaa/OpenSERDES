@@ -62,12 +62,39 @@ class TestClockGating(unittest.TestCase):
         self.assertIn("SYNTH_CLOCKGATE", (out / "pnr" / "README.md").read_text())
 
     def test_tech_without_icg_fails_closed(self) -> None:
-        # gf180mcuD ships no integrated clock gate in the standard-cell set;
-        # asking for clock gating there must stop the flow, not silently emit
-        # a Yosys clock-gate config the library cannot implement.
-        r, _ = self._run(_spec("gf180mcuD", True))
-        self.assertEqual(r.returncode, 2)
-        self.assertIn("clock_gate.icg_cell", r.stdout + r.stderr)
+        # Every shipped tech profile now declares an ICG cell, so the
+        # fail-closed path is exercised on the check itself rather than on a
+        # real profile.  Asking for clock gating on a library without an
+        # integrated gate must stop the flow, not silently emit a Yosys
+        # clock-gate config the library cannot implement.
+        sys.path.insert(0, str(ROOT))
+        from scripts import gen_ip
+
+        no_icg = gen_ip.Tech(
+            name="fake", pdk="fake", scl="fake_sc", default_corner="tt",
+            corners={"tt": []}, native_dff="dff", limits={}, cts={},
+            clock_gate={})
+        # SpecError is gen_ip's own failure type (raised by `fail`); the CLI
+        # turns it into exit code 2.
+        with self.assertRaises(gen_ip.SpecError) as ctx:
+            gen_ip.check_clock_gating(no_icg)
+        self.assertIn("clock_gate.icg_cell", str(ctx.exception))
+
+    def test_gf180_emits_icg_config(self) -> None:
+        """gf180mcuD gained clock_gate (icgtp_1) in this round.
+
+        The pins were verified in the gf180mcu tt liberty: CLK is the clock,
+        E the enable, and Q is the `clock_gate_out_pin`, so the gated clock is
+        the cell output rather than a separately named GCLK pin.
+        """
+        r, out = self._run(_spec("gf180mcuD", True))
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        pnr = yaml.safe_load((out / "pnr" / "librelane.yaml").read_text())
+        self.assertEqual(pnr["SYNTH_CLOCKGATE_POSEDGE_ICG"],
+                         "gf180mcu_fd_sc_mcu7t5v0__icgtp_1/E/CLK/Q")
+        m = json.loads((out / "manifest.json").read_text())
+        self.assertTrue(m["clock_gating"]["enabled"])
+        self.assertIn("icgtp_1", m["clock_gating"]["icg"])
 
     def test_ihp_emits_icg_config(self) -> None:
         r, out = self._run(_spec("ihp-sg13g2", True))

@@ -255,28 +255,31 @@ def _osu_lib_with_max_cap(src: Path, dst: Path, cap_pf: float) -> None:
 
 
 def _ez130_lvs_cdl(src: Path, dst: Path) -> None:
-    """Drop VNW/VPW from the ez130 CDL so OpenROAD.WriteCDL can read it.
+    """Prepare the ez130 CDL for OpenROAD.WriteCDL and the KLayout LVS deck.
 
-    The vendor LEF has no well pins, but the vendor CDL lists VNW and VPW on
-    every subcircuit.  WriteCDL treats that as a hard error and the LVS step
-    never starts.  The copy keeps the device netlist and removes only those
-    two tokens; the vendor file is not modified.  The IHP deck ties the wells
-    globally, the same way it does for the foundry stdcell CDL, which has no
-    well pins either.
+    Keep the well pins.  Dropping ``VNW``/``VPW`` from every ``.SUBCKT`` is what
+    this function used to do to get past WriteCDL, and it made **every cell fail
+    to compare**: the GDS extraction emits the wells as real ports, the deck
+    compares by port list, and the top level then reported "Circuits ... could
+    not be compared because the following subcircuits failed to compare" with
+    the same cell list on both sides -- the signature of a per-cell port
+    mismatch, not of a missing cell.  With the wells kept, all 78 used cells
+    compare; see build/pnr/ez130_lvs.json.
+
+    Also adds empty FILLER subcircuits: they are in the LEF and the flow inserts
+    them, but the vendor CDL has no subcircuit for them, and WriteCDL aborts on a
+    placed master with no CDL.  They are physical-only, so an empty subcircuit
+    with the LEF power pins is the whole model.
     """
-    out = []
+    out: list[str] = []
     for line in src.read_text(errors="replace").splitlines():
-        if line.startswith(".SUBCKT "):
-            parts = [p for p in line.split() if p not in ("VNW", "VPW")]
-            out.append(" ".join(parts))
-        else:
-            out.append(line)
-    # FILLER1/2/4/8/16 are in the LEF and get inserted by the flow, but the
-    # vendor CDL has no subcircuit for them.  WriteCDL aborts on a placed
-    # master with no CDL.  They are physical-only, so an empty subcircuit
-    # with the LEF power pins is the whole model.
+        if line.startswith("*.PININFO"):
+            # The deck does not read PININFO, and it lists VNW/VPW as :B, which
+            # would be a schematic-only port the layout cannot have.
+            continue
+        out.append(line)
     for filler in ("FILLER1", "FILLER2", "FILLER4", "FILLER8", "FILLER16"):
-        out.append(f".SUBCKT {filler} VDD VSS")
+        out.append(f".SUBCKT {filler} VDD VNW VPW VSS")
         out.append(f".ENDS {filler}")
     dst.write_text("\n".join(out) + "\n")
 
@@ -302,22 +305,58 @@ def _ihp_flow_overrides(cfg_data: dict, pdk_root: Path, cfg_path: Path) -> None:
         pdk_dir = pdk_root / family
     cfg_data["KLAYOUT_LVS_SCRIPT"] = str(
         pdk_dir / "libs.tech/klayout/tech/lvs/sg13g2.lvs")
+    # The deck is run as-is (`deep`, strict ports).  Do NOT weaken it.
+    #
+    # Status after the cell-port fix below: every one of the 78 used cells
+    # compares, the top-level circuit matches, and exactly two reports remain,
+    #   "Net VGND is not matching any net from reference netlist"
+    #   "Net VPWR is not matching any net from reference netlist"
+    # because the GDS extraction declares VGND/VPWR **three times each** as
+    # top-level pins (one per PDN metal layer) while OpenROAD.WriteCDL declares
+    # them once.  The deck compares top-level ports by list, so the lists differ
+    # in multiplicity even though every device and net below is identical.
+    #
+    # Options that were tried and rejected, with the reason, so this is not
+    # re-litigated:
+    #   - `implicit_nets=VGND,VPWR`: merges the supplies into one virtual net,
+    #     after which the top level compares with *no* ports at all
+    #     (`X(serdes_rx_digital () 0`).  Strictly worse, and the deck's own
+    #     README says implicit connections must not be used for top-level LVS.
+    #   - `.GLOBAL VGND VPWR` in the CDL: ignored by KLayout's SPICE reader.
+    #   - `purge_nets`: the supplies are top-level pins, so they are not
+    #     floating and nothing is purged.
+    #   - `ignore_top_ports_mismatch`: skips the port *list* comparison only;
+    #     the two net-level reports remain.
+    # What would actually close it is emitting the pin multiplicity of the
+    # layout on the schematic side, i.e. a post-processing step on the WriteCDL
+    # output that duplicates the VGND/VPWR port entries.  That is a real change
+    # to how the schematic netlist is produced, not a config flag, so it is
+    # recorded as the remaining item instead of being faked here.
     cfg_data["KLAYOUT_LVS_OPTIONS"] = {"run_mode": "deep"}
     # The known IHP DRC deck errors are an observation, not a hard gate; keep
     # the flow going so the KLayout LVS verdict is recorded in the same run.
     cfg_data["ERROR_ON_MAGIC_DRC"] = False
     cfg_data["ERROR_ON_KLAYOUT_DRC"] = False
-    # The sg13g2 stdcell rail is 0.44 um tall on Metal1 (sg13g2_inv_1 VDD
-    # RECT 0 3.56 1.44 4; VSS 0 -0.22 1.44 0.22).  The PDK config.tcl sets
-    # PDN_RAIL_WIDTH 1.0, so the row FOLLOWPIN overhangs each cell rail by
-    # 0.28 um and the full-design M1 long-run spacing rule fires on the cell
-    # pins next to every row (4602 M1.b + 165 M1.e items in Magic/KLayout).
-    # sky130 does the same thing with 0.48, matching its rail height.
+    # The row FOLLOWPIN must match the **cell's own** Metal1 rail height, or it
+    # overhangs the cell rail and the full-design long-run spacing rule fires on
+    # the cell power pins next to every row.  That single mistake accounted for
+    # the whole ez130 DRC report below, so the width is per-SCL now instead of
+    # one number for the PDK:
+    #
+    #   sg13g2_stdcell  0.44 um  (sg13g2_inv_1 VDD RECT 0 3.56 1.44 4,
+    #                             VSS 0 -0.22 1.44 0.22)
+    #   ez130_8t_v1p1   0.32 um  (ez130_8t AND2X1 VDD RECT 0 3.2 2.1 3.52,
+    #                             VSS 0 -0.16 2.1 0.16)
+    #
+    # The PDK config.tcl sets PDN_RAIL_WIDTH 1.0 for both, which is what made
+    # this fire in the first place; sky130 does the same with 0.48.
+    _RAIL_WIDTH = {"sg13g2_stdcell": 0.44, "ez130_8t_v1p1": 0.32}
     cfg_data["PDN_RAIL_LAYER"] = "Metal1"
-    cfg_data["PDN_RAIL_WIDTH"] = 0.44
+    cfg_data["PDN_RAIL_WIDTH"] = _RAIL_WIDTH.get(
+        str(cfg_data.get("STD_CELL_LIBRARY")), 0.44)
     if cfg_data.get("STD_CELL_LIBRARY") == "ez130_8t_v1p1":
         src = Path("/grid/ihp130/ez130_8t_v1p1/cdl/ez130_8t.cdl")
-        dst = cfg_path.parent / "ez130_8t_nowell.cdl"
+        dst = cfg_path.parent / "ez130_8t_lvs.cdl"
         _ez130_lvs_cdl(src, dst)
         cfg_data["CELL_CDLS"] = str(dst)
         cfg_data["CELL_SPICE_MODELS"] = str(dst)
