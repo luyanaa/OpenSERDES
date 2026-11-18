@@ -98,11 +98,13 @@ accident into a decision.
 
 ## 5. What is deliberately *not* done
 
-- **No lane-width negotiation.**  PCIe renegotiates x1/x2/x4/x8 and puts the
-  unused lanes into electrical idle; our `LANES` is still a compile-time
-  parameter and one bad lane takes the whole bonded link down.  Correct for a
-  chiplet link, wrong under a protocol stack.  Recorded in
-  `docs/protocol_phy_review.md` §1c, not implemented.
+- **Lane-width negotiation exists but is opt-in.**  `WIDTH_MODE=1` drops a lane
+  that stops delivering, publishes `lane_width` / `width_degraded` /
+  `width_error` and lets the layer above decide (`docs/multilane.md`).  It is
+  *off by default* on purpose: a bonded chiplet link must not silently lose a
+  lane, so the protocol owns the decision.  What is still missing is the
+  protocol half: no electrical idle on the lanes above the width, and no
+  downstream renegotiation handshake.
 - **No electrical-idle path.**  USB3-PIPE's two-counter `RXIdleFilter` is the
   design to copy when one exists; today there is no idle detector to filter.
 - **No raw-word APB tap.**  LitePCIe's `debug.py` treats it as a product

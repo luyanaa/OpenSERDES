@@ -211,6 +211,9 @@ CASES = [
     ("prbs31", "tb_prbs", ["rtl/prbs_gen.sv", "rtl/prbs_check.sv"], {"WIDTH": 31}),
     ("serdes_soc_wrapper", "tb_serdes_soc_wrapper", [str(p) for p in sorted((ROOT / "rtl").glob("*.sv"))], {}),
     ("serdes_soc_cdc_wrapper", "tb_serdes_soc_cdc_wrapper", [str(p) for p in sorted((ROOT / "rtl").glob("*.sv"))], {}),
+    ("lane_width", "tb_lane_width", ["rtl/lane_width_negotiator.sv"], {}),
+    ("multilane_width", "tb_multilane_width",
+     [str(p) for p in sorted((ROOT / "rtl").glob("*.sv"))], {}),
     ("link_health", "tb_link_health",
      ["rtl/link_watchdog.sv", "rtl/saturating_counter.sv",
       "rtl/clock_cycles.sv"], {}),
@@ -348,6 +351,8 @@ def run_generator_checks() -> tuple[int, int]:
                                        ("tx_pingpong", "serdes_tx_digital"),
                                        ("bang_bang_4x", "serdes_rx_digital"),
                                        ("multilane", "serdes_multilane_top"),
+                                       ("multilane_negotiated",
+                                        "serdes_multilane_top"),
                                        ("soc_stream", "serdes_soc_cdc_wrapper")):
         total += 1
         out = ROOT / "build" / "gen" / spec_name

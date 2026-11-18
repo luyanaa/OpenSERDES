@@ -101,6 +101,68 @@ Recovered words cross into `core_clk` through a per-lane `async_fifo`; the
 deskew itself runs entirely in `core_clk`, so no per-lane clock reaches the
 combining logic.
 
+## Lane width negotiation (opt-in)
+
+A bonded link is designed for N lanes; a real link does not always get all of
+them.  Two behaviours, selected by `WIDTH_MODE`:
+
+| `WIDTH_MODE` | behaviour | default for |
+|---|---|---|
+| `0` (fixed) | every lane must deliver words or the link never comes up | a bonded chiplet link: lanes are on one die/package, a missing lane is a wiring bug, not a condition to adapt to |
+| `1` (negotiated) | a lane that stops delivering is dropped, the link runs narrower and publishes the width | a protocol PHY: PCIe negotiates x1/x2/x4/x8 and idles the lanes above the width |
+
+**It is off by default and never enabled by the PHY itself.**  What a narrower
+link *means* — retrain, report a lower capability, fall back to a slower rate,
+or refuse — is a protocol decision, so the layer above opts in with
+`WIDTH_MODE=1` and reads the result.
+
+### Signals
+
+| signal | meaning |
+|---|---|
+| `lane_mask[LANES-1:0]` | lanes in the link; a masked-out lane is ignored by the deskew and drained |
+| `lane_width[31:0]` | number of lanes in the link |
+| `width_degraded` | narrower than the design |
+| `width_error` | the width reached `MIN_LANES`: the link cannot lose another lane, report a lower capability |
+| `width_change` | pulse, the mask changed (the deskew re-hunts) |
+| `width_rescan` | input: re-evaluate now; also re-arms dropped lanes |
+
+### Policy (`rtl/lane_width_negotiator.sv`)
+
+- **Liveness is activity, not a lock.**  The negotiator is driven by "this lane
+  is delivering words", not by `rx_frame_locked` — that flag is sticky in this
+  design (it does not clear when the line goes quiet), so a physically absent
+  lane would look healthy forever.  This is the same lesson as
+  `docs/litepcie_ecp5_review.md` §6, in the opposite direction: a *lock* is a
+  latch, so it can never be the liveness signal.
+- A lane silent for `LANE_UP_WINDOW` cycles is dropped, one at a time.
+- A dropped lane returns on `width_rescan`, or by itself after
+  `LANE_RESTORE_WINDOW` when `AUTO_RESTORE=1` (re-adding a lane mid-protocol is
+  a protocol question, so it is opt-in too).
+- The mask never goes below `MIN_LANES`; `width_error` latches when the width
+  reaches it.
+
+### What the deskew does with a mask
+
+`lane_deskew` gained a `lane_mask` input (default all ones = the old
+behaviour).  Masked-out lanes are excluded from `have_all` / `mixed` / the
+epoch comparison, do not gate `aligned`, and have their buffers drained
+unconditionally so their RX FIFO can never wedge the lane.  `link_ok` is
+computed over the lanes in the link only, and `lane_fault` is only reported for
+those lanes.
+
+`axis_lane_debonder` follows the same mask: a masked-out lane holds zeros in the
+wide beat and `m_axis_width` says how many lanes are valid, so the SoC port
+keeps one fixed shape and is not silently repacked.
+
+### Cost of dropping a lane
+
+The deskew must re-hunt, so payload is lost for up to one marker period — the
+documented re-lock penalty.  `tb_multilane_width` measures exactly that: with
+lane 2 going silent, the negotiated instance keeps delivering (20 beats after
+the outage, all payload-consistent across the surviving lanes), while the fixed
+instance delivers 0.
+
 ## SoC-facing bonding layer
 
 The core works on one `DATA_WIDTH` word per lane per beat — the only shape in
@@ -130,9 +192,9 @@ dropped, not stalled.
 | signal | meaning |
 |---|---|
 | `lane_locked[l]` | per-lane framing established and participating |
-| `lane_fault[l]` | sticky: a lane had framing and lost it (cleared by reset / `rx_flush`) |
+| `lane_fault[l]` | sticky: a lane *in the link* had framing and lost it (cleared by reset / `rx_flush`) |
 | `aligned` | deskew is in the aligned state |
-| `link_ok` | `aligned & all lane_locked & no lane_fault` — the gate used by the debonder |
+| `link_ok` | `aligned & all lane_locked & no lane_fault`, over the lanes in `lane_mask` — the gate used by the debonder |
 | `marker_ok` / `marker_error` / `realign_count` | marker cadence telemetry |
 
 `lane_fault` is deliberately sticky: a lane that dropped out and recovered

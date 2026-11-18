@@ -83,13 +83,16 @@ module tb_multilane_axis;
         .aligned(aligned), .marker_ok(marker_ok),
         .marker_error(marker_error), .realign_count(realign_count),
         .lane_locked(lane_locked), .lane_fault(lane_fault),
-        .link_ok(link_ok)
+        .link_ok(link_ok),
+        .lane_mask(), .lane_width(), .width_degraded(),
+        .width_error(), .width_change(), .width_rescan(1'b0)
     );
 
     axis_lane_debonder #(.LANES(LANES), .DATA_WIDTH(DW)) u_debonder (
         .clk(clk), .rst_n(rst_n), .enable(enable),
         .s_lane_data(rx_lane_data), .s_lane_valid(rx_valid),
         .s_lane_ready(rx_ready), .link_ok(link_ok),
+        .lane_mask({LANES{1'b1}}), .m_axis_width(),
         .m_axis_tdata(mx_tdata), .m_axis_tvalid(mx_tvalid),
         .m_axis_tready(mx_tready), .underflow(underflow)
     );
@@ -184,6 +187,7 @@ module tb_multilane_axis;
         .clk(clk), .rst_n(rst_n), .enable(1'b1),
         .s_lane_data(ut_data), .s_lane_valid(ut_valid),
         .s_lane_ready(ut_ready), .link_ok(ut_gate),
+        .lane_mask({LANES{1'b1}}), .m_axis_width(),
         .m_axis_tdata(), .m_axis_tvalid(ut_tvalid),
         .m_axis_tready(ut_tready), .underflow(ut_underflow)
     );

@@ -77,7 +77,8 @@ DESIGN_FILES = {
         "cdr_bang_bang.sv", "cdr_multiphase.sv", "comma_align.sv",
         "receiver_sampler.sv", "reset_sync.sv", "serdes_rx_digital.sv",
         "async_fifo.sv", "cdc_sync.sv", "lane_deskew.sv",
-        "axis_lane_bonder.sv", "serdes_multilane_top.sv",
+        "lane_width_negotiator.sv", "axis_lane_bonder.sv",
+        "serdes_multilane_top.sv",
     ],
     "serdes_pipe_lite_top": [
         "pipe_elastic_buffer.sv", "encoder_8b10b.sv", "decoder_8b10b.sv",
@@ -657,6 +658,9 @@ def validate(spec: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
         "marker_period": as_int(deskew_spec.get("marker_period", 16),
                                 "deskew.marker_period"),
         "max_skew": as_int(deskew_spec.get("max_skew", 8), "deskew.max_skew"),
+        "width_mode": str(deskew_spec.get("width_mode", "fixed")).lower(),
+        "min_lanes": as_int(deskew_spec.get("min_lanes", 1),
+                            "deskew.min_lanes"),
     }
     if deskew_cfg["marker_period"] < 2:
         fail("deskew.marker_period must be >= 2")
@@ -1085,6 +1089,15 @@ def validate(spec: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
             fail("deskew.marker_period must be a power of two")
         if width <= 4:
             fail("preset multilane reserves 4 tag bits; link.payload_width > 4")
+        # Lane width negotiation is opt-in: the default is fixed width, so a
+        # missing lane is a wiring bug rather than a condition to adapt to.
+        neg = spec.get("deskew") or {}
+        if str(neg.get("width_mode", "fixed")).lower() not in ("fixed", "negotiated"):
+            fail("deskew.width_mode must be fixed or negotiated")
+        if str(neg.get("width_mode", "fixed")).lower() == "negotiated":
+            min_lanes = int(neg.get("min_lanes", 1))
+            if not (1 <= min_lanes <= lanes):
+                fail("deskew.min_lanes must be in [1, link.lanes]")
     if preset == "raw_pcs":
         if target not in ("rx", "tx"):
             fail("preset raw_pcs supports target: rx or tx in this release")
@@ -1287,6 +1300,8 @@ def validate(spec: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
         "width": width,
         "words": words,
         "lanes": lanes,
+        "width_mode": deskew_cfg["width_mode"],
+        "min_lanes": deskew_cfg["min_lanes"],
         "deskew": deskew_cfg,
         "ratio": ratio,
         "coding": coding,
@@ -1477,6 +1492,9 @@ def build_plan(cfg: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
             "CDR_MODE": int(rx_arch.get("cdr_mode", 2)),
             "CDR_BYPASS": 1 if cfg["oversample"] == 1 else 0,
             "ALIGN_MODE": cfg["align_mode"],
+            # Lane width negotiation: opt-in, off by default.
+            "WIDTH_MODE": 1 if cfg["width_mode"] == "negotiated" else 0,
+            "MIN_LANES": cfg["min_lanes"],
         })
     if design in ("serdes_rx_digital", "serdes_rx_axis_digital", "serdes_digital_top",
                   "serdes_8b10b_top", "serdes_64b66b_top"):

@@ -55,7 +55,19 @@ module serdes_multilane_top #(
     parameter int  LOCK_THRESH    = 8,
     parameter int  LOCK_STALE_BITS= 16,
     parameter int  ADAPT_FRAC_BITS= 12,
-    parameter int  ADAPT_LOOP_GAIN= 8
+    parameter int  ADAPT_LOOP_GAIN= 8,
+    // Lane width negotiation.  0 (default) = fixed width: every lane must
+    // frame or the link never comes up.  1 = negotiate: a lane that never
+    // frames is dropped, the link runs narrower and publishes `lane_width`.
+    // Never enabled by default: it is a protocol decision (PCIe negotiates
+    // x1/x2/x4/x8, a bonded chiplet link must not silently lose a lane), so the
+    // layer above opts in with WIDTH_MODE=1 and owns what it means.
+    parameter bit  WIDTH_MODE             = 1'b0,
+    parameter int  MIN_LANES              = 1,
+    parameter int  LANE_UP_WINDOW         = 1024,
+    parameter int  LANE_RESTORE_WINDOW    = 65536,
+    // 0: a dropped lane returns only on `width_rescan`.
+    parameter bit  AUTO_RESTORE           = 1'b0
 ) (
     // TX parallel side.
     input  logic                              tx_clk,
@@ -88,9 +100,20 @@ module serdes_multilane_top #(
     // by rx_flush (or reset), not by a successful re-align, so a degraded lane
     // stays visible to the SoC.
     output logic [LANES-1:0]                  lane_fault,
-    // Everything the bonding layer needs: deskew aligned, every lane framed,
-    // and no lane has been lost.
-    output logic                              link_ok
+    // Everything the bonding layer needs: deskew aligned, every lane in the
+    // link framed, and no lane in the link has been lost.
+    output logic                              link_ok,
+    // Negotiated width (WIDTH_MODE=1).  `lane_width` is the number of lanes in
+    // the link, `lane_mask` selects them; `width_degraded` means narrower than
+    // the design, `width_error` means the width hit MIN_LANES and the protocol
+    // should report a lower capability.
+    output logic [LANES-1:0]                  lane_mask,
+    output logic [31:0]                       lane_width,
+    output logic                              width_degraded,
+    output logic                              width_error,
+    output logic                              width_change,
+    // Re-evaluate the width now (protocol "rescan"); also re-arms dropped lanes.
+    input  logic                              width_rescan
 );
     localparam int EPOCH_W = DATA_WIDTH - TAG_WIDTH;
 
@@ -250,6 +273,38 @@ module serdes_multilane_top #(
     endgenerate
 
     // -------------------------------------------------------------------------
+    // Lane width negotiation.
+    //
+    // Liveness is "this lane is still delivering words", not the framing lock:
+    // `deskew_in_sync` (rx_frame_locked) is sticky and would report a gone lane
+    // as healthy forever.  The TX never gaps a lane, so a live lane always has
+    // traffic and a dead one has none.
+    // WIDTH_MODE=0 makes the negotiator a constant all-ones mask, i.e. exactly
+    // the behaviour this top had before the parameter existed.
+    // -------------------------------------------------------------------------
+    logic [LANES-1:0] lane_activity;
+    generate
+        for (genvar l = 0; l < LANES; l++) begin : g_activity
+            assign lane_activity[l] = deskew_in_valid[l] & deskew_in_ready[l];
+        end
+    endgenerate
+
+    lane_width_negotiator #(
+        .LANES(LANES), .MIN_LANES(MIN_LANES),
+        .LANE_UP_WINDOW(LANE_UP_WINDOW),
+        .LANE_RESTORE_WINDOW(LANE_RESTORE_WINDOW),
+        .AUTO_RESTORE(AUTO_RESTORE), .WIDTH_MODE(WIDTH_MODE)
+    ) u_width (
+        .clk(core_clk), .rst_n(core_rst_n), .enable(core_enable),
+        .clear(rx_flush), .rescan(width_rescan),
+        .lane_ok(lane_activity),
+        .lane_mask(lane_mask), .lane_dropped(), .lane_restored(),
+        .width(lane_width), .degraded(width_degraded),
+        .width_change(width_change), .width_error(width_error),
+        .width_change_count()
+    );
+
+    // -------------------------------------------------------------------------
     // Lane health.
     // -------------------------------------------------------------------------
     logic [LANES-1:0] lane_ever_q;
@@ -272,7 +327,10 @@ module serdes_multilane_top #(
     end
 
     assign lane_fault = lane_fault_q;
-    assign link_ok    = aligned & (&lane_locked) & ~(|lane_fault_q);
+    // A lane outside the negotiated mask is not expected to be locked and is
+    // not a fault: the link is only "ok" over the lanes it actually has.
+    assign link_ok    = aligned & (&(lane_locked | ~lane_mask))
+                        & ~(|(lane_fault_q & lane_mask));
 
     lane_deskew #(
         .LANES(LANES), .DATA_WIDTH(DATA_WIDTH),
@@ -281,6 +339,7 @@ module serdes_multilane_top #(
         .MARKER_TAG(MARKER_TAG), .IDLE_TAG(IDLE_TAG)
     ) u_deskew (
         .clk(core_clk), .rst_n(core_rst_n), .enable(core_enable),
+        .lane_mask(lane_mask),
         .in_data(deskew_in_data), .in_valid(deskew_in_valid),
         .in_sync(deskew_in_sync), .in_ready(deskew_in_ready),
         .out_data(deskew_out_data), .out_valid(rx_valid),

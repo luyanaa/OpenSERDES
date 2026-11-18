@@ -17,6 +17,14 @@ link:
 deskew:
   marker_period: 16
   max_skew: 8
+  # Lane width negotiation is opt-in.  fixed (default): every lane must frame or
+  # the link never comes up -- right for a bonded chiplet link, where a missing
+  # lane is a wiring bug.  negotiated: a lane that never delivers words is
+  # dropped, the link runs narrower and publishes lane_width / width_degraded /
+  # width_error, and the protocol layer above decides what that means (PCIe
+  # negotiates x1/x2/x4/x8 and idles the lanes above the width).
+  width_mode: fixed
+  min_lanes: 1
 tx:
   architecture: word_streaming
 rx:

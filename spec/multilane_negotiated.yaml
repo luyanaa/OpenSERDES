@@ -1,0 +1,43 @@
+# Same bonded link with lane width negotiation enabled.
+#
+# A lane that does not deliver words is dropped instead of taking the link down:
+# the link runs at the narrower width and publishes `lane_width` /
+# `width_degraded` / `width_error`, so the layer above can report a lower
+# capability or retrain.  Opt-in on purpose -- see docs/multilane.md.
+name: multilane_4x8_neg
+target: link
+link:
+  payload_width: 8
+  words: 1
+  lanes: 4
+  line_rate_mbps: 25
+  coding: raw
+  bit_order: lsb_first
+deskew:
+  marker_period: 16
+  max_skew: 8
+  width_mode: negotiated
+  min_lanes: 2
+tx:
+  architecture: word_streaming
+rx:
+  architecture: source_sync
+  oversample: 1
+  align: comma
+  clocking: source_sync
+  ppm: 0
+  sync_len: 8
+  sync_pattern: 0xBC
+tech:
+  tx: sky130
+  rx: sky130
+interface:
+  preset: multilane
+  data: axi4_stream
+  control: native
+  cdc: async_fifo
+  enable_mode: dynamic
+  fifo_depth: 16
+constraints:
+  uncertainty_setup_ns: 0.100
+  uncertainty_hold_ns: 0.050

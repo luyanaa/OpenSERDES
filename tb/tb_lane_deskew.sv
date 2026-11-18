@@ -53,6 +53,7 @@ module tb_lane_deskew;
         .TAG_WIDTH(4), .MARKER_TAG(4'hA), .IDLE_TAG(4'hF)
     ) dut (
         .clk(clk), .rst_n(rst_n), .enable(enable),
+        .lane_mask({LANES{1'b1}}),
         .in_data(in_data), .in_valid(in_valid), .in_sync(in_sync),
         .in_ready(in_ready),
         .out_data(out_data), .out_valid(out_valid), .out_ready(out_ready),

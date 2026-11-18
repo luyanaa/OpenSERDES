@@ -57,6 +57,10 @@ module lane_deskew #(
     input  logic                              clk,
     input  logic                              rst_n,
     input  logic                              enable,
+    // Lanes in the link.  A lane outside the mask is ignored: it does not
+    // gate `aligned`, its buffer is drained, and it does not take part in the
+    // lockstep release.  All ones (the default) is the fixed-width behaviour.
+    input  logic [LANES-1:0]                  lane_mask,
     // Per-lane word streams (already in the core clock domain).
     input  logic [LANES-1:0][DATA_WIDTH-1:0]  in_data,
     input  logic [LANES-1:0]                  in_valid,
@@ -106,11 +110,14 @@ module lane_deskew #(
     logic marker_epochs_same, epoch_ok, spacing_ok, marker_check_ok;
     logic [EPOCH_W-1:0] epoch0, head_epoch0;
 
-    assign have_all   = &have_x;
-    assign all_marker = (&have_x) & (&head_marker_x);
-    assign all_idle   = (&have_x) & (&head_idle_x);
-    assign all_data   = (&have_x) & (&head_data_x);
-    assign mixed      = have_all & ~all_marker & ~all_idle & ~all_data;
+    // Everything below is evaluated over the lanes that are actually in the
+    // link.  With lane_mask all ones this reduces to the fixed-width logic.
+    assign have_all   = (&have_x) | ~(|lane_mask);
+    assign all_marker = (&(have_x | ~lane_mask)) & (&(head_marker_x | ~lane_mask));
+    assign all_idle   = (&(have_x | ~lane_mask)) & (&(head_idle_x | ~lane_mask));
+    assign all_data   = (&(have_x | ~lane_mask)) & (&(head_data_x | ~lane_mask));
+    assign mixed      = (&(have_x | ~lane_mask)) & ~all_marker & ~all_idle
+                        & ~all_data;
 
     // -------------------------------------------------------------------------
     // Parameter contract.  These are elaborated, not asserted: a configuration
@@ -132,10 +139,24 @@ module lane_deskew #(
         end
     endgenerate
 
+    // The first lane in the mask is the epoch reference, so a masked-out lane
+    // with a stale epoch cannot veto the link.
+    logic [LANES-1:0] armed_masked, sync_masked;
+    assign armed_masked = armed_x | ~lane_mask;
+    assign sync_masked  = in_sync | ~lane_mask;
+
+    int epoch_ref;
     always_comb begin
-        epochs_equal = (&armed_x) & (&in_sync);
-        for (int l = 1; l < LANES; l++)
-            if (epoch_x[l] != epoch_x[0])
+        epoch_ref = 0;
+        for (int l = LANES - 1; l >= 0; l--)
+            if (lane_mask[l])
+                epoch_ref = l;
+    end
+
+    always_comb begin
+        epochs_equal = (&armed_masked) & (&sync_masked);
+        for (int l = 0; l < LANES; l++)
+            if (lane_mask[l] && (epoch_x[l] != epoch_x[epoch_ref]))
                 epochs_equal = 1'b0;
     end
 
@@ -145,13 +166,13 @@ module lane_deskew #(
 
     always_comb begin
         marker_epochs_same = 1'b1;
-        for (int l = 1; l < LANES; l++)
-            if (head_epoch_x[l] != head_epoch_x[0])
+        for (int l = 0; l < LANES; l++)
+            if (lane_mask[l] && (head_epoch_x[l] != head_epoch_x[epoch_ref]))
                 marker_epochs_same = 1'b0;
     end
 
-    assign epoch0       = epoch_x[0];
-    assign head_epoch0  = head_epoch_x[0];
+    assign epoch0       = epoch_x[epoch_ref];
+    assign head_epoch0  = head_epoch_x[epoch_ref];
     assign epoch_ok     = (head_epoch0 == (last_epoch_q + 1'b1));
     assign spacing_ok   = (beat_cnt_q == CNT_W'(MARKER_PERIOD));
     assign marker_check_ok = marker_epochs_same & epoch_ok & spacing_ok;
@@ -192,8 +213,11 @@ module lane_deskew #(
             // point on; the aligned read consumes them in lockstep.
             assign wr_en_x[l]  = in_valid[l] & in_ready[l] &
                                  (aligned_q | (armed_q & ~is_marker));
-            assign rd_en_x[l]  = aligned_q & have_all &
-                                 (all_marker | all_idle | (all_data & out_ready));
+            // A masked-out lane drains unconditionally so its RX FIFO can
+            // never wedge the lane's own pipeline.
+            assign rd_en_x[l]  = ~lane_mask[l] |
+                                 (aligned_q & have_all &
+                                  (all_marker | all_idle | (all_data & out_ready)));
 
             assign armed_x[l]       = armed_q;
             assign have_x[l]        = (used_q != '0);
@@ -205,7 +229,8 @@ module lane_deskew #(
             assign epoch_x[l]       = epoch_q;
             assign head_epoch_x[l]  = w_head[EPOCH_W-1:0];
             assign head_x[l]        = w_head;
-            assign lane_locked[l]   = in_sync[l] & (aligned_q | armed_q);
+            assign lane_locked[l]   = lane_mask[l] & in_sync[l] &
+                                      (aligned_q | armed_q);
 
             always_ff @(posedge clk or negedge rst_n) begin
                 if (!rst_n) begin
