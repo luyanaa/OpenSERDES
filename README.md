@@ -180,6 +180,10 @@ AXIS CRC 插入/检查原语。插入器把 CRC beats 追加在 payload 之后�
 
 64b/66b 原语：2-bit sync header + 64-bit self-synchronous scrambler payload，支持 data/control block header、非法 sync 拒绝，以及 66-to-64-bit gearbox。`serdes_64b66b_top` 把 64-bit payload 编码到 66-bit line word；generator 在 `payload_width: 64`、`target: link`、`align: external` 时接受 `coding: 64b66b`。`RX_GEARBOX=1` 时 RX 侧由 `pcs_64b66b_rx_gearbox` 从 1-bit 串行流用 66-bit 滑窗锁块，`pcs_64b66b_ctrl_decode` 区分纯数据/全控制/混合起止块（`rx_ctrl_kind`/`rx_block_type`）；该模式限定 `WORDS==1`，TX 在帧间插入 IEEE 全控制 idle 块以保持块边界。完整 control-field 提取与 lane distribution 仍是独立 PCS 工作。详见 `docs/pcs_coding.md`。
 
+### 协议 PHY 基础层（USB/PCIe 方向）
+
+三轮外部研究（LiteICLink、LitePCIe soft PHY 与 PR #250、USB3-PIPE、LiteEth basex）之后补齐的"作为 USB/PCIe PHY 的 SerDes 基础层"：`rtl/link_watchdog.sv`（"还在试"vs"卡死"）、`rtl/saturating_counter.sv`（饱和不回转的误码/掉链计数）、`rtl/clock_cycles.sv`（Gray 计数跨域，实测 ppm 对照相位模型）、`rtl/tx_ctrl_align.sv`（控制输入与在途数据对齐，PR #250 的 `tx_idle_delay`）；`pcs_8b10b_rx_stream` 新增 `SUBSTITUTE_ERROR`（把解码/极性错误替换成 K28.4 带上 charisk 上报，PCIe 6.3.1.4），`pcs_8b10b_comma` 新增搜索看门狗并贯通 `serdes_rx_digital`；SoC wrapper 新增 CSR16–19（误码计数、掉链计数、TX/RX 周期）与 `CSR0[5]/[6]`、`CSR7[8..10]`。见 `docs/phy_base_layer.md`。
+
 ### 抖动/相位参考模型
 
 `verification/channel/phase_model.py` 与 `tb/jitter_clock.sv` 是**同一个模型的两份实现**，使用完全相同的整数运算（16-bit xorshift、Irwin-Hall 高斯替代、64 项 Q1.15 正弦表、截断 ppm 斜坡），因此 RTL 与 Python 的 TIE 序列逐位一致；`tb/tb_phase_model.sv` 读 Python 写出的向量并逐边沿比对，`make phase-model-rtl` 与 4 个 `phase_model_*` 回归用例守住这个等价性。支持 RJ / SJ / ppm / DCD 四个轴，已覆盖 6 种配置。边界：不是信道模型（无 ISI/反射/CTLE-DFE/SSC），高斯是有界的 ±6σ 替代，`tj_at_ber` 是 dual-Dirac 预算而非实测 BER。见 `docs/phase_model.md`。

@@ -37,7 +37,11 @@ module pcs_8b10b_comma #(
     // Search window: we look for the 7-bit comma followed by enough bits to
     // confirm it sits at a symbol start (bits abcdei fgh.. -> comma is the
     // first 7 bits '0011111' or its inverse '1100000').
-    parameter int COMMA_LEN   = 7
+    parameter int COMMA_LEN   = 7,
+    // Cycles without a comma before the search is declared stuck.  A receiver
+    // that never sees K28.5 looks exactly like one that is still searching;
+    // with the watchdog the caller gets a definite answer (0 disables).
+    parameter int LOCK_TIMEOUT = 65536
 ) (
     input  logic clk,
     input  logic rst_n,
@@ -51,7 +55,11 @@ module pcs_8b10b_comma #(
     output logic comma_seen,   // pulse on each in-boundary comma detection
     // Post-comma running disparity: COMMA_P is the RD- K28.5 variant, so RD
     // becomes +1; COMMA_N is RD+ and RD becomes -1.
-    output logic comma_rd_plus
+    output logic comma_rd_plus,
+    // Pulses when LOCK_TIMEOUT cycles pass without a comma while unlocked.
+    output logic lock_timeout,
+    // Sticky: at least one search window expired since reset/flush.
+    output logic lock_stuck
 );
 
     // 7-bit comma patterns.  The K28.5 symbol (10'b0101111100 / 1010000011)
@@ -92,6 +100,49 @@ module pcs_8b10b_comma #(
     assign locked     = locked_q;
     assign comma_rd_plus = comma_rd_plus_q;
 
+    // Search watchdog: while unlocked and enabled, a window without any comma
+    // means the pattern is not there (wrong polarity policy, dead line, wrong
+    // line rate).  The window restarts on every comma so a slow link does not
+    // trip it.
+    logic [15:0] wd_q;
+    logic        stuck_q;
+    localparam int WD_W = (LOCK_TIMEOUT <= 1) ? 1 : $clog2(LOCK_TIMEOUT + 1);
+
+    assign lock_timeout = (LOCK_TIMEOUT > 0) && enable && !locked_q &&
+                          ((wd_q == 16'(LOCK_TIMEOUT)) ||
+                           (idle_wd_q == 16'(LOCK_TIMEOUT)));
+    assign lock_stuck   = stuck_q;
+
+    // A dead line (or one carrying data without any K28.5) delivers no comma
+    // at all, so the search watchdog counts clk cycles and is only reset by an
+    // actual match, not by valid bits.
+    logic [15:0] idle_wd_q;
+    wire  match_any = serial_valid & enable & match;
+    // The idle window expiring is itself the "stuck" event (a silent or
+    // comma-less line produces no valid-bit edge to latch it from).
+    wire  idle_expired = enable & ~locked_q & (idle_wd_q == 16'(LOCK_TIMEOUT));
+    always_ff @(posedge clk or negedge rst_n) begin
+        if (!rst_n)
+            idle_wd_q <= '0;
+        else if (!enable || flush || slip_req || locked_q || match_any)
+            idle_wd_q <= '0;
+        else if (idle_expired)
+            idle_wd_q <= '0;      // restart the window
+        else if (idle_wd_q != 16'hFFFF)
+            idle_wd_q <= idle_wd_q + 1'b1;
+    end
+
+    // Sticky, cleared by reset/flush only (like every other fault flag here).
+    always_ff @(posedge clk or negedge rst_n) begin
+        if (!rst_n)
+            stuck_q <= 1'b0;
+        else if (!enable || flush || slip_req)
+            stuck_q <= 1'b0;
+        else if (idle_expired | (LOCK_TIMEOUT > 0 && locked_q == 1'b0 &&
+                                  wd_q == 16'(LOCK_TIMEOUT)))
+            stuck_q <= 1'b1;
+    end
+
     always_ff @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             hist_q           <= '0;
@@ -100,6 +151,9 @@ module pcs_8b10b_comma #(
             delay_q          <= '0;
             pending_q        <= 1'b0;
             locked_q         <= 1'b0;
+            wd_q             <= '0;
+            idle_wd_q        <= '0;
+            stuck_q          <= 1'b0;
         end else if (!enable || flush || slip_req) begin
             hist_q           <= '0;
             comma_rd_plus_q  <= 1'b0;
@@ -107,8 +161,20 @@ module pcs_8b10b_comma #(
             delay_q          <= '0;
             pending_q        <= 1'b0;
             locked_q         <= 1'b0;
+            wd_q             <= '0;
+            idle_wd_q        <= '0;
+            stuck_q          <= 1'b0;
         end else if (serial_valid) begin
             hist_q <= window;
+            if (LOCK_TIMEOUT > 0) begin
+                if (match || locked_q) begin
+                    wd_q <= '0;
+                end else if (wd_q == 16'(LOCK_TIMEOUT)) begin
+                    wd_q <= '0;
+                end else begin
+                    wd_q <= wd_q + 1'b1;
+                end
+            end
             if (match) begin
                 // (Re)arm the tail counter and latch the comma polarity.  The
                 // count is taken at align time, never at match time: locking

@@ -125,3 +125,10 @@ tags (see `multilane.md`).
 | `tb_axis_frame_packetizer` | slicing, padding, `frag_len`, reassembly |
 | `tb_axis_crc` / `tb_axis_crc_saf` | inserter/checker, store-and-forward drop |
 | `tb_axis_reliable_link` | go-back-N, ACK/NAK, duplicate re-ACK, timeout, `link_error` |
+
+## See also
+
+- `docs/liteiclink_review.md` — what a mature FPGA inter-chip link
+  (LiteICLink) does that this one does not: link-up watchdogs, coherent clock
+  counters, `link_drops`/`invalid_errors` telemetry, no-backpressure RX policy,
+  master/slave init asymmetry, XON/XOFF with periodic re-send.

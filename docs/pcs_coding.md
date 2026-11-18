@@ -142,3 +142,14 @@ comma cannot hang the block pipeline.
   bytes of a mixed block into a separate FIFO.
 - 8b/10b in the SoC wrapper is byte-wide on the user side.  Wider user widths
   would need the adapters re-parameterised, which is a separate change.
+
+## See also
+
+- `docs/protocol_phy_review.md` — protocol-layer demands on the PCS:
+  in-band error substitution with a reserved K code (USB3 `K28.4`),
+  8b10b decode-error *rate* used as a low-frequency signal, disparity-neutral
+  idle pairs (`/I1/`, `/I2/`) for long idle streams, electrical-idle debounce
+  parameters, and ordered sets that are word-aligned on TX and
+  position-agnostic on RX.
+- `docs/liteiclink_review.md` — popcount fast path for invalid-symbol
+  detection, scrambler with periodic sync insertion, link-up watchdogs.

@@ -255,3 +255,24 @@ re-align) for overhead: at 16 the cost is 5.9%, at 64 it is 1.5%.
 - Per-lane FIFO over/underflow is not reported.  Size `FIFO_DEPTH` for the
   `core_clk`/`rx_clk` frequency offset across the whole packet, or add an
   overflow counter at the integration level.
+
+## See also
+
+- `docs/protocol_phy_review.md` — how a production protocol PHY does lane
+  deskew (PCIe soft PHY `RXLaneDeskew`): symbol-phase alignment on a protocol
+  ordered set (COM in TS1/TS2), per-lane "too far ahead, skip to next COM"
+  instead of a global re-hunt, a `stable` output after N clean intervals, and a
+  lane mask so the link can run narrower than the design.
+- `docs/liteiclink_review.md` — link-level telemetry and watchdog patterns.
+
+Our deskew aligns on a **private** `MARKER_TAG` ordered set, not on a standard
+protocol ordered set, and compensates whole words only.  That is appropriate for
+a bonded chiplet link but it is why this block cannot be dropped into a
+PCIe/USB3/1000BASE-X framing without a shim; the marker cadence assumption the
+protocol layer relies on (TX word-aligned, RX position-agnostic) holds here by
+construction, and `tb_multilane_axis` is where that invariant is exercised.
+- `docs/litepcie_ecp5_review.md` — a production adapter deliberately derives
+  "ready" from the **TX** side only, because the receiver losing signal must not
+  disable the protocol state machine that is waiting for training sequences.
+  Our `link_ok` does follow the RX side; that is correct for a transport-only
+  bonded link and must be revisited before a protocol FSM sits on top of it.

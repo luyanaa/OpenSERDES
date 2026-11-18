@@ -74,12 +74,18 @@ wedged.
 
 | CSR | access | contents |
 |---|---|---|
-| 0 | RW | `[0]` tx_enable, `[1]` rx_enable, `[2]` rx_flush, `[3]` tx_clear, `[4]` rx_clear |
+| 0 | RW | `[0]` tx_enable, `[1]` rx_enable, `[2]` rx_flush, `[3]` tx_clear, `[4]` rx_clear, `[5]` clear link-health counters, `[6]` latch cycle counters |
 | 7 | RO | link status: busy, frame seen, frame overflow, fifo flags |
 | 8 | RW | BIST control: enable/start/clear/inject/loopback/snapshot, word mode |
 | 10, 11 | RO | coherent BIST snapshots (error count, bit count) |
 | 12 | RO | BIST status: width code, inject, loopback, snapshot valid, running, error |
 | 13, 14, 15 | RO | training best_errors, training status, snapshot valid + CRC sticky |
+| 16, 17 | RO | `code_error_count`, `link_drop_count` (saturating; clear via CSR0[5]) |
+| 18, 19 | RO | measured TX/RX cycles, latched as a matched pair by CSR0[6] |
+
+`CSR7[8]` is the receiver's comma-search watchdog (`comma_lock_stuck`),
+`CSR7[9]`/`CSR7[10]` say either counter saturated.  See
+`docs/phy_base_layer.md`.
 
 CSR0 is level-sensitive and crosses into `tx_clk`/`rx_clk` through 2FF
 synchronizers; the clear/flush bits are turned into single-cycle pulses in

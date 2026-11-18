@@ -133,7 +133,7 @@ module serdes_soc_cdc_wrapper #(
     // Two's-complement value; not declared signed for Yosys/OpenROAD portability.
     output logic [ADAPT_FRAC_BITS:0]   rx_freq_trim,
     output logic                              rx_clk_out,
-    output logic [15:0][31:0]                 csr_regs,
+    output logic [19:0][31:0]                 csr_regs,
 
     // Optional training control/telemetry (rx_clk domain).  The error count
     // is supplied by the RX-side scoreboard/PRBS checker; this wrapper does
@@ -152,7 +152,17 @@ module serdes_soc_cdc_wrapper #(
     output logic                              code_error,
     // Framing-layer telemetry (0 when PKT_ENABLE=0).
     output logic                              pkt_tx_frame_error,
-    output logic                              pkt_rx_frame_error
+    output logic                              pkt_rx_frame_error,
+    // Link-health counters, saturating, cleared by CSR0[5].
+    // A marginal channel must be distinguishable from a dead one: a sticky bit
+    // cannot say "one error" vs "an error every frame".
+    output logic [31:0]                       code_error_count,
+    output logic                              code_error_saturated,
+    output logic [31:0]                       link_drop_count,
+    output logic                              link_drop_saturated,
+    // Measured TX/RX cycles (ppm reference), latched into CSR16/17 by CSR0[6].
+    output logic [31:0]                       clock_tx_cycles,
+    output logic [31:0]                       clock_rx_cycles
 );
 
     localparam int CRC_BYTES = (CRC_WIDTH + DATA_WIDTH - 1) / DATA_WIDTH;
@@ -189,9 +199,10 @@ module serdes_soc_cdc_wrapper #(
     // APB control / status
     // -------------------------------------------------------------------------
     logic [31:0] status;
-    logic [15:0][31:0] csr_ro;
+    logic [19:0][31:0] csr_ro;
 
     logic tx_enable_p, rx_enable_p, rx_flush_p, tx_clear_p, rx_clear_p;
+    logic health_clear_p, clock_latch_p;
     logic bist_enable_p, bist_start_p, bist_clear_p, bist_inject_p, bist_loopback_p;
     logic bist_word_mode_p;
     logic tx_enable_tx, tx_clear_tx, tx_clear_tx_d, tx_clear_pulse;
@@ -206,6 +217,9 @@ module serdes_soc_cdc_wrapper #(
     assign rx_flush_p  = csr_regs[0][2];
     assign tx_clear_p  = csr_regs[0][3];
     assign rx_clear_p  = csr_regs[0][4];
+    // [5] clears the link-health counters, [6] latches the cycle counters.
+    assign health_clear_p = csr_regs[0][5];
+    assign clock_latch_p  = csr_regs[0][6];
 
     assign bist_enable_p   = csr_regs[8][0];
     assign bist_start_p    = csr_regs[8][1];
@@ -220,11 +234,14 @@ module serdes_soc_cdc_wrapper #(
     assign status = {21'b0, m_axis_valid_p, rx_status_p, tx_status_p, tx_axis_ready_p};
 
     apb_csr #(
-        .NUM_REGS(16),
+        .NUM_REGS(20),
         .DATA_WIDTH(32),
         .ADDR_WIDTH(16),
         .STATUS_IDX(7),
-        .RO_MASK(16'b1111_1100_0000_0000)
+        // Bit i set => CSR i is read-only.  CSR 0-6 and 8-9 are writable
+        // (8 is the BIST control block), 7 is the link status and 10-19 are
+        // the BIST/training/link-health telemetry.
+        .RO_MASK(20'b1111_1111_1100_1000_0000)
     ) u_csr (
         .pclk(pclk),
         .presetn(presetn),
@@ -659,6 +676,17 @@ module serdes_soc_cdc_wrapper #(
         csr_ro[15] = '0;
         csr_ro[15][0] = train_stat_p[TRAIN_STAT_W-1];   // crc_error_sticky
         csr_ro[15][1] = train_stat_valid;               // snapshot fresh
+        // Link health (counters saturate; the saturated flag says so).
+        csr_ro[16] = code_error_count;
+        csr_ro[17] = link_drop_count;
+        // Measured cycles: latched as a matched pair by CSR0[6].  Their ratio
+        // is the ppm the phase model predicts.
+        csr_ro[18] = clock_tx_cycles;
+        csr_ro[19] = clock_rx_cycles;
+        // Watchdog status: was the receiver ever unable to find framing?
+        csr_ro[7][8] = comma_lock_stuck_rx;
+        csr_ro[7][9] = code_error_saturated;
+        csr_ro[7][10] = link_drop_saturated;
     end
 
     // -------------------------------------------------------------------------
@@ -737,7 +765,8 @@ module serdes_soc_cdc_wrapper #(
                 .rd_init(rx_comma_rd_plus), .rd_load(rx_comma_seed),
                 .payload(rx_dec_payload), .charisk(rx_dec_charisk),
                 .frame_valid(rx_dec_frame_valid),
-                .code_error(rx_code_error), .idle(rx_dec_idle)
+                .code_error(rx_code_error), .idle(rx_dec_idle),
+                .symbol_substituted()
             );
 
             assign rx_adapter_par_valid = rx_dec_frame_valid & rx_comma_locked;
@@ -759,6 +788,81 @@ module serdes_soc_cdc_wrapper #(
     endgenerate
 
     assign code_error = tx_code_error | rx_code_error;
+
+    // Comma search watchdog from the RX endpoint: a receiver that never frames
+    // must be distinguishable from one that is still searching.
+    logic comma_lock_timeout_rx, comma_lock_stuck_rx;
+
+    // -------------------------------------------------------------------------
+    // Link health: counters, cycle measurement, and the APB view of both.
+    //
+    // The sticky `code_error` bit above says "it happened"; these say "how
+    // often", which is what separates a marginal channel from a dead one.
+    // Reference: LiteICLink `SerdesControl` exposes exactly these two counters
+    // (invalid 8b10b words, link losses) and LitePCIe PR #250 relies on the
+    // rate form to tell an LFPS burst from data.
+    // -------------------------------------------------------------------------
+    logic health_clear_rx;
+    cdc_sync #(.WIDTH(1)) u_health_clear_rx (
+        .clk(rx_clk), .rst_n(rx_rst_n), .d(health_clear_p),
+        .q(health_clear_rx)
+    );
+
+    logic        link_up_q;
+    logic        link_drop_rx;
+    assign link_drop_rx = link_up_q & ~rx_frame_locked;
+
+    always_ff @(posedge rx_clk or negedge rx_rst_n) begin
+        if (!rx_rst_n)
+            link_up_q <= 1'b0;
+        else if (rx_clear_pulse)
+            link_up_q <= 1'b0;
+        else
+            link_up_q <= rx_frame_locked;
+    end
+
+    /* verilator lint_off PINCONNECTEMPTY */
+    saturating_counter #(.WIDTH(32)) u_code_err_cnt (
+        .clk(rx_clk), .rst_n(rx_rst_n), .clear(health_clear_rx),
+        .inc(rx_code_error | tx_code_error), .value(code_error_count),
+        .saturated(code_error_saturated)
+    );
+    saturating_counter #(.WIDTH(32)) u_link_drop_cnt (
+        .clk(rx_clk), .rst_n(rx_rst_n), .clear(health_clear_rx),
+        .inc(link_drop_rx), .value(link_drop_count),
+        .saturated(link_drop_saturated)
+    );
+    /* verilator lint_on PINCONNECTEMPTY */
+
+    // Cycle measurement: a Gray counter per recovered clock, coherently read
+    // in the pclk domain, latched as a matched pair by CSR0[6].
+    logic [31:0] tx_cycles_free, rx_cycles_free;
+    logic [31:0] tx_cycles_q, rx_cycles_q;
+
+    /* verilator lint_off PINCONNECTEMPTY */
+    clock_cycles #(.WIDTH(32)) u_tx_cycles (
+        .sclk(tx_clk), .srst_n(tx_rst_n), .dclk(pclk), .drst_n(presetn),
+        .value(tx_cycles_free)
+    );
+    clock_cycles #(.WIDTH(32)) u_rx_cycles (
+        .sclk(rx_clk), .srst_n(rx_rst_n), .dclk(pclk), .drst_n(presetn),
+        .value(rx_cycles_free)
+    );
+    /* verilator lint_on PINCONNECTEMPTY */
+
+    always_ff @(posedge pclk or negedge presetn) begin
+        if (!presetn) begin
+            tx_cycles_q <= '0;
+            rx_cycles_q <= '0;
+        end else if (clock_latch_p) begin
+            // Both latched on one edge so the ratio is meaningful.
+            tx_cycles_q <= tx_cycles_free;
+            rx_cycles_q <= rx_cycles_free;
+        end
+    end
+
+    assign clock_tx_cycles = tx_cycles_q;
+    assign clock_rx_cycles = rx_cycles_q;
 
     generate
         if (TRAINING_ENABLE) begin : g_train
@@ -825,7 +929,9 @@ module serdes_soc_cdc_wrapper #(
         .rx_frame_valid(rx_frame_valid),
         .rx_serial_data(rx_serial_data),
         .rx_serial_valid(rx_serial_valid),
-        .rx_freq_trim(rx_freq_trim)
+        .rx_freq_trim(rx_freq_trim),
+        .comma_lock_timeout(comma_lock_timeout_rx),
+        .comma_lock_stuck(comma_lock_stuck_rx)
     );
 
     axis_rx_adapter #(

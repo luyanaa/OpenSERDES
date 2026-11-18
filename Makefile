@@ -366,6 +366,18 @@ phase-model-rtl: $(BUILD)/tb_phase_model phase-model-vector
 		-o $(BUILD)/tb_phase_dcd tb/tb_phase_model.sv tb/jitter_clock.sv
 	$(VVP) $(BUILD)/tb_phase_dcd +vector=$(PHASE_VEC)_dcd.hex
 
+$(BUILD)/tb_link_health: tb/tb_link_health.sv rtl/link_watchdog.sv \
+		rtl/saturating_counter.sv rtl/clock_cycles.sv | $(BUILD)
+	$(IVERILOG) -g2012 -Wall -o $@ $^
+
+$(BUILD)/tb_tx_ctrl_align: tb/tb_tx_ctrl_align.sv rtl/tx_ctrl_align.sv | $(BUILD)
+	$(IVERILOG) -g2012 -Wall -o $@ $^
+
+$(BUILD)/tb_8b10b_rx_protocol: tb/tb_8b10b_rx_protocol.sv rtl/pcs_8b10b_stream.sv \
+		rtl/pcs_8b10b_tx.sv rtl/pcs_8b10b_rx.sv rtl/encoder_8b10b.sv \
+		rtl/decoder_8b10b.sv rtl/pcs_8b10b_comma.sv | $(BUILD)
+	$(IVERILOG) -g2012 -Wall -o $@ $^
+
 $(BUILD)/tb_soc_cdc_packetizer: tb/tb_soc_cdc_packetizer.sv $(RTL) | $(BUILD)
 	$(IVERILOG) -g2012 -Wall -o $@ $^
 
@@ -416,7 +428,9 @@ SIM_BINS := $(BUILD)/tb_serializer_lsb $(BUILD)/tb_serializer_msb \
             $(BUILD)/tb_serdes_bist_7 $(BUILD)/tb_serdes_bist_15 $(BUILD)/tb_serdes_bist_31 \
             $(BUILD)/tb_serdes_bist_word \
             $(BUILD)/tb_lane_deskew $(BUILD)/tb_multilane_top \
-            $(BUILD)/tb_multilane_axis $(BUILD)/tb_soc_cdc_packetizer
+            $(BUILD)/tb_multilane_axis $(BUILD)/tb_soc_cdc_packetizer \
+            $(BUILD)/tb_link_health $(BUILD)/tb_tx_ctrl_align \
+            $(BUILD)/tb_8b10b_rx_protocol
 
 sim: $(SIM_BINS)
 	$(VVP) $(BUILD)/tb_serializer_lsb
@@ -503,6 +517,9 @@ sim: $(SIM_BINS)
 	$(VVP) $(BUILD)/tb_multilane_top
 	$(VVP) $(BUILD)/tb_multilane_axis
 	$(VVP) $(BUILD)/tb_soc_cdc_packetizer
+	$(VVP) $(BUILD)/tb_link_health
+	$(VVP) $(BUILD)/tb_tx_ctrl_align
+	$(VVP) $(BUILD)/tb_8b10b_rx_protocol
 
 lint:
 	$(VERILATOR) --lint-only -Wall --top-module serdes_digital_top $(RTL)

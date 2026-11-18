@@ -43,7 +43,7 @@ module tb_soc_cdc_crc;
     logic rx_serial_valid;
     logic signed [12:0] rx_freq_trim;
     logic rx_clk_out;
-    logic [15:0][31:0] csr_regs;
+    logic [19:0][31:0] csr_regs;
 
     int errors;
     int tx_cycles;

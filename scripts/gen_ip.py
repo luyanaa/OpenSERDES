@@ -141,6 +141,7 @@ DESIGN_FILES = {
         "cdr_multiphase.sv", "comma_align.sv",
         "receiver_sampler.sv", "reset_sync.sv", "serdes_rx_digital.sv",
         "axis_frame_packetizer.sv", "axis_ordered_set_insert.sv",
+        "saturating_counter.sv", "link_watchdog.sv", "clock_cycles.sv",
         "serdes_soc_cdc_wrapper.sv",
     ],
 }

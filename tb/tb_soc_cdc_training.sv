@@ -22,7 +22,7 @@ module tb_soc_cdc_training;
     logic rx_sample_strobe, rx_serial_data, rx_serial_valid;
     logic signed [12:0] rx_freq_trim;
     logic rx_clk_out;
-    logic [15:0][31:0] csr_regs;
+    logic [19:0][31:0] csr_regs;
     logic train_start;
     logic [15:0] train_error_count;
     logic train_locked, train_busy, train_retrain;

@@ -60,7 +60,10 @@ module serdes_rx_digital #(
     /* verilator lint_off UNUSEDPARAM */
     parameter bit CLK_OUT_ENABLE = 1'b1,
     /* verilator lint_on UNUSEDPARAM */
-    parameter int PHASE_CTRL_W = (OVERSAMPLE <= 1) ? 1 : $clog2(OVERSAMPLE)
+    parameter int PHASE_CTRL_W = (OVERSAMPLE <= 1) ? 1 : $clog2(OVERSAMPLE),
+    // 8b/10b comma search watchdog (ALIGN_MODE=3): clk cycles without a comma
+    // before the search is declared stuck.  0 disables it.
+    parameter int COMMA_LOCK_TIMEOUT = 65536
 ) (
     input  logic                              rx_clk,
     input  logic                              rx_rst_n,
@@ -93,7 +96,12 @@ module serdes_rx_digital #(
     output logic                              rx_serial_data,
     output logic                              rx_serial_valid,
     // Two's-complement value; not declared signed for Yosys/OpenROAD portability.
-    output logic [ADAPT_FRAC_BITS:0]   rx_freq_trim
+    output logic [ADAPT_FRAC_BITS:0]   rx_freq_trim,
+    // Comma search watchdog (ALIGN_MODE=3): a pulse when a full search window
+    // produced no K28.5, and a sticky flag.  A receiver that never frames looks
+    // exactly like one that is still searching without this.
+    output logic                              comma_lock_timeout,
+    output logic                              comma_lock_stuck
 );
 
     // CDR_MODE is used directly: 0=fixed, 1=adaptive, 2=source-sync,
@@ -253,7 +261,10 @@ module serdes_rx_digital #(
             // symbol.  `rx_align`/slip requests re-open the search; this mode
             // expects DATA_WIDTH*WORDS to be a multiple of 10 bits.
             /* verilator lint_off PINCONNECTEMPTY */
-            pcs_8b10b_comma #(.LOCK_COMMAS(2)) u_comma_8b10b (
+            pcs_8b10b_comma #(
+                .LOCK_COMMAS(2),
+                .LOCK_TIMEOUT(COMMA_LOCK_TIMEOUT)
+            ) u_comma_8b10b (
                 .clk(rx_clk),
                 .rst_n(rx_rst_n_sync),
                 .enable(rx_enable),
@@ -264,7 +275,9 @@ module serdes_rx_digital #(
                 .align(comma_align_pulse),
                 .locked(comma_locked),
                 .comma_seen(),
-                .comma_rd_plus()
+                .comma_rd_plus(),
+                .lock_timeout(comma_lock_timeout),
+                .lock_stuck(comma_lock_stuck)
             );
             /* verilator lint_on PINCONNECTEMPTY */
         end else if (ALIGN_MODE == 1 || ALIGN_MODE == 2) begin : g_comma
@@ -283,11 +296,16 @@ module serdes_rx_digital #(
                 .align(comma_align_pulse),
                 .locked(comma_locked)
             );
+            // The generic pattern matcher has no watchdog.
+            assign comma_lock_timeout = 1'b0;
+            assign comma_lock_stuck   = 1'b0;
         end else begin : g_external_align
             // ALIGN_MODE==0 (external) and ==4 (64b/66b block lock): no serial
             // comma detector; the boundary/lock comes from elsewhere.
-            assign comma_align_pulse = 1'b0;
-            assign comma_locked      = 1'b1;
+            assign comma_align_pulse   = 1'b0;
+            assign comma_locked        = 1'b1;
+            assign comma_lock_timeout  = 1'b0;
+            assign comma_lock_stuck    = 1'b0;
         end
     endgenerate
 

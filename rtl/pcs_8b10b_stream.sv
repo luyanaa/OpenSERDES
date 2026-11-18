@@ -100,7 +100,14 @@ module pcs_8b10b_rx_stream #(
     // Symbols per received block.
     parameter int SYMBOLS = 5,
     // 1 when the block ends with the next frame's comma symbol.
-    parameter bit DROP_LAST = 1'b0
+    parameter bit DROP_LAST = 1'b0,
+    // 1: a received decode/disparity error is substituted in-band with this
+    // K code instead of being forwarded as a plausible-looking data byte.
+    // A protocol layer then sees a definite protocol error symbol rather than
+    // relying on its own CRC to notice.  The K28.4 default is the reserved
+    // "error" symbol (PCIe 6.3.1.4 uses this exact substitution).
+    parameter bit SUBSTITUTE_ERROR = 1'b0,
+    parameter logic [7:0] SUBSTITUTE_K = 8'h9C   // K28.4
 ) (
     input  logic                  clk,
     input  logic                  rst_n,
@@ -114,6 +121,8 @@ module pcs_8b10b_rx_stream #(
     output logic [PAYLOAD-1:0]    charisk,
     output logic                  frame_valid,
     output logic                  code_error,
+    // Pulses with the substituted symbol when SUBSTITUTE_ERROR is set.
+    output logic                  symbol_substituted,
     // High when no group is in flight: a disparity seed is only applied now,
     // so a spurious comma mid-group cannot swallow a symbol's valid pulse.
     output logic                  idle
@@ -129,6 +138,7 @@ module pcs_8b10b_rx_stream #(
     logic [SYMBOLS-1:0][9:0] sym_q;
     logic [PAYLOAD-1:0][7:0] pay_q;
     logic [PAYLOAD-1:0]      k_q;
+    logic [PAYLOAD-1:0]      sub_q;
     logic [IDX_W-1:0]        idx_q;
     logic [2:0]              wait_cnt_q;
     logic                    err_q;
@@ -143,6 +153,9 @@ module pcs_8b10b_rx_stream #(
 
     assign payload     = pay_q;
     assign charisk     = k_q;
+    // A decode or disparity error on the symbol currently being collected.
+    wire dec_error = (dec_code_error | dec_disp_error) & dec_data_valid;
+
     assign dec_code    = sym_q[idx_q];
     assign dec_valid   = enable && (state_q == S_DEC);
     assign code_error  = err_q;
@@ -163,6 +176,7 @@ module pcs_8b10b_rx_stream #(
             sym_q       <= '0;
             pay_q       <= '0;
             k_q         <= '0;
+            sub_q       <= '0;
             idx_q       <= '0;
             wait_cnt_q  <= '0;
             err_q       <= 1'b0;
@@ -205,8 +219,18 @@ module pcs_8b10b_rx_stream #(
                             // A dropped trailing symbol is decoded for the
                             // running disparity only, never forwarded.
                             if (!(DROP_LAST && idx_q == LAST_SYM)) begin
-                                pay_q[idx_q] <= dec_data;
-                                k_q[idx_q]   <= dec_ctrl;
+                                // In-band error substitution: a protocol layer
+                                // must be able to tell a broken symbol from a
+                                // valid one without waiting for its own CRC.
+                                if (SUBSTITUTE_ERROR & dec_error) begin
+                                    pay_q[idx_q]       <= SUBSTITUTE_K;
+                                    k_q[idx_q]         <= 1'b1;
+                                    sub_q[idx_q]       <= 1'b1;
+                                end else begin
+                                    pay_q[idx_q]       <= dec_data;
+                                    k_q[idx_q]         <= dec_ctrl;
+                                    sub_q[idx_q]       <= 1'b0;
+                                end
                             end
                             if (idx_q == LAST_SYM) begin
                                 state_q <= S_OUT;
@@ -217,8 +241,10 @@ module pcs_8b10b_rx_stream #(
                         end
                     end
                     S_OUT: begin
-                        frame_valid <= 1'b1;
-                        state_q     <= S_IDLE;
+                        frame_valid         <= 1'b1;
+                        symbol_substituted  <= SUBSTITUTE_ERROR & (|sub_q);
+                        sub_q               <= '0;
+                        state_q             <= S_IDLE;
                     end
                     default: state_q <= S_IDLE;
                 endcase
