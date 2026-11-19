@@ -116,6 +116,27 @@ module cdr_multiphase #(
     logic [W-1:0]             ph_step;
     logic [W-1:0]             step_ui_q;
     logic [W-1:0]             ph_next;
+    // Two-stage fine-frequency carry.  `ph_step` carries FREQ_FRAC fractional
+    // bits, so a single `ph_q + ph_step` puts all of them into the adder that
+    // feeds the threshold compare -- that is the 16-bit phase add which made
+    // FREQ_FRAC=10/11 fail to close (docs/dll_backend.md section 3).  Split it
+    // the way cdr_bang_bang already does: a slow accumulator holds the low
+    // FAST frac bits of the step, and only its carry enters the fast adder.
+    // FASTF keeps the fast adder at PW+FASTF bits.  SLOWF may be 0 (the
+    // default FREQ_FRAC=8), in which case there is no residue to accumulate
+    // and the slow branch is generated away -- a zero-width part-select would
+    // be illegal, so SLOWF is floored at 1 and the branch is guarded instead.
+    localparam int FASTF = (FREQ_FRAC < 8) ? FREQ_FRAC : 8;
+    localparam int SLOWF_RAW = FREQ_FRAC - FASTF;
+    localparam int SLOWF = (SLOWF_RAW < 1) ? 1 : SLOWF_RAW;
+    localparam bit SPLIT_SLOW = (SLOWF_RAW >= 1);
+    logic [SLOWF-1:0]         step_slow_q;
+    logic [SLOWF-1:0]         step_slow;
+    logic                     slow_carry;
+    logic                     slow_carry_q;
+    logic [SLOWF-1:0]         step_slow_next;
+    logic [PW+FASTF-1:0]      step_fast_q;
+    logic [PW+FASTF:0]        ph_next_fast;
     logic signed [1:0]        vote;
     logic                     trans;
     logic                     d_q, d_prev_q, e_q, d_out_q, strobe_q, clk_hi_q;
@@ -178,7 +199,36 @@ module cdr_multiphase #(
     // inside the loop's time constant.
     always_comb begin
         ph_step = at_ui ? step_ui_q : STEP;
-        ph_next = ph_q + ph_step;
+        // Split the step into the part that must reach the fast adder every
+        // cycle (tap/slot, plus FASTF fraction bits) and the low residue.
+        if (SPLIT_SLOW) begin
+            step_fast_q = step_ui_q[SLOWF +: (PW + FASTF)];
+            step_slow   = step_ui_q[0 +: SLOWF];
+            // Slow path: only the carry is consumed by the fast adder, next
+            // cycle.  Both the residue and its carry are registers, so neither
+            // is in the phase-compare cone.
+            {slow_carry, step_slow_next} = {1'b0, step_slow_q} + {1'b0, step_slow};
+        end else begin
+            step_fast_q  = step_ui_q;
+            step_slow    = '0;
+            slow_carry   = 1'b0;
+            step_slow_next = '0;
+        end
+        // Fast path: short phase word plus the registered high part and the
+        // registered residue carry.
+        // In the non-split case SLOWF is a floor of 1 only to keep the slice
+        // legal; the whole word must be used instead.
+        if (SPLIT_SLOW)
+            ph_next_fast = {1'b0, ph_q[SLOWF +: (PW + FASTF)]}
+                         + {1'b0, step_fast_q}
+                         + (PW + FASTF + 1)'(slow_carry_q);
+        else
+            ph_next_fast = {1'b0, ph_q}
+                         + {1'b0, step_fast_q};
+        if (SPLIT_SLOW)
+            ph_next = {ph_next_fast[PW+FASTF-1:0], step_slow_q};
+        else
+            ph_next = ph_next_fast[W-1:0];
     end
 
     // Alexander PD, same convention as cdr_bang_bang.
@@ -211,6 +261,7 @@ module cdr_multiphase #(
     always_ff @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             ph_q <= '0; freq_q <= '0; kick_q <= '0; step_ui_q <= STEP;
+            step_slow_q <= STEP[0 +: SLOWF]; slow_carry_q <= 1'b0;
             centre_hit <= 1'b0; edge_hit <= 1'b0;
             d_q <= 1'b0; d_prev_q <= 1'b0; e_q <= 1'b0; d_out_q <= 1'b0;
             strobe_q <= 1'b0; clk_hi_q <= 1'b0;
@@ -218,6 +269,7 @@ module cdr_multiphase #(
             edge_cnt_q <= '0; stale_cnt_q <= '0; lock_q <= 1'b0; stale_q <= 1'b0;
         end else if (flush) begin
             ph_q <= '0; freq_q <= '0; kick_q <= '0; step_ui_q <= STEP;
+            step_slow_q <= STEP[0 +: SLOWF]; slow_carry_q <= 1'b0;
             centre_hit <= 1'b0; edge_hit <= 1'b0;
             d_q <= 1'b0; d_prev_q <= 1'b0; e_q <= 1'b0; d_out_q <= 1'b0;
             strobe_q <= 1'b0; clk_hi_q <= 1'b0;
@@ -225,6 +277,8 @@ module cdr_multiphase #(
             edge_cnt_q <= '0; stale_cnt_q <= '0; lock_q <= 1'b0; stale_q <= 1'b0;
         end else if (enable) begin
             ph_q <= ph_next;
+            step_slow_q  <= step_slow_next;
+            slow_carry_q <= slow_carry;
             // Capture the step that the *next* UI boundary will use.  It is
             // formed from the registers, not from this cycle's vote, so the
             // sampler-to-PD path never feeds the phase adder.

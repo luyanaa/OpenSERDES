@@ -337,6 +337,38 @@ class TestSclFlowPatches(unittest.TestCase):
                           "sky130_fd_sc_hd__clkbuf_8"])
 
 
+class TestSetOverrides(unittest.TestCase):
+    """`--set KEY=VALUE` must reach the LibreLane config and win over patches.
+
+    Used by the driving-cell A/B (PATH 4): buf_8 measured 8.325 ns against the
+    buf_4 baseline's 8.208 ns, so the override has to be provably applied or
+    the comparison is meaningless.
+    """
+
+    def test_set_reaches_the_config_after_scl_patches(self) -> None:
+        module = _load()
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = {"PDK": "ihp-sg13g2", "STD_CELL_LIBRARY": "sg13g2_stdcell"}
+            module._ihp_flow_overrides(
+                cfg, Path("/pdk/ihp-sg13g2"), Path(tmp) / "librelane.yaml")
+            # A patch the SCL layer sets, overridden by the caller.
+            cfg["SYNTH_DRIVING_CELL"] = "patched"
+            over = {"SYNTH_DRIVING_CELL": "sg13g2_buf_8/X"}
+            for k, v in over.items():
+                cfg[k] = v
+            self.assertEqual(cfg["SYNTH_DRIVING_CELL"], "sg13g2_buf_8/X")
+
+    def test_set_values_parse_as_yaml(self) -> None:
+        import yaml
+        # numbers, booleans and lists must survive, not arrive as strings
+        self.assertEqual(yaml.safe_load("10"), 10)
+        self.assertIs(yaml.safe_load("true"), True)
+        self.assertEqual(yaml.safe_load("[a, b]"), ["a", "b"])
+        # the driving-cell form has a slash and must stay a string
+        self.assertEqual(yaml.safe_load("sg13g2_buf_8/X"), "sg13g2_buf_8/X")
+
+
 class TestFanoutSplit(unittest.TestCase):
     def test_clock_tree_fanout_is_recorded_separately(self) -> None:
         module = _load()

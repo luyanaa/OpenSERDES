@@ -799,7 +799,8 @@ def run_pdk(spec: Path, tech: str, workdir: Path, tag: str,
             period: float | None = None,
             line_rate_mbps: float | None = None,
             scl: str | None = None,
-            core_util: float | None = None) -> dict:
+            core_util: float | None = None,
+            cfg_overrides: dict | None = None) -> dict:
     rec: dict = {"tech": tech, "status": "unverified", "steps": {}}
     pkg = workdir / "pkg"
     cfg = workdir / "config.yaml"
@@ -881,6 +882,14 @@ def run_pdk(spec: Path, tech: str, workdir: Path, tag: str,
         cfg_data["CELL_GDS"] = _osu_cell_gds(
             Path(lib_root), cfg_data.get("PDK", "gf180mcuD"), fill1)
     rec["clock_period_ns"] = cfg_data.get("CLOCK_PERIOD")
+    # Explicit `--set KEY=VALUE` overrides win over the per-SCL patches above,
+    # so a measurement can vary one knob (driving cell, CTS root, resizer
+    # margin) without a code change.  Recorded in the evidence so the run is
+    # reproducible and the A/B is auditable.
+    if cfg_overrides:
+        for key, value in cfg_overrides.items():
+            cfg_data[key] = value
+        rec["cfg_overrides"] = dict(cfg_overrides)
     rec["line_rate_mbps"] = yaml.safe_load(
         local_spec.read_text())["link"]["line_rate_mbps"]
     # Static IR drop needs non-zero via resistance in the tech LEF.  Some
@@ -998,7 +1007,18 @@ def main() -> int:
                     help="stdcell variant declared in tech.yaml scl_variants")
     ap.add_argument("--core-util", type=float, default=None,
                     help="override FP_CORE_UTIL (percent); density stays derived")
+    ap.add_argument("--set", action="append", default=[], metavar="KEY=VALUE",
+                    help="override a LibreLane config key, repeatable.  The "
+                         "value is parsed as YAML so lists/numbers work, e.g. "
+                         "--set SYNTH_DRIVING_CELL=sg13g2_buf_2/A/X")
     args = ap.parse_args()
+
+    cfg_overrides: dict = {}
+    for item in args.set:
+        if "=" not in item:
+            ap.error(f"--set needs KEY=VALUE, got {item!r}")
+        key, _, raw = item.partition("=")
+        cfg_overrides[key.strip()] = yaml.safe_load(raw)
 
     spec = Path(args.spec)
     techs = [t.strip() for t in args.techs.split(",") if t.strip()]
@@ -1014,7 +1034,8 @@ def main() -> int:
         print(f"=== {tech}", flush=True)
         rec = run_pdk(spec, tech, workroot / tech, f"{args.tag}_{tech}",
                      period=args.period, line_rate_mbps=args.line_rate,
-                     scl=args.scl, core_util=args.core_util)
+                     scl=args.scl, core_util=args.core_util,
+                     cfg_overrides=cfg_overrides)
         records.append(rec)
         summary = rec.get("reason")
         if not summary:
