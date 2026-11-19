@@ -266,6 +266,27 @@ optimization:
   load, so it wins and the frontier is `["word_streaming"]`.  A restricted
   `fixed_oversampling_os2` RX candidate is reachable with `rx.oversample: 2` +
   `rx.allow_os2: true` and has ~0.5x the clock load of OS=4.
+- **`spec/rx_source_sync_os2.yaml` is the measured recommendation for a
+  source-synchronous RX.**  On ihp-sg13g2 at a 10 ns sample clock it is
+  50 Mb/s with 892 cells / 10435 um2 / 0.579 uW against the 4x bang-bang
+  loop's 25 Mb/s / 2534 cells / 28181 um2 / 1.721 uW, i.e. 2x the line rate at
+  a third of the area and power, DRC and LVS clean (`docs/ihp_perf_paths.md`).
+  The trade is explicit: a fixed-phase sampler has no PD and no frequency
+  accumulator, so `ppm` must be 0 and the link needs a forwarded reference.
+  `ppm != 0` now fails closed for **both** `fixed_oversampling` and
+  `fixed_oversampling_os2` (the latter was missing from that guard, which let
+  an un-lockable OS=2 link be generated).
+- **`rx.architecture: dll_phase` emits `CDR_MODE=4`**, the DLL phase-select
+  path that reaches ~100 MHz.  Its sampler is outside the digital netlist, so
+  the package carries the interface contract instead of a sampler:
+  `DLL_PH_W` (`rx_dll_tap` width, 2^N phases per sample period) and
+  `DLL_FREQ_FRAC` (frequency-word resolution), both settable from the spec as
+  `rx.dll_ph_w` / `rx.dll_freq_frac`.  They are mode-4 only, so a mode 0-3
+  package is unchanged.  Unlike the fixed samplers this architecture accepts a
+  non-zero `ppm`, because `cdr_multiphase` has a real tracking loop.  The
+  other wrappers (`serdes_digital_top`, the 8b10b/64b66b tops, the SoC
+  wrappers) still fail closed for mode 4 by design -- they cannot supply
+  `rx_smp`; generate `target: rx` to get a mode-4 endpoint.
 
 Current candidates:
 

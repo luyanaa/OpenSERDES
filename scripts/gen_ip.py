@@ -520,10 +520,13 @@ def select_arch(kind: str, requested: str | None, target: str, ratio: int,
         elif "metrics_source" not in eff:
             eff["metrics_source"] = ("measured_ppa_db" if ppa_entry
                                      else "tech_override")
-        # bang_bang_oversampling is a specialised CDR; require an explicit
-        # rx.architecture so it does not silently replace the default fixed
-        # loop (which would also bypass measured-PPA gates on that arch).
-        if name == "bang_bang_oversampling" and not requested:
+        # Specialised CDRs require an explicit rx.architecture so they do not
+        # silently replace the default fixed loop (which would also bypass
+        # measured-PPA gates on that arch).  dll_phase additionally cannot be
+        # built by the wrappers at all -- it needs an external phase
+        # mux/sampler -- so auto-selecting it would emit an unbuildable or
+        # fail-closed top.
+        if name in ("bang_bang_oversampling", "dll_phase") and not requested:
             reasons.append(f"{name}: requires explicit rx.architecture")
             continue
         if requested and name != requested:
@@ -551,7 +554,12 @@ def select_arch(kind: str, requested: str | None, target: str, ratio: int,
             if clocking != "source_sync" and name == "source_sync":
                 reasons.append(f"{name}: clocking is not source_sync")
                 continue
-            if abs(ppm) > 0 and name == "fixed_oversampling":
+            if abs(ppm) > 0 and name in ("fixed_oversampling",
+                                         "fixed_oversampling_os2"):
+                # Both sample at a fixed phase, so neither can track an
+                # offset.  fixed_oversampling_os2 was missing from this guard,
+                # which let the OS=2 recommendation be built with ppm=700 --
+                # a link that cannot possibly lock.
                 reasons.append(f"{name}: ppm offset requires tracking CDR")
                 continue
             if name == "adaptive_oversampling" and oversample < 8:
@@ -1332,6 +1340,10 @@ def validate(spec: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
         "clock_source": clock_source,
         "clock_recovery": clock_recovery,
         "sampler_architecture": sampler_arch,
+        # CDR_MODE=4 interface: the phase mux/sampler are outside the digital
+        # netlist, so these are spec-level knobs rather than arch constants.
+        "dll_ph_w": as_int(rx.get("dll_ph_w", 3), "rx.dll_ph_w"),
+        "dll_freq_frac": as_int(rx.get("dll_freq_frac", 8), "rx.dll_freq_frac"),
         "ppm": ppm,
         "sample_clock_mhz": sample_clock_mhz,
         "max_sample_clock_mhz": tech.limits.get("max_sample_clock_mhz"),
@@ -1524,6 +1536,15 @@ def build_plan(cfg: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
             "ADAPT_FRAC_BITS": 12,
             "ADAPT_LOOP_GAIN": 4,
         })
+        # CDR_MODE=4 only.  The phase mux/sampler live outside the digital
+        # netlist, so these two parameters are the whole interface contract:
+        # DLL_PH_W sets rx_dll_tap's width (2^DLL_PH_W phases per sample
+        # period) and DLL_FREQ_FRAC sets the frequency-word resolution.  They
+        # are only emitted for mode 4 so a mode 0-3 package stays identical to
+        # what it was before this architecture existed.
+        if int(rx_arch.get("cdr_mode", 0)) == 4:
+            params["DLL_PH_W"] = int(cfg["dll_ph_w"])
+            params["DLL_FREQ_FRAC"] = int(cfg["dll_freq_frac"])
     if design == "serdes_rx_digital":
         params["CLK_OUT_ENABLE"] = (1 if cfg["optimization"].get("export_clk_out", True)
                                     else 0)
@@ -1737,11 +1758,17 @@ def digital_capability_report(cfg: dict[str, Any], plan: dict[str, Any]) -> dict
 
 
 def synth_parameters(params: dict[str, Any]) -> list[str]:
+    # Order matters only for readability of the generated config.  Anything
+    # not listed here is silently dropped, which is a trap: adding a parameter
+    # to `params` does nothing until it is added below.  DLL_PH_W and
+    # DLL_FREQ_FRAC were dropped exactly that way, so the CDR_MODE=4 A/B ran
+    # twice with identical results before it was noticed.
     order = ["DATA_WIDTH", "WORDS", "LSB_FIRST", "CAPTURE_MODE", "OVERSAMPLE",
              "SYNC_STAGES", "LOCK_THRESH", "LOCK_STALE_BITS", "CDR_MODE",
              "CDR_BYPASS", "ALIGN_MODE", "SYNC_LEN", "SYNC_PATTERN",
-             "ADAPT_FRAC_BITS", "ADAPT_LOOP_GAIN", "CLK_OUT_ENABLE", "PINGPONG", "FIFO_DEPTH",
-             "BIST_PRBS_WIDTH",
+             "ADAPT_FRAC_BITS", "ADAPT_LOOP_GAIN", "CLK_OUT_ENABLE", "PINGPONG",
+             "FIFO_DEPTH", "BIST_PRBS_WIDTH",
+             "DLL_PH_W", "DLL_FREQ_FRAC",
              "TRAINING_ENABLE", "TRAIN_DWELL_CYCLES", "TRAIN_ERROR_WIDTH"]
     return [f"{k}={params[k]}" for k in order if k in params]
 

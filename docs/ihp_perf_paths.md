@@ -116,17 +116,41 @@ The 10/11-bit widths now pass the stress patterns that previously forced the
 default to stay at 8.  Area cost at `FREQ_FRAC=11` vs 8: 975 vs 832 cells
 (ABC, `-D 2000`), +17%.
 
-**Not yet measured: the routed A/B at FREQ_FRAC=10/11.** `CDR_MODE=4` is not
-emittable from `gen_ip.py` (it needs an external `rx_dll_tap`/`rx_smp`
-sampler), so the routed comparison needs a hand-built top.  Until that exists
-the shipped default stays `FREQ_FRAC=8`, which is also now functionally clean.
+### Routed A/B (CDR_MODE=4, generated endpoint)
+
+`gen_ip.py` now emits a `dll_phase` endpoint (`rx.architecture: dll_phase`,
+`CDR_MODE=4`), so the routed comparison runs without a hand-built top.
+`ihp-sg13g2`, 10 ns, 25 Mb/s, `rx.dll_freq_frac` set per run:
+
+| `FREQ_FRAC` | cells | core area | power | critical path | DRC / LVS |
+|---:|---:|---:|---:|---:|---|
+| 8 | 2327 | 25452 um2 | 1.310 uW | 5.794 ns | 0 / 0 |
+| 11 | 2613 | 29067 um2 | 1.433 uW | 5.877 ns | 0 / 0 |
+
+Evidence: `build/pnr/dll4_ff8.json`, `build/pnr/dll4_ff11.json`.
+
+The important number is the **delta**: +12% cells and **+0.083 ns (+1.4%)** of
+critical path for three extra frequency bits.  Before the two-stage carry,
+`FREQ_FRAC=11` cost **+2.7 ns pre-PnR** (10.46 vs 7.77 ns) and did not close.
+Decoupling the residue from the phase adder is what turned a 2.7 ns penalty
+into 0.083 ns -- the fast adder stayed 13 bits, so only the small slow
+accumulator grew.
+
+`FREQ_FRAC=8` remains the default because 8 bits is the routed point that has
+a measured 10 ns closure; 11 bits is now *available* rather than *blocking*.
+
+Two notes on how this ran.  First, the endpoint is `target: rx` only: the
+8b10b/64b66b/SoC wrappers cannot supply `rx_smp`, so they still fail closed for
+mode 4 by design.  Second, `dll_phase` refuses auto-selection; asking for
+`rx.architecture: auto` will never pick it, because no wrapper but
+`serdes_rx_digital` can build it.
 
 ## Summary
 
 | path | what it buys | cost | verdict |
 |---|---|---|---|
 | 1: OS=2 fixed-oversampling | **2x line rate, -65% cells, -66% power** | loses frequency tracking (`ppm=0` only) | **adopt for source-synchronous links** |
-| 2: two-stage carry | 10/11-bit resolution **now passes** stress patterns | +17% cells at 11 bits, one extra cycle latency | **adopted in RTL**; routed A/B pending |
+| 2: two-stage carry | 10/11-bit resolution **passes** stress patterns; routed cost is +0.083 ns, not +2.7 ns | +12% cells at 11 bits, one extra cycle latency | **adopted, routed A/B clean** |
 | 4: stronger drive | nothing | +0.3% area, +0.118 ns | **rejected, measured** |
 
 The honest headline: on this 130 nm library the digital core is limited by

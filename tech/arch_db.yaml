@@ -108,6 +108,32 @@ rx:
       icsprout55:   {max_line_rate_mbps: 200}
     confidence: modeled_yosys_cells
     note: "4x BBPD + 2nd-order loop + fractional NCO; verified 0/+-700/+-1000 ppm on tb_cdr_bang_bang and 0/+-700 ppm on the generated endpoint. About half the clock load of the 8x adaptive loop. Re-measured after C2 (registered NCO control word, commit a587565): 1158 cells / 139 DFF at RATIO=32 vs 218 fixed and 847 adaptive (5.3x fixed, 1.37x adaptive); clock load is 0.60x the adaptive loop.  The 1411-cell figure this note used to quote came from a CELL_MODEL tuple that commit 2445439 never refit."
+  dll_phase:
+    module: serdes_rx_digital
+    cdr_mode: 4
+    min_oversample: 4
+    max_oversample: 4
+    max_line_rate_mbps: 200
+    latency_factor: 1.05
+    # CDR_MODE=4 hands the sampling phase to an external DLL phase mux: the
+    # netlist exposes rx_dll_tap[DLL_PH_W-1:0] and consumes rx_smp, the bit
+    # already sampled at that tap one clk earlier.  The digital core only
+    # SELECTS a phase; it never generates the edge.  Everything downstream
+    # (BBPD, loop filter, lock FSM) lives in cdr_multiphase.
+    #
+    # Auto-selection is refused (see select_arch): this architecture cannot be
+    # built by any wrapper except serdes_rx_digital, so picking it implicitly
+    # would emit a top that fails closed.
+    needs_external_sampler: true
+    dll_ph_w: 3
+    dll_freq_frac: 8
+    tech_overrides:
+      sky130:       {max_line_rate_mbps: 50}
+      gf180mcuD:    {max_line_rate_mbps: 25}
+      ihp-sg13g2:   {max_line_rate_mbps: 50}
+      icsprout55:   {max_line_rate_mbps: 200}
+    confidence: modeled_yosys_cells
+    note: "4x Alexander BBPD over a DLL phase mux (CDR_MODE=4). The sampler is OUTSIDE the digital netlist: the endpoint exposes rx_dll_tap and consumes rx_smp, so a generated package is a digital core plus an explicit sampler contract, not a standalone link. Routed sky130 at FREQ_FRAC=8: -0.083 ns at 10 ns with the flow 0.25 ns uncertainty (~99.2 MHz, one violating path). FREQ_FRAC=10/11 pass the +700 stress patterns once cdr_multiphase uses the two-stage carry; the routed A/B at those widths is still unmeasured. Wrappers other than serdes_rx_digital fail closed for this mode."
   adaptive_oversampling:
     module: serdes_rx_digital
     cdr_mode: 1

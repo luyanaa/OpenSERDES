@@ -1,0 +1,66 @@
+# Recommended RX endpoint for source-synchronous links: 2x line rate at 2x
+# lower cost than the 4x bang-bang loop.
+#
+# Measured on ihp-sg13g2/sg13g2_stdcell, 10 ns clock, post-route
+# nom_slow_1p08V_125C (docs/ihp_perf_paths.md, build/pnr/path1_os2.json):
+#
+#   metric           bang_bang_4x (OS=4)   this config (OS=2)
+#   line rate         25 Mb/s               50 Mb/s
+#   critical path     8.208 ns              2.142 ns      (-74%)
+#   cells             2534                  892           (-65%)
+#   core area         28181 um2             10435 um2     (-63%)
+#   power             1.721 uW              0.579 uW      (-66%)
+#   DRC / LVS         0 / 0                 0 / 0
+#
+# WHY it is that much smaller, and what that costs:
+#
+# A fixed-oversampling CDR has no phase detector and no frequency accumulator.
+# It samples at a fixed phase inside the bit period, which is exactly why the
+# critical path collapses -- and also why it cannot absorb any frequency
+# offset.  The generator enforces this (gen_ip.py: "ppm offset requires
+# tracking CDR"), so `ppm` MUST be 0 here.  Use this config when both ends of
+# the link share a reference: chip-to-chip over a forwarded clock, a backplane
+# with a distributed reference, or any source-synchronous interface.  For a
+# link that has to track an independent reference (up to +-1000 ppm), use
+# spec/bang_bang_4x.yaml (CDR_MODE=3) or a DLL phase-select endpoint
+# (rx.architecture: dll_phase, CDR_MODE=4).
+#
+# allow_os2 is opt-in precisely because OS=2 has no jitter margin: two samples
+# per UI means the sampler can only sit at 0 or half a UI, so there is no
+# vote to average and no room to re-centre.  It is correct for a short,
+# well-controlled source-synchronous channel and not a general-purpose CDR.
+name: fixed_os2_8x4
+target: rx
+link:
+  payload_width: 8
+  words: 4
+  line_rate_mbps: 50
+  coding: raw
+  bit_order: lsb_first
+tx:
+  architecture: parallel_mux
+rx:
+  architecture: fixed_oversampling_os2
+  oversample: 2
+  allow_os2: true
+  align: external
+  clocking: independent
+  # Must stay 0: a fixed-phase sampler has no frequency loop to track an
+  # offset with.  gen_ip.py fails closed if this is non-zero.
+  ppm: 0
+  sync_len: 8
+tech:
+  tx: ihp-sg13g2
+  rx: ihp-sg13g2
+interface:
+  preset: minimal
+  data: valid_ready
+  control: native
+  cdc: none
+  enable_mode: static
+constraints:
+  # 10 ns sample clock = 50 Mb/s at OS=2.  The measured critical path is
+  # 2.142 ns, so this constraint is very loose on purpose: it leaves room for
+  # the analog sampler/front-end that is not in this netlist.
+  uncertainty_setup_ns: 0.100
+  uncertainty_hold_ns: 0.050
