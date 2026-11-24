@@ -84,14 +84,26 @@ module prbs31_word_gen #(
 
 endmodule
 
+// Stage B (real-clock option): USE_REAL_CLOCK=1 swaps the external ideal
+// clk_ph ports for the on-macro real multiphase clock, pma/tx_clk4.sv ->
+// PLL_MULTIPHASE_DCO (the signed-off cdr_ihp130 block, STEP=3 ~500 MHz
+// class).  The macro stays standalone either way -- nothing is wired into
+// the SoC wrapper.  dco_en gates the ring; in the ideal-clock mode it is
+// unused (appended last so existing Stage-A instantiations still elaborate).
 module tx_prbs31_macro #(
-    parameter logic [30:0] PRBS_SEED = 31'h7FFF_FFFF
+    parameter logic [30:0] PRBS_SEED    = 31'h7FFF_FFFF,
+    parameter bit          USE_REAL_CLOCK = 1'b0, // 1: internal tx_clk4/PLL_MULTIPHASE_DCO
+    parameter integer      TX_STEP        = 3,    // DCO STEP (freq centering)
+    parameter integer      TX_CLOSE_LOAD  = 1,    // DCO closing-node load trim
+    parameter bit          TX_TAP_PAIR    = 1'b1  // tx_clk4 USE_TAP_PAIR
 ) (
     input  wire        clk_word,      // 500 MHz word clock (digital loop)
     input  wire [3:0]  clk_ph,        // ideal 500 MHz phases, 90 deg apart
+                                       // (unused when USE_REAL_CLOCK=1)
     input  wire        rst_n,
     input  wire        enable,        // 0: LFSR holds, stream repeats last bits
     input  wire        clear,         // reseed the LFSR
+    input  wire        dco_en,        // ring enable (USE_REAL_CLOCK=1 only)
     output logic       serial_out,    // 2 Gb/s serial stream
     output logic       data_valid,
     output logic [3:0] nibble_dbg
@@ -99,6 +111,26 @@ module tx_prbs31_macro #(
     logic [3:0] nib;
     logic       dv;
     logic       ser_mux;
+
+    // Serializer phase clocks: external ideal set, or the real DCO phases.
+    // ph_ser is the observation point for the TB (hierarchical ref).
+    wire [3:0] ph_ser;
+    generate
+        if (USE_REAL_CLOCK) begin : g_real_clk
+            tx_clk4 #(
+                .STEP        (TX_STEP),
+                .CLOSE_LOAD  (TX_CLOSE_LOAD),
+                .USE_TAP_PAIR(TX_TAP_PAIR)
+            ) u_clk4 (
+                .DCO_EN   (dco_en),
+                .clk_ph   (ph_ser),
+                .dco_out  (),
+                .dco_out_n()
+            );
+        end else begin : g_ext_clk
+            assign ph_ser = clk_ph;
+        end
+    endgenerate
 
     prbs31_word_gen #(.SEED(PRBS_SEED)) u_prbs (
         .clk_word (clk_word),
@@ -114,7 +146,7 @@ module tx_prbs31_macro #(
         .RETIME_INPUT (1'b1)
     ) u_mux (
         .clk_word  (clk_word),
-        .clk_ph    (clk_ph),
+        .clk_ph    (ph_ser),
         .rst_n     (rst_n),
         .enable    (1'b1),
         .nibble_in (nib),

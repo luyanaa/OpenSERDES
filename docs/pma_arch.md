@@ -92,6 +92,49 @@ driver, parallel LFSR keeps digital off line rate).  Verified: 20000 bits
 0 errors, per-phase 0, yosys clean (no comb merge).  Next: real-clock Stage B
 (multiphase_clock macro) + PnR on the 500 MHz domain.
 
+**Stage B landed 2026-11-25 (real-clock TX hookup)**: `pma/tx_clk4.sv` — the
+serializer's `clk_ph[3:0]` now comes from the REAL multiphase DCO
+(`PLL_MULTIPHASE_DCO`, the signed-off `cdr_ihp130` block, PH_W=3 / STEP=3 /
+CLOSE_LOAD=1).  Two compile modes: `TX_CLK4_BEHAVIORAL` (#delay 4-phase gen,
+the default for iverilog BER runs — the zero-delay stdcell ring cannot
+self-oscillate in vvp) and the real structural path, exercised in
+`tb/tb_tx_prbs31_pma.sv` mode `TX_CLK4_STRUCT` with timed PLL_CELL_* stand-ins
+(40 ps/stage, TT-like).  `tx_prbs31_macro` grew `USE_REAL_CLOCK` (+`dco_en`)
+and keeps the ideal-clock path bit-identical (`tb_tx_parallel_mux` still
+passes).  Structural findings (re-measured against the **travelling-wave ring**,
+upstream commit 865ef20, AND2X1 non-inverting closure):
+- Latch risk resolved upstream: the loop inversion count is now exactly
+  NSTAGE = 25 (odd, travelling wave).  Measured: oscillates from DCO_EN
+  release at ANY timing (early and 20 ns post-settle release both start,
+  4808 clean edges/10 µs on the late-released instance).
+- Measured period (40 ps timed cells): **T = 2·(NSTAGE+1)·stage_delay =
+  2.080 ns (481 MHz)** — two traversals per period, as the travelling-wave
+  model predicts; upstream post-route STA: ~331 MHz @ SS, tap uniformity
+  19.5 ps.
+- Tap grid: taps at k·STEP stages span 24 of the 52-stage period (a
+  half-period grid at ~T/17.3); complementary (+T/2) edges complete it.
+  The brief's even-tap mapping `clk_ph[i]=PHASE[2i]` measures
+  **0/41.5/83.1/124.6 deg — NOT 0/90/180/270** (even taps are 2·STEP = 6
+  stages apart; T/4 = 13).  Kept only as `USE_TAP_PAIR=0` for traceability.
+- Chosen default mapping (`USE_TAP_PAIR=1`): quadrature from one tap pair +
+  complementary T/2 edges — `PHASE[0], PHASE[4], ~PHASE[0], ~PHASE[4]` =
+  measured **0/83.1/180.0/263.1 deg** (−1-tap-stage/40 ps systematic error on
+  the two tap-derived phases, T/2 edges exact; inter-phase gaps
+  480/560/480/560 ps in the behavioral timed model).  Exact quadrature needs
+  tap spacing (NSTAGE+1)/4 = 6.5 stages — impossible with integer STEP; an
+  upstream geometry with a 4·STEP-cell loop (NSTAGE = 4·STEP−1 inverters +
+  AND, taps at 0/3/6/9 stages) would make `PHASE[0]/PHASE[2]` + complements
+  exactly 0/90/180/270 — flagged to the adpll_gen owner.
+- Sim note: the initial X on chain[NSTAGE] circulates if DCO_EN rises while
+  that node is still X (vvp zero-init artifact, defined edges stay on
+  schedule); the TB filters to clean 0→1 edges and releases after the first
+  traversal.
+Functional BER on the behavioral 4-phase gen: 20000 bits, 0 errors, per-phase
+0, skew 0 (same checker approach as Stage A).  Next physical step: PnR
+integration — bind the tx_macro driver and the cdr_ihp130 multiphase macro
+into one PMA tile, then re-measure quadrant error on the routed macro before
+freezing the tap mapping.
+
 ### P2 — RX: parallel multiphase sampler bank (mostly a rewrite)
 
 Recon 2026-11-25: **nothing to extend** — every existing loop is a single-
