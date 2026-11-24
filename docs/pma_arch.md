@@ -80,9 +80,17 @@ Early stages plain stdcell regs; last stage a local multiphase clock MUX /
 latch MUX / custom macro.  Each stage needs explicit retiming/clock-relation/
 hold annotation or ABC re-merges the tree into one long path.  Generator
 hook: add a `rate_mode` next to `gen_ip.py:1462` + SDC branch next to `:2068`
-+ `DESIGN_FILES` entry (`:2546`).  **First deliverable: a standalone 2 Gb/s
-PRBS31 TX macro** (user decision) — `prbs_gen` WIDTH=31 is the only ready
-pattern source; not SoC-wired yet.
++ `DESIGN_FILES` entry (`:2546`).
+
+**Stage A landed 2026-11-25** (`d60eb34`): `rtl/tx_parallel_mux.sv` (real
+4:1 latch-MUX tree — two 2:1 latch branches on `clk_ph[0..3]` @500 MHz into a
+final 2:1 phase-selected mux, every flop 500 MHz-clocked, `serial_out`
+rotates through phases = 4 UI/2 ns word), `rtl/tx_gearbox.sv` (parametric
+2N→N ladder), `pma/tx_driver.sv` (PDK-neutral wrapper, `PMA_TX_DRIVER_CELL`
+binds `tx_macro` at PnR), `rtl/tx_prbs31_macro.sv` (standalone PRBS31→tree→
+driver, parallel LFSR keeps digital off line rate).  Verified: 20000 bits
+0 errors, per-phase 0, yosys clean (no comb merge).  Next: real-clock Stage B
+(multiphase_clock macro) + PnR on the 500 MHz domain.
 
 ### P2 — RX: parallel multiphase sampler bank (mostly a rewrite)
 
