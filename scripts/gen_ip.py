@@ -95,7 +95,7 @@ DESIGN_FILES = {
         "reset_sync.sv", "serdes_rx_digital.sv", "serdes_raw_pcs_top.sv",
     ],
     "serdes_rx_half_rate_digital": [
-        "reset_sync.sv", "receiver_sampler.sv", "comma_align.sv",
+        "reset_sync.sv", "cdc_sync.sv", "receiver_sampler.sv", "comma_align.sv",
         "rx_pair_align.sv", "deserializer_half_rate.sv",
         "serdes_rx_half_rate_digital.sv",
     ],

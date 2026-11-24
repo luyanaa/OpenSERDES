@@ -24,11 +24,15 @@
 // same source.  bit_valid is expected once per clk_bit while the CDR is
 // locked; a gapped bit_valid stretches the pair, which is legal but must be
 // accounted for by the frame timeout in the integrator.
+//
+// rst_n releases synchronous to clk_bit.  rst_n_word releases synchronous to
+// clk_word.  Both are still asynchronously asserted.
 // -----------------------------------------------------------------------------
 module rx_pair_align (
     input  logic clk_bit,
     input  logic clk_word,
     input  logic rst_n,
+    input  logic rst_n_word,
     input  logic enable,
     input  logic align,
     input  logic bit_in,
@@ -83,8 +87,8 @@ module rx_pair_align (
     // Word domain: a sequence change means the held pair is new.
     logic pair_seq_seen_q;
 
-    always_ff @(posedge clk_word or negedge rst_n) begin
-        if (!rst_n) begin
+    always_ff @(posedge clk_word or negedge rst_n_word) begin
+        if (!rst_n_word) begin
             pair_seq_seen_q <= 1'b0;
             pair_valid      <= 1'b0;
             pair_align      <= 1'b0;

@@ -170,10 +170,10 @@ $(BUILD)/tb_raw_pcs: tb/tb_raw_pcs.sv $(RAW_PCS_RTL) | $(BUILD)
 $(BUILD)/tb_raw_pcs_32: tb/tb_raw_pcs.sv $(RAW_PCS_RTL) | $(BUILD)
 	$(IVERILOG) -g2012 -Wall -Ptb_raw_pcs.DATA_WIDTH=32 -o $@ $^
 
-$(BUILD)/tb_rx_half_rate: tb/tb_rx_half_rate.sv rtl/reset_sync.sv rtl/receiver_sampler.sv rtl/comma_align.sv rtl/rx_pair_align.sv rtl/deserializer_half_rate.sv rtl/serdes_rx_half_rate_digital.sv | $(BUILD)
+$(BUILD)/tb_rx_half_rate: tb/tb_rx_half_rate.sv rtl/reset_sync.sv rtl/cdc_sync.sv rtl/receiver_sampler.sv rtl/comma_align.sv rtl/rx_pair_align.sv rtl/deserializer_half_rate.sv rtl/serdes_rx_half_rate_digital.sv | $(BUILD)
 	$(IVERILOG) -g2012 -Wall -o $@ $^
 
-$(BUILD)/tb_rx_half_rate_32: tb/tb_rx_half_rate.sv rtl/reset_sync.sv rtl/receiver_sampler.sv rtl/comma_align.sv rtl/rx_pair_align.sv rtl/deserializer_half_rate.sv rtl/serdes_rx_half_rate_digital.sv | $(BUILD)
+$(BUILD)/tb_rx_half_rate_32: tb/tb_rx_half_rate.sv rtl/reset_sync.sv rtl/cdc_sync.sv rtl/receiver_sampler.sv rtl/comma_align.sv rtl/rx_pair_align.sv rtl/deserializer_half_rate.sv rtl/serdes_rx_half_rate_digital.sv | $(BUILD)
 	$(IVERILOG) -g2012 -Wall -Ptb_rx_half_rate.DATA_WIDTH=32 -Ptb_rx_half_rate.WORDS=8 -o $@ $^
 
 $(BUILD)/tb_deserializer_lsb: tb/tb_deserializer.sv rtl/deserializer_word.sv rtl/deserializer.sv | $(BUILD)

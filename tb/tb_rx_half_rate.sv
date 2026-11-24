@@ -138,8 +138,12 @@ module tb_rx_half_rate #(
 
         repeat (5) @(posedge clk_bit);
         rst_n = 1'b1;
-        repeat (2) @(posedge clk_bit);
+        // Word reset needs two clk_word edges, then clk_bit waits until that
+        // release has synchronized back.  rx_enable is a word-clock level and
+        // takes another two clk_bit edges before the sampler opens.
+        repeat (8) @(posedge clk_bit);
         rx_enable = 1'b1;
+        repeat (4) @(posedge clk_bit);
 
         fork
             send_frame(frame0);

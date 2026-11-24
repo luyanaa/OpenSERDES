@@ -50,7 +50,17 @@ Handshake details that matter:
   word0 bits 0-1 instead of appending it.  `comma_align` drops the pattern's
   last bit and restarts the pair phase, so the next pair is word0 bits 0-1.
 - `ALIGN_MODE=2` (`align: comma_per_frame`) re-arms after every `rx_par_valid`,
-  so each frame realigns on its own sync word.
+  so each frame realigns on its own sync word.  `rx_par_valid` is a one-cycle
+  `clk_word` pulse.  It toggles a flag in that domain, and `clk_bit` turns a
+  change of the flag into one `rearm` pulse.  `comma_align` does not sample
+  the word-clock pulse.
+- `rst_n` is released through a `reset_sync` on `clk_bit` and another on
+  `clk_word`.  The bit domain does not emit pairs until the word-domain
+  release has been synchronized back.
+- `rx_enable`, `rx_flush` and `rx_align` are `clk_word` inputs.  `rx_enable`
+  and `rx_flush` cross into `clk_bit` as levels; a rising `rx_align` becomes
+  one `clk_bit` pulse.  `rx_frame_locked` is the comma lock level synchronized
+  back onto `clk_word`.  `clk_word` stays a generated divide-by-2 of `clk_bit`.
 
 ### Scope of the first integration
 
