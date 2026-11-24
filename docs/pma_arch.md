@@ -218,6 +218,20 @@ snake at the new length, and re-measure tap uniformity to <30 ps at the
 target rate.  The sampler/mux/park logic in `cdr_top.v` carries over
 unchanged — only the DCO line shortens.
 
+**Landed 2026-11-25** (adpll_gen `f4bc6b0`, `9b4452d`): `pll_multiphase_dco`
+re-parameterized to `NSTAGE = NPHASE·STEP + 1` (odd, taps exactly `k·STEP`,
+no floor error) + `CLOSE_LOAD` static frequency centering (loads on the
+ring-boundary node only, tap grid untouched).  Back-compat: `STEP=0` falls
+back to `2^(DELAY_BITS-PH_W)`/tap so `DELAY_BITS=9` still elaborates 513.
+`cdr_ihp130` re-floored as a 25-stage 2-row snake.
+
+Verified post-route STA (`nom_ss_125C_1v08`, certifying corner): **8-tap
+uniformity 23.9 ps < 30 ps**, ring ~**335 MHz @ SS** (STEP=3).  SS is the
+slow corner — TT/FF run faster (~500-600 MHz region), so STEP=3 is the
+right ~500 MHz-class baseline and `CLOSE_LOAD` trims overshoot.  Runtime
+phase/frequency is the PI's job (Stage B) — the ring only needs to land the
+grid in-range; the sampler/mux in `cdr_top.v` already walks it.
+
 ## Per-PDK roadmap (milestones, not closed rates)
 
 | PDK | first | second | high-speed backend |
