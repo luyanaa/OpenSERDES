@@ -129,6 +129,35 @@ reproduction baseline (short/low-loss link first, then low-swing/high-loss).
 62.5–125 MHz digital loop — not 2–8 GHz.  ADPLL PEX'd freq range/PN/full
 multiphase signoff is still open, so it must not gate stage A.
 
+## cdr_ihp130 as the 500 MHz multiphase clock — a real redesign, not a param tweak
+
+`cdr_ihp130` (signed off 2026-11-24) is the proven multiphase-clock +
+sampler-bank + phase-selector form, but its ring cannot run at 500 MHz as
+configured: the 513-stage fixed delay line self-oscillates at ~23 MHz at SS
+(513 × ~42 ps × 2 ≈ 43 ns).  It must become a **short tunable ring**, not a
+long fixed line — this is the `multiphase_clock` block of the PMA and is
+in-house work.
+
+Constraints found while measuring:
+- `NSTAGE = 2^DELAY_BITS + 1` is forced odd (ring needs an odd inversion
+  count) but also must divide evenly by 8 for integer tap spacing —
+  `2^N + 1` is never divisible by 8, so `tap_stage(t) = floor(t·NSTAGE/8)`
+  is a floor approximation.  At NSTAGE=513 the quantization error is small;
+  at a *short* ring it is not (17 stages → 2.125/tap).
+- Target 500 MHz: period 2 ns → `NSTAGE × stage_delay ≈ 1 ns`.  With
+  `sg13g2_inv_1` ≈ 42 ps at SS, `STEP≈3` (`NSTAGE≈25`) gives ~476 MHz,
+  `STEP≈4` (`NSTAGE≈33`) ~372 MHz.  So the multiphase line should be
+  `NSTAGE = 8·STEP + 1` (odd, exact 8-way taps), STEP≈3–4, *with tuning*
+  (the CDR PI sweeps phase across taps; a small delay trim or the mux's
+  parked-tap walking provides rate adjust), not `2^DELAY_BITS`.
+
+Direction (owner: in-house): re-spec `pll_multiphase_dco` for `NSTAGE =
+8·STEP + 1`, add a per-stage delay trim (load cap or a 2nd parallel inv) so
+the PI can pull frequency/phase, re-run the `MANUAL_GLOBAL_PLACEMENTS`
+snake at the new length, and re-measure tap uniformity to <30 ps at the
+target rate.  The sampler/mux/park logic in `cdr_top.v` carries over
+unchanged — only the DCO line shortens.
+
 ## Per-PDK roadmap (milestones, not closed rates)
 
 | PDK | first | second | high-speed backend |
