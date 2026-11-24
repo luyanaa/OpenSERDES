@@ -1,10 +1,12 @@
 # `../adpll_gen` review: what it is, what it is missing, what OpenSERDES needs
 
 Status: read-only review of `/grid/adpll_gen`, refreshed against commit
-`222b70f` (2026-11-19 09:26).  No `adpll_gen` file was modified.  Two of the
+`3f2229b` (2026-11-24).  No `adpll_gen` file was modified.  Two of the
 findings from the 2026-11-18 pass of this document are **withdrawn** because
 `adpll_gen` closed them in the meantime; those are called out explicitly in
-§6 rather than silently edited away.
+§6 rather than silently edited away.  S1, S6, the DSM_div result, the
+§4.3 STA table and the gear-shift note were updated 2026-11-24 against the
+latest commits; the rest of this review was not re-run.
 
 Verification note: every claim below was checked against the checkout on this
 date.  Where a test exists and can be built, it was **run from OpenSERDES**
@@ -173,12 +175,12 @@ reach every code the line has, and the line itself still cannot hit 5 ns at SS.
 
 | # | Gap | Evidence |
 |---|---|---|
-| S1 | **No phase noise, no random jitter.** Only *deterministic* transient period spread exists, with noiseless sources and no routed RC. Peak-to-peak numbers are not a jitter budget. | `README.md` §9; `flow/characterization/JITTER_PHASE_NOISE.md`. `ngspice-44.2` here exposes `.pss` but has no matching `.pnoise`, so PSS/phase noise has never been run |
+| S1 | **Estimated thermal residual signed off; pnoise still absent.** 4.0 ps rms at f0 = 359.30 MHz, first-order high-pass, fc = 100 kHz assumed. Flicker is not signed off. This does not by itself enable `clock_source: adpll`. | `../adpll_gen/flow/characterization/JITTER_PHASE_NOISE.md`; `sim/outputs/ihp-sg13g2/lock/ISF_LOCK_NOTES.md` §7. `ngspice-44.2` has `.pss` and no `.pnoise` |
 | S2 | **No lock time, no BER, no full-top power/area.** | `README.md` §9; `flow/PERFORMANCE.md` §5 |
 | S3 | **Frequency accuracy over PVT is not a ppm number.** The FLL flag is `FCW ± 1 count/REF`; the docs explicitly say `FREQ_LOCKED=1` "must not be read as the output meets an SoC ppm budget". | `flow/P0_A.md` "Frequency metrics" |
 | S4 | **Steady-state frequency is off target** in the only full-lock behavioural run: 16.5/REF vs `FCW=16`, about **+3.1 %**. Unchanged. | `README.md` §2; `flow/P0_A.md` |
 | S5' | **The multiphase bits exist in RTL but are not registered or signed off.** `architecture_catalog.json` still says `implementation: missing` / `refs: []` for `multiphase_dco`; `flow/macro/cdr_ihp130/` has **no `macro.sdc.tcl`** (compare `cdr_sky130`, which has one) and **no PnR run, no DRC/LVS, no SIGNOFF.md**. | catalog dump; `ls flow/macro/cdr_ihp130` vs `cdr_sky130` |
-| S6 | **DCO tuning is non-monotonic**: 15 non-monotonic fine steps remain in the IHP fine bank. Note this is a *different* defect from the DLL DNL that `222b70f` fixed — that one was the delay line, this one is the DCO tuning bank. | `README.md` §2; `flow/IHP130_TAPEOUT_GAPS.md` B8 |
+| S6 | ~~**DCO tuning is non-monotonic**~~ **RESOLVED as a measurement artifact (2026-11-23).** The "15 rising steps" were a timestep-grid artefact: at converged tstep (0.02/0.05, edge-interpolated) the c4/m9 f16..f31 table is strictly monotone and the whole fine span is ~12.4 ps (~0.8 ps/code). The earlier tstep 0.25 inversions were larger than the bank's total range, so they cannot be the code step. No code remap is needed. | `flow/characterization/ihp_l3_dense/README.md` "RESOLVED" |
 | S7 | **KDCO map is not SAR-valid.** Median KDCO coarse −22.996 / mid −1.039 / fine −0.177 MHz/code, with **positive** slopes on mid and fine. | `flow/characterization/KDCO_JITTER_REPORT.md` |
 | S8 | **The macro's default Liberty is still single-corner**, even though per-corner views now exist under `corners/`. `PLL_ANALOG_MACRO.lib` at the macro root is `nom 1.20 V / 25 C` only; the three-corner set is `corners/PLL_ANALOG_MACRO__{tt_1p20V_25C,ss_1p08V_125C,ff_1p32V_m40C}.lib`. `config.macro.yaml` maps corners correctly, so this is a packaging nit, not a blocker. | `ls flow/macro/ihp130_sg13g2/*.lib` vs `corners/*.lib` |
 | S9 | ~~No macro SPEF/SDF~~ **CLOSED** by `c0c488e`, and verified usable, not just present. | §3.3 |
@@ -195,7 +197,9 @@ reach every code the line has, and the line itself still cannot hit 5 ns at SS.
 - DCO frequency after PEX capacitance drops 287.85 → 178.97 MHz (−37.8 %) at
   code 8/8/8 on IHP; PVT is 179.0 / 115.4 / 274.1 MHz (TT/SS/FF).  The analogue
   DCO is the binding limit, not the 525 MHz digital ceiling.
-- ISF-based phase-noise flow was never produced.
+- ISF was run at c8/m8/f8 and at the c4/m9/f25 lock point.  The absolute
+  level is synthesized (`psp103.osdi` exports no noise).  The estimated
+  thermal signoff is S1; it is not a pnoise run.
 
 **`core_b_ring_dco` (20–300 MHz)**
 - The **sky130 ring does not oscillate in the built netlist** at the old
@@ -220,10 +224,16 @@ reach every code the line has, and the line itself still cannot hit 5 ns at SS.
 - `src/delta_sigma.v` passes its saturation/width tests, but fractional spurs
   and in-loop phase noise were never measured, and it has never run inside a
   locked loop.
-- The DSM **error-feedback adder chain does not fit one `DSM_CK` period**:
-  −6.14 ns at SS on `dff_err3[11] → FINE_MUX_D[14]`, 101 of 181 paths.  Closing
-  it needs an RTL change (pipeline the error feedback, narrow `BITS_DSM`, or
-  register the FINE_MUX decode), not a PnR knob.
+- The DSM **error-feedback adder chain does not fit one `DSM_CK` period**
+  at full rate.  The `FILTER_DEC_Q` pipeline register already added splits
+  adder from decode; with that in place the residual adder chain still does
+  not close at `MID_OUT/2` (post-route `dsmdiv2_macro`, 2026-11-24:
+  −0.65/−1.14/−0.36 ns TT/SS/FF, 8 paths from one `dff_err*` flop into
+  `FILTER_DEC_RAW`), and `DSM_DIV=4` is the only divider that closes
+  (SS +0.029).  Lowering DSM_DIV back to 2/1 therefore needs further RTL
+  pipelining inside `delta_sigma`, not a PnR knob.  The standalone DSM
+  output-stream spectrum has been measured (NTF shaped correctly for
+  order 1/2); in-loop fractional spurs are still unmeasured.
 
 ### 4.3 The IHP top: assembled and routed, but setup is open
 
@@ -244,7 +254,20 @@ problem: `OUT_DIV`/`CK` are divided *clock* outputs but were constrained with
 clocks; `SET_DIV`/`LOAD_DIV` are static straps; CDC hold exemption), that path
 disappears entirely and max_slew/max_cap are 0/0 at all three corners.
 
-What is left after the SDC fix, per-corner, from the routed database:
+As of 2026-11-24 the top **closes setup at `DSM_DIV=4`** (the digital-only
+canary `RUN_2026-11-24_14-14-10`, `pll_logic` top): setup WNS
++0.497/+0.029/+0.723 ns and zero violations at TT/SS/FF.  `DSM_DIV=2` was
+A/B'd post-route on the full `pll_macro_top` (`dsmdiv2_macro`) and fails
+on all corners (−0.65/−1.14/−0.36 ns, 8 paths `dff_err* → FILTER_DEC_RAW`),
+so /4 is the only signed-off DSM divider.  The loop side also changed:
+`dlf_design.py` now models the closed BBPLL loop (`K_DCO·K_pd`, BBPD
+`1/σ_t` gain, 3-REF latency) — the historical TB gains KP=3967/KI=257
+land at fc ≈ 4.2 MHz / PM ≈ 23°, a saturated limit-cycle regime, and the
+FSM now gear-shifts to KP_TRACK=1148/KI_TRACK=23 (fc ≈ 1.25 MHz, PM ≈
+60°) once `LOCKED` asserts (`GEAR_SHIFT=1`, `src/tb_gear.v` 11/11).
+
+The numbers below are the historical state *before* the DSM_CK pipeline
+register and the /4 closure (kept for the record):
 
 | corner | Hold WNS | Setup WNS | Setup TNS | max_slew | max_cap |
 |---|---:|---:|---:|---:|---:|
@@ -252,17 +275,15 @@ What is left after the SDC fix, per-corner, from the routed database:
 | SS 1.08 V/125 C | −0.0063 | −6.1426 | −246.96 | 0 | 0 |
 | FF 1.32 V/−40 C | −0.0461 | −1.2775 | −35.16 | 0 | 0 |
 
-Two distinct remaining causes, neither of which is a PnR knob:
+The two causes of that earlier table, both addressed:
 
 - **DSM domain setup** (−6.14 ns SS, 101 of 181 paths): the `delta_sigma`
   error-feedback adder chain reaching the FINE_MUX register inside one `DSM_CK`
-  period.  Needs RTL work (§4.2).
+  period.  Fixed by the `FILTER_DEC_Q` pipeline register **plus**
+  `DSM_DIV=4`; /2 still fails, so the chain is not fully pipelined (§4.2).
 - **A clock-gating hold check** (−0.0349/−0.0063/−0.0461 ns TT/SS/FF) on
-  `u_fll_icg.en_l → AND2 → REF_G`.  This is a *side effect of declaring*
-  `REF_G_CLK`: without a PDK gating cell the gate is a plain AND, so the tool
-  treats the combined enable as a gating signal and checks it.  Two ways out —
-  map to the PDK gating cell, or pin the gate open for hold.  Single-digit
-  picoseconds, but it must not be silently waived.
+  `u_fll_icg.en_l → AND2 → REF_G`.  Closed by `c087a46` (real
+  `sg13g2_lgcp_1` latch + AND).
 
 A separate `sta_per_corner.tcl` path was needed because LibreLane's bundled
 `sta` could not finish 22900 instances × 9 library loads within 15 min/corner.
@@ -322,9 +343,10 @@ the integration plan:
    "assembled and routed, setup open at −3.10/−6.14/−1.28 ns TT/SS/FF, cause
    identified as a DSM RTL path plus a clock-gating hold check".
 5. **Unchanged and still the headline**: no phase-noise or random-jitter number
-   exists in either project, `ngspice-44.2` here has no `.pnoise`, the DCO fine
-   bank still has 15 non-monotonic steps, and every PDK profile is
-   `qualified: false`.
+   exists in either project beyond the estimated thermal signoff (S1),
+   `ngspice-44.2` here has no `.pnoise`, and every PDK profile is
+   `qualified: false`.  (The "15 non-monotonic fine steps" formerly listed
+   here are closed as a measurement artifact — see S6.)
 
 ## 7. Verdict
 
