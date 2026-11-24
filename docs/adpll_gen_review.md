@@ -231,9 +231,18 @@ reach every code the line has, and the line itself still cannot hit 5 ns at SS.
   −0.65/−1.14/−0.36 ns TT/SS/FF, 8 paths from one `dff_err*` flop into
   `FILTER_DEC_RAW`), and `DSM_DIV=4` is the only divider that closes
   (SS +0.029).  Lowering DSM_DIV back to 2/1 therefore needs further RTL
-  pipelining inside `delta_sigma`, not a PnR knob.  The standalone DSM
-  output-stream spectrum has been measured (NTF shaped correctly for
-  order 1/2); in-loop fractional spurs are still unmeasured.
+  pipelining inside `delta_sigma`, not a PnR knob — and that work is **not
+  worth doing**: the in-loop fine-code spectrum measured on the
+  behavioural closed-loop model (2026-11-24, 23 664 MID_OUT-rate samples)
+  shows the DSM is **not** acting as a quantization-noise shaper in this
+  loop — the code PSD *falls* from −89 dB at 1 MHz to −103 dB at
+  700 MHz, the reverse of NTF shaping.  What it actually provides is the
+  `EN_DSM_SHDT` self-dither stream that keeps the bang-bang dead zone
+  from freezing the loop (with `IS_DSM=0` the code locks into a 2-code
+  {15,16} alternation and stops tracking).  Post-lock dither is
+  0.62 codes rms ≈ 0.5 ps, far below the 4.0 ps thermal signoff — the
+  DSM is load-bearing as a dither source and correctly clocked at /4;
+  raising fs buys nothing.
 
 ### 4.3 The IHP top: assembled and routed, but setup is open
 
