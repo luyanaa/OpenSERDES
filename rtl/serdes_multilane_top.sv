@@ -213,6 +213,11 @@ module serdes_multilane_top #(
         for (genvar l = 0; l < LANES; l++) begin : g_rx_lane
             logic [0:0][DATA_WIDTH-1:0] rx_par;
             logic                       rx_par_valid_l;
+            // Link-health watchdog outputs: this wrapper exposes no
+            // link-health port, so they are intentionally left unused.
+            /* verilator lint_off UNUSEDSIGNAL */
+            logic                       comma_lock_timeout_unused, comma_lock_stuck_unused;
+            /* verilator lint_on UNUSEDSIGNAL */
 
             /* verilator lint_off PINCONNECTEMPTY */
             serdes_rx_digital #(
@@ -240,7 +245,9 @@ module serdes_multilane_top #(
                 .rx_frame_valid(),
                 .rx_serial_data(),
                 .rx_serial_valid(),
-                .rx_freq_trim()
+                .rx_freq_trim(),
+                .comma_lock_timeout(comma_lock_timeout_unused),
+                .comma_lock_stuck(comma_lock_stuck_unused)
             );
             /* verilator lint_on PINCONNECTEMPTY */
 
@@ -289,6 +296,9 @@ module serdes_multilane_top #(
         end
     endgenerate
 
+    /* verilator lint_off PINCONNECTEMPTY */
+    // Lane transition pulses and the change counter are negotiation events
+    // this wrapper does not expose; intentionally unused.
     lane_width_negotiator #(
         .LANES(LANES), .MIN_LANES(MIN_LANES),
         .LANE_UP_WINDOW(LANE_UP_WINDOW),
@@ -303,6 +313,7 @@ module serdes_multilane_top #(
         .width_change(width_change), .width_error(width_error),
         .width_change_count()
     );
+    /* verilator lint_on PINCONNECTEMPTY */
 
     // -------------------------------------------------------------------------
     // Lane health.

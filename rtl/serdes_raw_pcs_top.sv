@@ -98,8 +98,12 @@ module serdes_raw_pcs_top #(
         .in_word(tx_data),
         .serial_out(tx_serial_out),
         .serial_valid(tx_serial_valid),
+        /* verilator lint_off PINCONNECTEMPTY */
+        // TX status pulses: this wrapper exposes no TX status port;
+        // intentionally unused.
         .busy(),
         .frame_done()
+        /* verilator lint_on PINCONNECTEMPTY */
     );
 
     // -------------------------------------------------------------------------
@@ -108,6 +112,11 @@ module serdes_raw_pcs_top #(
     // this wrapper owns the comma detector so it can be bypassed at runtime.
     // -------------------------------------------------------------------------
     logic [0:0][DATA_WIDTH-1:0] rx_par_data;
+    // Link-health watchdog outputs from the RX core: this wrapper exposes no
+    // link-health port, so they are intentionally left unused.
+    /* verilator lint_off UNUSEDSIGNAL */
+    logic comma_lock_timeout_unused, comma_lock_stuck_unused;
+    /* verilator lint_on UNUSEDSIGNAL */
     logic                       rx_par_valid;
     logic                       rx_serial_data;
     logic                       rx_serial_valid;
@@ -136,19 +145,33 @@ module serdes_raw_pcs_top #(
         .rx_serial_in(rx_serial_in),
         .phase_offset('0),
         .rx_smp(1'b0),
+        /* verilator lint_off PINCONNECTEMPTY */
+        // rx_dll_tap is unused: this wrapper has no adaptive-CDR control path.
         .rx_dll_tap(),
+        /* verilator lint_on PINCONNECTEMPTY */
         .rx_par_data(rx_par_data),
         .rx_par_valid(rx_par_valid),
         .rx_busy(rx_busy),
         .rx_lock(rx_lock),
+        /* verilator lint_off PINCONNECTEMPTY */
+        // rx_lock_stale / rx_sample_strobe / rx_freq_trim and the link-health
+        // watchdog outputs are status only; this wrapper exposes none of them.
+        // comma_lock_* are intentionally left unused (see serdes_digital_top).
         .rx_lock_stale(),
         .rx_sample_strobe(),
+        /* verilator lint_on PINCONNECTEMPTY */
         .rx_clk_out(rx_clk_out),
+        /* verilator lint_off PINCONNECTEMPTY */
         .rx_frame_locked(),
         .rx_frame_valid(),
+        /* verilator lint_on PINCONNECTEMPTY */
         .rx_serial_data(rx_serial_data),
         .rx_serial_valid(rx_serial_valid),
-        .rx_freq_trim()
+        /* verilator lint_off PINCONNECTEMPTY */
+        .rx_freq_trim(),
+        /* verilator lint_on PINCONNECTEMPTY */
+        .comma_lock_timeout(comma_lock_timeout_unused),
+        .comma_lock_stuck(comma_lock_stuck_unused)
     );
 
     comma_align #(

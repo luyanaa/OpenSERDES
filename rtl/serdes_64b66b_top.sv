@@ -224,6 +224,11 @@ module serdes_64b66b_top #(
             logic [63:0]     dec_data;
             logic            dec_sync_ok, dec_ctrl_block;
             logic [65:0]     dec_block;
+            // Link-health watchdog outputs: this wrapper exposes no
+            // link-health port, so they are intentionally left unused.
+            /* verilator lint_off UNUSEDSIGNAL */
+            logic            comma_lock_timeout_unused, comma_lock_stuck_unused;
+            /* verilator lint_on UNUSEDSIGNAL */
 
             serdes_rx_digital #(
                 .DATA_WIDTH(1), .WORDS(1), .LSB_FIRST(1'b1),
@@ -249,7 +254,9 @@ module serdes_64b66b_top #(
                 .rx_frame_valid(rx_frame_valid),
                 .rx_serial_data(rx_serial_data),
                 .rx_serial_valid(rx_serial_valid),
-                .rx_freq_trim(rx_freq_trim)
+                .rx_freq_trim(rx_freq_trim),
+                .comma_lock_timeout(comma_lock_timeout_unused),
+                .comma_lock_stuck(comma_lock_stuck_unused)
             );
 
             pcs_64b66b_rx_gearbox #(
@@ -286,10 +293,11 @@ module serdes_64b66b_top #(
             /* verilator lint_on PINCONNECTEMPTY */
 
             for (genvar w = 0; w < WORDS; w++) begin : g_rx_word
-                if (w == 0)
+                if (w == 0) begin : g_first_word
                     assign rx_par_data[w] = DATA_WIDTH'(dec_data);
-                else
+                end else begin : g_other_word
                     assign rx_par_data[w] = '0;
+                end
             end
 
             assign rx_par_valid     = gb_blk_valid;
@@ -303,7 +311,16 @@ module serdes_64b66b_top #(
             // word lane and each lane has its own descrambler.
             logic [WORDS-1:0][DATA_WIDTH-1:0] dec_data;
             logic [WORDS-1:0] dec_sync_ok;
+            // Per-lane ctrl/block-kind output is not used in parallel-lane
+            // mode (block framing is handled by the gearbox path).
+            /* verilator lint_off UNUSEDSIGNAL */
             logic [WORDS-1:0] dec_ctrl;
+            /* verilator lint_on UNUSEDSIGNAL */
+            // Link-health watchdog outputs: this wrapper exposes no
+            // link-health port, so they are intentionally left unused.
+            /* verilator lint_off UNUSEDSIGNAL */
+            logic comma_lock_timeout_unused, comma_lock_stuck_unused;
+            /* verilator lint_on UNUSEDSIGNAL */
 
             serdes_rx_digital #(
                 .DATA_WIDTH(LINE_WIDTH), .WORDS(WORDS),
@@ -331,7 +348,9 @@ module serdes_64b66b_top #(
                 .rx_frame_valid(rx_frame_valid),
                 .rx_serial_data(rx_serial_data),
                 .rx_serial_valid(rx_serial_valid),
-                .rx_freq_trim(rx_freq_trim)
+                .rx_freq_trim(rx_freq_trim),
+                .comma_lock_timeout(comma_lock_timeout_unused),
+                .comma_lock_stuck(comma_lock_stuck_unused)
             );
 
             for (genvar w = 0; w < WORDS; w++) begin : g_rx_dec

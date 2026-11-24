@@ -91,7 +91,11 @@ module serdes_pipe_lite_top #(
         .rx_serial_in(rx_serial_in),
         .rx_data(pcs_rx_data), .rx_valid(pcs_rx_valid), .rx_rec_clk(rx_rec_clk),
         .rx_slide(1'b0), .rx_align_bypass(1'b0),
-        .rx_lock(rx_lock), .rx_busy(),
+        .rx_lock(rx_lock),
+        /* verilator lint_off PINCONNECTEMPTY */
+        // rx_busy is redundant with rx_lock in this wrapper; unused.
+        .rx_busy(),
+        /* verilator lint_on PINCONNECTEMPTY */
         .rx_frame_locked(pcs_rx_frame_locked), .rx_clk_out(pcs_rx_clk_out)
     );
 
@@ -205,6 +209,10 @@ module serdes_pipe_lite_top #(
     decoder_8b10b u_dec (
         .i_clk(clk), .i_reset_n(dec_rst_n), .i_en(dec_en),
         .i_10b(dec_10b),
+        // No comma detector in PIPE-Lite mode, so the running disparity is
+        // never re-seeded (i_rd_load = 0) and starts at the reset value
+        // RD- (i_rd_init = 0), matching the decoder's own reset state.
+        .i_rd_init(1'b0), .i_rd_load(1'b0),
         .o_8b(dec_8b), .o_ctrl(dec_ctrl),
         .o_code_err(dec_err), .o_disp_err(dec_disp)
     );

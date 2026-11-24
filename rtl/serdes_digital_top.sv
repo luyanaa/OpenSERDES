@@ -163,6 +163,12 @@ module serdes_digital_top #(
         .tx_frame_done(tx_frame_done)
     );
 
+    // Link-health watchdog outputs from the RX core.  This wrapper exposes no
+    // link-health port of its own, so they are intentionally left unused.
+    /* verilator lint_off UNUSEDSIGNAL */
+    logic comma_lock_timeout_unused, comma_lock_stuck_unused;
+    /* verilator lint_on UNUSEDSIGNAL */
+
     serdes_rx_digital #(
         .DATA_WIDTH(DATA_WIDTH),
         .WORDS(WORDS),
@@ -201,7 +207,9 @@ module serdes_digital_top #(
         .rx_frame_valid(rx_frame_valid),
         .rx_serial_data(rx_serial_data),
         .rx_serial_valid(rx_serial_valid),
-        .rx_freq_trim(rx_freq_trim)
+        .rx_freq_trim(rx_freq_trim),
+        .comma_lock_timeout(comma_lock_timeout_unused),
+        .comma_lock_stuck(comma_lock_stuck_unused)
     );
 
 endmodule

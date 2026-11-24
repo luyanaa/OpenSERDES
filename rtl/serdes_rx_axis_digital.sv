@@ -83,6 +83,12 @@ module serdes_rx_axis_digital #(
     /* verilator lint_on UNUSEDSIGNAL */
     logic [DATA_WIDTH-1:0] adapter_tdata;
 
+    // Link-health watchdog outputs from the RX core: this wrapper exposes no
+    // link-health port, so they are intentionally left unused.
+    /* verilator lint_off UNUSEDSIGNAL */
+    logic comma_lock_timeout_unused, comma_lock_stuck_unused;
+    /* verilator lint_on UNUSEDSIGNAL */
+
     reset_sync #(.STAGES(2)) u_reset_sync (
         .clk(rx_clk),
         .rst_n_in(rx_rst_n),
@@ -127,7 +133,9 @@ module serdes_rx_axis_digital #(
         .rx_frame_valid(frame_valid),
         .rx_serial_data(rx_serial_data),
         .rx_serial_valid(rx_serial_valid),
-        .rx_freq_trim(rx_freq_trim)
+        .rx_freq_trim(rx_freq_trim),
+        .comma_lock_timeout(comma_lock_timeout_unused),
+        .comma_lock_stuck(comma_lock_stuck_unused)
     );
 
     axis_rx_adapter #(

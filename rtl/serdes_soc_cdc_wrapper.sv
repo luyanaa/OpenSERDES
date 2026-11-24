@@ -300,7 +300,10 @@ module serdes_soc_cdc_wrapper #(
         else
             tx_clear_s_axis_d <= tx_clear_s_axis;
     end
+    /* verilator lint_off UNUSEDSIGNAL */
+    // tx_clear_pulse_s_axis is consumed only by the PKT_ENABLE=1 framer path.
     wire tx_clear_pulse_s_axis = tx_clear_s_axis & ~tx_clear_s_axis_d;
+    /* verilator lint_on UNUSEDSIGNAL */
 
     // Control into RX domain.
     cdc_sync #(.WIDTH(1)) u_rx_enable (
@@ -337,7 +340,10 @@ module serdes_soc_cdc_wrapper #(
         else
             rx_clear_m_axis_d <= rx_clear_m_axis;
     end
+    /* verilator lint_off UNUSEDSIGNAL */
+    // rx_clear_pulse_m_axis is consumed only by the PKT_ENABLE=1 depacketizer.
     wire rx_clear_pulse_m_axis = rx_clear_m_axis & ~rx_clear_m_axis_d;
+    /* verilator lint_on UNUSEDSIGNAL */
 
     // -------------------------------------------------------------------------
     // BIST control into the link clock domains
@@ -391,7 +397,10 @@ module serdes_soc_cdc_wrapper #(
     // Variable-length framing: the SoC port speaks frames of any length, the
     // internal path needs exactly WORDS beats.  With PKT_ENABLE=0 the port is
     // wired straight through (the axis_tx_adapter contract applies).
+    /* verilator lint_off UNUSEDSIGNAL */
+    // pkt_tuser is forwarded by the packetizer only (PKT_ENABLE=1).
     logic                   pkt_tvalid, pkt_tready, pkt_tlast, pkt_tuser;
+    /* verilator lint_on UNUSEDSIGNAL */
     logic [DATA_WIDTH-1:0]  pkt_tdata;
 
     generate
@@ -424,7 +433,10 @@ module serdes_soc_cdc_wrapper #(
     // payload beats only, so the ordered set is put back here.
     logic              framer_tvalid, framer_tready, framer_tlast;
     logic [DATA_WIDTH-1:0] framer_tdata;
+    /* verilator lint_off UNUSEDSIGNAL */
+    // tx_set_count is framer telemetry; no CSR bit consumes it yet.
     logic [15:0]       tx_set_count;
+    /* verilator lint_on UNUSEDSIGNAL */
 
     generate
         if (PKT_ENABLE) begin : g_tx_set_insert
@@ -583,9 +595,13 @@ module serdes_soc_cdc_wrapper #(
     // training FSM observes, so its error count feeds the FSM directly.  This
     // replaces the previous tx_clk -> rx_clk error-count delta integrator and
     // its cdc_snapshot.
+    /* verilator lint_off UNUSEDSIGNAL */
+    // bist_word_error drives the training FSM only when TRAINING_ENABLE=1;
+    // the raw PRBS counters have no CSR bit yet.
     logic bist_word_error;
     logic [31:0] bist_word_error_count, bist_word_frame_count;
     logic [TRAIN_ERROR_WIDTH-1:0] train_error_total;
+    /* verilator lint_on UNUSEDSIGNAL */
 
     assign tx_serial_out   = bist_enable_tx ? bist_serial_out : tx_core_serial_out;
     assign tx_serial_valid = bist_enable_tx ? bist_start_tx   : tx_core_serial_valid;
@@ -698,7 +714,8 @@ module serdes_soc_cdc_wrapper #(
         csr_ro[18] = clock_tx_cycles;
         csr_ro[19] = clock_rx_cycles;
         // Watchdog status: was the receiver ever unable to find framing?
-        csr_ro[7][8] = comma_lock_stuck_rx;
+        // Either watchdog (RX core or 8b10b comma detector) counts as stuck.
+        csr_ro[7][8] = comma_lock_stuck_rx | comma_lock_stuck_comma;
         csr_ro[7][9] = code_error_saturated;
         csr_ro[7][10] = link_drop_saturated;
     end
@@ -708,9 +725,13 @@ module serdes_soc_cdc_wrapper #(
     // -------------------------------------------------------------------------
     logic [RX_WORDS-1:0][DATA_WIDTH-1:0] rx_par_data;
     logic [CORE_WORDS-1:0][CORE_WIDTH-1:0] rx_core_par_data;
-    logic rx_core_par_valid, rx_adapter_par_valid;
     logic rx_frame_valid, rx_par_valid, rx_busy;
     logic rx_lock, rx_lock_stale, rx_frame_locked, rx_frame_overflow;
+    /* verilator lint_off UNUSEDSIGNAL */
+    // rx_core_par_valid is the raw core word-valid; the adapter is fed by the
+    // frame-aligned rx_adapter_par_valid instead.
+    logic rx_core_par_valid, rx_adapter_par_valid;
+    /* verilator lint_on UNUSEDSIGNAL */
     logic rx_axis_tvalid, rx_axis_tready, rx_axis_tlast;
     logic [DATA_WIDTH-1:0] rx_axis_tdata;
     /* verilator lint_off UNUSEDSIGNAL */
@@ -740,11 +761,21 @@ module serdes_soc_cdc_wrapper #(
     // (for running disparity) but not forwarded.
     // -------------------------------------------------------------------------
     logic rx_core_align;
+    /* verilator lint_off UNUSEDSIGNAL */
+    // Comma-search watchdog from the comma detector (8b10b core only; tied
+    // off in the raw path below).  The stuck status is ORed into the RX
+    // watchdog CSR bit alongside the serdes_rx_digital watchdog.
+    logic comma_lock_timeout_comma, comma_lock_stuck_comma;
+    // rx_comma_* are consumed only when ENC_8B10B=1.
     logic rx_comma_pulse, rx_comma_locked, rx_comma_rd_plus;
+    /* verilator lint_on UNUSEDSIGNAL */
+    /* verilator lint_off UNUSEDSIGNAL */
+    // rx_dec_* / rx_code_error are consumed only when ENC_8B10B=1.
     logic rx_dec_frame_valid, rx_dec_idle, rx_comma_seed;
     logic [RX_WORDS-1:0][DATA_WIDTH-1:0] rx_dec_payload;
     logic [RX_WORDS-1:0] rx_dec_charisk;
     logic rx_code_error;
+    /* verilator lint_on UNUSEDSIGNAL */
 
     generate
         if (ENC_8B10B) begin : g_rx_8b10b
@@ -761,7 +792,9 @@ module serdes_soc_cdc_wrapper #(
                 /* verilator lint_off PINCONNECTEMPTY */
                 .comma_seen(),
                 /* verilator lint_on PINCONNECTEMPTY */
-                .comma_rd_plus(rx_comma_rd_plus)
+                .comma_rd_plus(rx_comma_rd_plus),
+                .lock_timeout(comma_lock_timeout_comma),
+                .lock_stuck(comma_lock_stuck_comma)
             );
 
             assign rx_core_align  = rx_comma_pulse;
@@ -780,7 +813,10 @@ module serdes_soc_cdc_wrapper #(
                 .payload(rx_dec_payload), .charisk(rx_dec_charisk),
                 .frame_valid(rx_dec_frame_valid),
                 .code_error(rx_code_error), .idle(rx_dec_idle),
+                /* verilator lint_off PINCONNECTEMPTY */
+                // Per-symbol substitution status is not used in this wrapper.
                 .symbol_substituted()
+                /* verilator lint_on PINCONNECTEMPTY */
             );
 
             assign rx_adapter_par_valid = rx_dec_frame_valid & rx_comma_locked;
@@ -796,16 +832,25 @@ module serdes_soc_cdc_wrapper #(
             assign rx_code_error        = 1'b0;
             assign rx_dec_idle          = 1'b1;
             assign rx_comma_seed        = 1'b0;
+            assign comma_lock_timeout_comma = 1'b0;
+            assign comma_lock_stuck_comma   = 1'b0;
             assign rx_adapter_par_valid = rx_frame_valid;
             assign rx_par_data          = rx_core_par_data;
         end
     endgenerate
 
+    // Frame-valid stream: drives the RX adapter and the frame-seen sticky.
+    assign rx_par_valid = rx_adapter_par_valid;
+
     assign code_error = tx_code_error | rx_code_error;
 
     // Comma search watchdog from the RX endpoint: a receiver that never frames
     // must be distinguishable from one that is still searching.
+    /* verilator lint_off UNUSEDSIGNAL */
+    // comma_lock_timeout_rx is watchdog detail; only the stuck status has a
+    // CSR bit (csr_ro[7][8]).
     logic comma_lock_timeout_rx, comma_lock_stuck_rx;
+    /* verilator lint_on UNUSEDSIGNAL */
 
     // -------------------------------------------------------------------------
     // Link health: counters, cycle measurement, and the APB view of both.
@@ -1028,8 +1073,11 @@ module serdes_soc_cdc_wrapper #(
     // With the framing layer the FIFO feeds the depacketizer, which in turn
     // drives the SoC port; the FIFO read must follow the depacketizer's ready.
     logic                   rx_fifo_tlast;
+    /* verilator lint_off UNUSEDSIGNAL */
+    // dep_* is the depacketizer stream, consumed only when PKT_ENABLE=1.
     logic                   dep_tvalid, dep_tready, dep_tlast;
     logic [DATA_WIDTH-1:0]  dep_tdata;
+    /* verilator lint_on UNUSEDSIGNAL */
     logic                   dep_ready;
 
     assign rx_fifo_rinc   = (PKT_ENABLE ? dep_ready : m_axis_tready)

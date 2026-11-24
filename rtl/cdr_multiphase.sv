@@ -113,11 +113,10 @@ module cdr_multiphase #(
     logic signed [FW-1:0]     freq_q;
     logic signed [FW-1:0]     kick_q;
     logic signed [FW-1:0]     freq_next;
-    logic [W-1:0]             ph_step;
     logic [W-1:0]             step_ui_q;
     logic [W-1:0]             ph_next;
-    // Two-stage fine-frequency carry.  `ph_step` carries FREQ_FRAC fractional
-    // bits, so a single `ph_q + ph_step` puts all of them into the adder that
+    // Two-stage fine-frequency carry.  A single `ph_q + step_ui_q` would put
+    // all FREQ_FRAC fractional bits into the adder that
     // feeds the threshold compare -- that is the 16-bit phase add which made
     // FREQ_FRAC=10/11 fail to close (docs/dll_backend.md section 3).  Split it
     // the way cdr_bang_bang already does: a slow accumulator holds the low
@@ -136,7 +135,11 @@ module cdr_multiphase #(
     logic                     slow_carry_q;
     logic [SLOWF-1:0]         step_slow_next;
     logic [PW+FASTF-1:0]      step_fast_q;
+    /* verilator lint_off UNUSEDSIGNAL */
+    // ph_next_fast's top bit is the accumulator carry; the phase word wraps
+    // mod 2^W, so the carry is intentionally discarded below.
     logic [PW+FASTF:0]        ph_next_fast;
+    /* verilator lint_on UNUSEDSIGNAL */
     logic signed [1:0]        vote;
     logic                     trans;
     logic                     d_q, d_prev_q, e_q, d_out_q, strobe_q, clk_hi_q;
@@ -198,12 +201,16 @@ module cdr_multiphase #(
     // later; this makes it two, which is 40 ns at the 25 Mb/s target and far
     // inside the loop's time constant.
     always_comb begin
-        ph_step = at_ui ? step_ui_q : STEP;
         // Split the step into the part that must reach the fast adder every
         // cycle (tap/slot, plus FASTF fraction bits) and the low residue.
         if (SPLIT_SLOW) begin
+            /* verilator lint_off SELRANGE */
+            // The RTL elaborates both branches; the !SLOW split else-branch
+            // below uses the full word instead of these slices, and this
+            // branch only runs when SLOWF + PW + FASTF <= W.
             step_fast_q = step_ui_q[SLOWF +: (PW + FASTF)];
             step_slow   = step_ui_q[0 +: SLOWF];
+            /* verilator lint_on SELRANGE */
             // Slow path: only the carry is consumed by the fast adder, next
             // cycle.  Both the residue and its carry are registers, so neither
             // is in the phase-compare cone.
@@ -218,16 +225,22 @@ module cdr_multiphase #(
         // registered residue carry.
         // In the non-split case SLOWF is a floor of 1 only to keep the slice
         // legal; the whole word must be used instead.
-        if (SPLIT_SLOW)
+        if (SPLIT_SLOW) begin
+            /* verilator lint_off SELRANGE */
             ph_next_fast = {1'b0, ph_q[SLOWF +: (PW + FASTF)]}
                          + {1'b0, step_fast_q}
                          + (PW + FASTF + 1)'(slow_carry_q);
-        else
+            /* verilator lint_on SELRANGE */
+        end else
             ph_next_fast = {1'b0, ph_q}
                          + {1'b0, step_fast_q};
-        if (SPLIT_SLOW)
+        if (SPLIT_SLOW) begin
+            /* verilator lint_off WIDTHTRUNC */
+            // The top bit is the phase-accumulator carry; the accumulator
+            // wraps mod 2^W, so dropping it is intended.
             ph_next = {ph_next_fast[PW+FASTF-1:0], step_slow_q};
-        else
+            /* verilator lint_on WIDTHTRUNC */
+        end else
             ph_next = ph_next_fast[W-1:0];
     end
 

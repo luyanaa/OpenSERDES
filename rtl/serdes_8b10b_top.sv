@@ -193,6 +193,13 @@ module serdes_8b10b_top #(
     // running disparity can be seeded from the comma polarity.
     logic        comma_pulse, comma_locked, comma_rd_plus, rx_align_int;
     logic        comma_seen_unused;
+    // Link-health watchdog outputs (pcs_8b10b_comma lock_* / serdes_rx_digital
+    // comma_lock_*): this wrapper exposes no link-health port, so they are
+    // intentionally left unused.
+    /* verilator lint_off UNUSEDSIGNAL */
+    logic        comma_lock_timeout_unused, comma_lock_stuck_unused;
+    logic        rx_comma_lock_timeout_unused, rx_comma_lock_stuck_unused;
+    /* verilator lint_on UNUSEDSIGNAL */
     localparam int CORE_ALIGN = (ALIGN_MODE == 3) ? 0 : ALIGN_MODE;
 
     generate
@@ -203,7 +210,9 @@ module serdes_8b10b_top #(
                 .serial_in(rx_serial_data), .serial_valid(rx_serial_valid),
                 .align(comma_pulse), .locked(comma_locked),
                 .comma_seen(comma_seen_unused),
-                .comma_rd_plus(comma_rd_plus)
+                .comma_rd_plus(comma_rd_plus),
+                .lock_timeout(comma_lock_timeout_unused),
+                .lock_stuck(comma_lock_stuck_unused)
             );
             assign rx_align_int = rx_align | comma_pulse;
         end else begin : g_no_comma
@@ -304,7 +313,9 @@ module serdes_8b10b_top #(
         /* verilator lint_off PINCONNECTEMPTY */
         .rx_frame_locked(rx_core_frame_locked), .rx_frame_valid(),
         .rx_serial_data(rx_serial_data), .rx_serial_valid(rx_serial_valid),
-        .rx_freq_trim(rx_freq_trim)
+        .rx_freq_trim(rx_freq_trim),
+        .comma_lock_timeout(rx_comma_lock_timeout_unused),
+        .comma_lock_stuck(rx_comma_lock_stuck_unused)
     );
     /* verilator lint_on PINCONNECTEMPTY */
     assign rx_busy = rx_core_busy || (rx_state_q != R_IDLE);
