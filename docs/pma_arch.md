@@ -53,9 +53,20 @@ library already closes.
 
 ## Workstreams
 
-### P1 — TX: real gearbox + tree MUX
-New `rtl/tx_gearbox.sv`, `tx_word_serializer.sv`, `tx_parallel_mux.sv`; PMA
-macros `pma/tx_mux4`, `tx_driver`.  Stage plan (2 Gb/s):
+### P1 — TX: real gearbox + tree MUX (all-new, recon 2026-11-25)
+
+Recon found **no existing tree to extend**: every serializer emits 1 bit per
+serial clock (incl. `serializer_hier_2to1`, a balanced 2:1 *word* tree that
+still clocks out 1 bit/clk).  `tx.rate_mode` accepts only `full`|`half`; no
+`pma/` dir, no `tx_mux`/`gearbox`/`parallel_mux`.  And the IHP driver lives
+in **OpenSERDES**, not adpll_gen — a direct KLayout PCell chain `tx_macro`
+(`VSS/VDD/IN/OUT`, 1→3→9 parallel inverters, unit W=5 µm), PEX from Magic in
+`build/verify/ihp_tx_macro/` (Ron 45.4/13.8 Ω, tr/tf 33.6/32.7 ps @50 fF,
+915.9 µW @1 GHz).  It has no Verilog wrapper, no clock, no data bus.
+
+So the whole front is new RTL: `rtl/tx_gearbox.sv`,
+`tx_word_serializer.sv`, `tx_parallel_mux.sv`; PMA `pma/tx_mux4`,
+`pma/tx_driver` (wrapping `tx_macro`).  Stage plan (2 Gb/s):
 
 | stage | width | clock |
 |---|---|---|
@@ -65,27 +76,54 @@ macros `pma/tx_mux4`, `tx_driver`.  Stage plan (2 Gb/s):
 | gearbox 3 | 4 b | 500 MHz |
 | final | 1 b | 2 Gb/s out |
 
-Early stages are plain stdcell regs; the last stage is a local multiphase
-clock MUX / latch MUX / custom macro.  Each stage needs explicit
-retiming/clock-relation/hold annotation or ABC re-merges the tree into one
-long path.  **First deliverable: a standalone 2 Gb/s PRBS31 TX macro** (user
-decision), not wired into the SoC wrapper yet.
+Early stages plain stdcell regs; last stage a local multiphase clock MUX /
+latch MUX / custom macro.  Each stage needs explicit retiming/clock-relation/
+hold annotation or ABC re-merges the tree into one long path.  Generator
+hook: add a `rate_mode` next to `gen_ip.py:1462` + SDC branch next to `:2068`
++ `DESIGN_FILES` entry (`:2546`).  **First deliverable: a standalone 2 Gb/s
+PRBS31 TX macro** (user decision) — `prbs_gen` WIDTH=31 is the only ready
+pattern source; not SoC-wired yet.
 
-### P2 — RX: parallel multiphase sampler bank
-The single biggest gap.  Current `cdr_multiphase` picks ONE tap and feeds ONE
-`smp` to the loop; it does not process multiple bits per cycle.  New:
-`cdr_parallel_bbpd.sv`, `cdr_decimated_loop.sv`, `cdr_phase_controller.sv`,
-`rx_parallel_align.sv`, `rx_parallel_gearbox.sv`; PMA `sampler_bank`,
-`phase_interpolator`, `multiphase_clock`.
+### P2 — RX: parallel multiphase sampler bank (mostly a rewrite)
 
-Quarter-rate Alexander BBPD: 8 phases @ 500 MHz → 4 data + 4 edge samples per
-cycle, 4-way vote merge into a slower digital loop filter.  16 UI/update →
-125 MHz loop, 32 UI → 62.5 MHz.  Reuse the frequency integrator /
-saturation / fast-slow accumulator / lock-stale logic from `cdr_bang_bang` +
-`cdr_multiphase`, but **re-derive KP/KI/latency** — loop bandwidth, phase
-margin and ppm tracking change under decimation (do NOT just down-clock the
-existing loop enable).  Elastic-correction into the gearbox must handle PI
-phase wrap + independent-ref ppm + clean data-boundary shifts.
+Recon 2026-11-25: **nothing to extend** — every existing loop is a single-
+sample Alexander filter, and `cdr_ihp130`'s 8 taps divide *one sample-clock
+period* (1.25 ns/8 at 100 MHz) to place one edge, not 4-data+4-edge across a
+quarter-rate cycle.  Recon detail (`cdr_bang_bang.sv`/`cdr_multiphase.sv`):
+
+- `enable` is run/freeze, not "update this UI": low holds phase and only
+  clears `strobe_q`/`kick_q`.  While enabled the phase word advances every
+  `clk`, and the vote moves only on a centre-hit+transition (≤1 vote/UI).
+- bang-bang `KP = 1<<(NCO_FRAC-KP_SHIFT)` (2048 LSB = 312 ps @100 MHz),
+  `KI=1`, FMAX `1<<(FR-2)`; multiphase `KP` = 0.25 tap = 312 ps, `KI=1`,
+  freq applied once/UI at the last slot.
+- CDR_MODE=4 handshake to generalize: `rx_dll_tap[PH_W-1:0]` is a register
+  slice `ph_q[FREQ_FRAC +: PH_W]` (constant across a UI), `rx_smp` is the bit
+  taken at that tap, valid **next clk**.  A quarter-rate bank needs 8 phase-
+  clocked samples in, a summed/majority early-late, and an enable that fires
+  once per quarter-rate cycle.
+- Reuse **as-is**: integral/proportional math + sign (`early=+1` delays),
+  KI=1 incrementer, FMAX clamp, leak/lock/stale counters, `freq_trim` probe,
+  `receiver_sampler` as a leaf, `PLL_MULTIPHASE_DCO`'s 8-phase port (re-timed
+  to UI/2 spacing across one quarter-rate period).
+- Rewrite: the scalar vote {-1,0,+1}, the per-clock slot walk, centre/edge
+  thresholds (they assume one sample/clk, one edge+centre/UI), scalar
+  `tap`/`smp` + park mux, `enable`, and `receiver_pair_sampler`.
+- **Sign trap**: adpll `src/alexander_pd.v` is 2× only and uses the
+  **opposite** early/late sign vs OpenSERDES — do not reuse it without
+  flipping.
+
+Quarter-rate Alexander: 8 phases @500 MHz → 4 data + 4 edge samples/cycle,
+4-way vote merge into a decimated loop. 16 UI/update → 125 MHz, 32 UI →
+62.5 MHz.  Re-derive KP/KI/latency — decimation changes bandwidth/phase
+margin/ppm tracking.  Elastic-correction into the gearbox must handle PI
+phase wrap + independent-ref ppm + clean boundary shifts.
+
+New files (rewrite, not extend): `cdr_parallel_bbpd.sv`,
+`cdr_decimated_loop.sv`, `cdr_phase_controller.sv`, `rx_parallel_align.sv`,
+`rx_parallel_gearbox.sv`; PMA `sampler_bank`, `phase_interpolator`,
+`multiphase_clock`.  Tune against `tb_cdr_multiphase` pattern 3 (the
+low-transition-density case the 10/11-bit loop passed).
 
 ### P3 — sampler catalog (re-admit non-stdcell samplers for PMA)
 Previous cycle swapped all DFFs to PDK-native DFF — correct for generic
