@@ -133,6 +133,20 @@ New files (rewrite, not extend): `cdr_parallel_bbpd.sv`,
 `multiphase_clock`.  Tune against `tb_cdr_multiphase` pattern 3 (the
 low-transition-density case the 10/11-bit loop passed).
 
+**Stage A landed 2026-11-25** (`1ec65e6`): `sampler_bank.sv` (8
+`receiver_sampler` leaves, data=even / edge=odd `clk_ph`),
+`cdr_parallel_bbpd.sv` (per-UI Alexander vote across the 4-UI group,
+summed −4..+4, `early=+1` delays = OpenSERDES sign),
+`cdr_decimated_loop.sv` (bang-bang KP/KI/FMAX/leak/lock/stale re-derived
+for decimation, updates once/DECIM(16) UI = **125 MHz**, slip/elastic
+reporting), `rx_parallel_gearbox.sv`+`rx_parallel_align.sv` (group→word
+assembly + count-based slip repair + skid/rotate align),
+`cdr_parallel_top.sv` (wires it, `pi_code`→phase map + Stage-B PI plug-in
+documented).  Verified: PPM=0 full-density + pattern-3 both lock, 4000
+bits 0 errors, no `FREQ_FRAC≥10` workaround needed.  Open (in-spec):
+nonzero-ppm elastic + `PH_OFF` capture range → Stage-B `CLK_FOLLOW`
+clocking (RTL already supports both modes, TB not yet closed).
+
 ### P3 — sampler catalog (re-admit non-stdcell samplers for PMA)
 Previous cycle swapped all DFFs to PDK-native DFF — correct for generic
 digital, but high-speed PMA needs exceptions.  Build a *generatable* catalog:
