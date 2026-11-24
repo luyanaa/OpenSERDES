@@ -38,25 +38,36 @@ limits:
   max_link_line_rate_mbps: 50
   max_sample_clock_mhz: 200   # 5 ns RX closes at +1.78 ns (prepnr_sta.md 3.5)
 
-  # Post-route bang-bang critical path 10.96 ns; no clean signoff yet (DRC/LVS).
-  # Closest to closing (-0.74 ns at 10 ns) but the implementation is not
-  # DRC/LVS clean; the old 80 MHz scalar was CP-implied.
+  # Post-route STA bisection 2026-11-24 (LibreLane 3.0.14, full TT/SS/FF
+  # corners).  Two boundaries were measured:
+  #   * post-route only:  9.9 ns (101 MHz) is the last closing period
+  #     (SS +0.016); 9.8/9.5/9.0/8.0 fail at SS (-0.08/-0.38/-0.67/-0.71).
+  #   * full ladder:      pre-route SS fails below ~11.1 ns because the
+  #     CDR phase->trans->freq_q cone needs the resizer+router to close.
+  #     11.2 ns (89 MHz) is the first period where the *synthesized*
+  #     netlist also closes at SS (+0.065), so collect_signoff reaches
+  #     POST_ROUTE_TIMING.  11.0 ns pre-route SS is -0.135.
+  # timing_closed_mhz is the full-ladder clean point (89 MHz); the 101 MHz
+  # post-route-only headroom is kept in the note.  Physical signoff stays
+  # null: KLayout LVS reports 1 residual mismatch (same open item as ez130).
   clock_evidence_by_arch:
     bang_bang_oversampling:
-      tested_max_mhz: 100          # 25 Mb/s x OS=4
-      timing_closed_mhz: null
-      physical_signoff_mhz: null
-      cp_implied_mhz: 91           # 1000 / 10.96 ns, estimate only
+      tested_max_mhz: 89           # 22.32 Mb/s x OS=4
+      timing_closed_mhz: 89        # POST_ROUTE_TIMING PASS: pre+post route SS close
+      physical_signoff_mhz: null   # DRC clean (0/0 Magic+KLayout), LVS 1 residual
+      cp_implied_mhz: 97           # 1000 / 10.30 ns post-route CP arrival @SS
       corner: nom_slow_1p08V_125C
-      tool: "LibreLane 3.0.17 / OpenSTA"
-      commit: null
-      source: build/pnr/cross_pdk.json
+      tool: "LibreLane 3.0.14 / OpenSTA"
+      commit: 30eeeaf2a9ad404f65b25e305a52085492296dc1
+      source: build/pnr/fmax_112ns.json
       observation_source: build/pnr/ihp_observe.json
-      note: "10 ns run: setup WNS -0.74 ns; Magic/KLayout DRC 37893/4739,
-        Netgen LVS 115 errors. A 3.0.14 observation with the PDK's KLayout
-        LVS deck measured CP 10.84 ns / WNS -0.61 ns, 2627 cells, 2.37 uW,
-        Magic/KLayout DRC 38484/4767 and a KLayout LVS failure (four std
-        cells get an extra internal pin); still not DRC/LVS clean."
+      note: "11.2 ns run fmax112_ihp-sg13g2: pre-route WNS +0.065/+3.998/+6.420
+        ns SS/TT/FF, post-route WNS +1.317/+4.870/+6.975 ns; hold +0.148
+        post/+0.197 pre; 0 violations, max_slew/cap 0.  Full POST_ROUTE_TIMING
+        ladder passes (collect_signoff).  Post-route-only headroom is 101 MHz
+        (9.9 ns, SS +0.016) but pre-route SS is -1.236 there, so it does not
+        satisfy the cumulative ladder.  Physical signoff blocked by 1 KLayout
+        LVS residual mismatch.  Earlier: 10 ns run -0.74 ns SS (3.0.17)."
 clock_gate:
   # sg13g2_stdcell ICG (clock_gating_integrated_cell).  Pins verified in the
   # typ/fast liberty: CLK in, GATE enable, GCLK gated clock.

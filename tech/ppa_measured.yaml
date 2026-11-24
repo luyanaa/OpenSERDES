@@ -1,0 +1,26 @@
+schema: 1
+entries:
+- tech: ihp-sg13g2
+  scl: sg13g2_stdcell
+  kind: rx
+  arch: bang_bang_oversampling
+  max_line_rate_mbps: 22.3214
+  metrics:
+    area: 1.0
+    power: 1.0
+    latency: 1.0
+  confidence: measured_post_route
+  source: run_cross_pdk_pnr fmax112_ihp-sg13g2
+  provenance:
+    verified: true
+    report: /grid/OpenSERDES/build/reports/power_ihp_sg13g2_bangbang_112ns.json
+    report_sha256: 5717f5f50201f4f142277c0a6f00f972f2839779f29b483e4b4fe5d161ceab70
+    metrics_sha256: 97ca2c7805755875219cf8ed571a5851272a9126d01dc431887955f41a08103e
+    power_mw: 1.411592
+    corner: nom_typ_1p20V_25C
+    period_ns: 11.200014
+    git_commit: 30eeeaf2a9ad404f65b25e305a52085492296dc1
+    tool: LibreLane 3.0.14 / OpenSTA report_power
+    activity_source: default (no SAIF/VCD activity annotation)
+  absolute:
+    power_mw: 1.411592
