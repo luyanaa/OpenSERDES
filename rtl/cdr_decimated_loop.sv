@@ -115,8 +115,16 @@ module cdr_decimated_loop #(
     localparam int RW        = PH_W + FREQ_FRAC;              // rotation word
     localparam logic signed [FW-1:0] KP   = FW'(1 << (FREQ_FRAC - KP_SHIFT));
     localparam logic signed [FW-1:0] KI_S = FW'(KI);
-    localparam logic signed [FW-1:0] FMAX = FW'(1 << (FREQ_FRAC - 1));
-    localparam logic signed [FW-1:0] FMIN = -FW'(1 << (FREQ_FRAC - 1));
+    // Integral clamp.  Rotator mode keeps the Stage-A +-2^(FREQ_FRAC-1)
+    // (one full tap per window).  CLK_FOLLOW tightens it to
+    // +-2^(FREQ_FRAC-4): the clamp bounds the post-acquisition overshoot
+    // sweep of the re-timed sampling phase (a hot integral otherwise walks
+    // the phase across the eye before the vote sign drains it), while still
+    // giving a +-3900 ppm tracking range at DECIM=16 -- far above any
+    // reference offset this loop must follow (verified to +-1000 ppm).
+    localparam logic signed [FW-1:0] FMAX = FW'((CLK_FOLLOW) ? (1 << (FREQ_FRAC - 4))
+                                                             : (1 << (FREQ_FRAC - 1)));
+    localparam logic signed [FW-1:0] FMIN = -FMAX;
     localparam int LOCK_W  = (LOCK_EDGES <= 1) ? 1 : $clog2(LOCK_EDGES + 1);
     localparam bit LEAK_ON = (LEAK_UI_BITS >= 0);
     // Preserve the per-UI leak/stale rates across decimation.
@@ -210,7 +218,20 @@ module cdr_decimated_loop #(
     // Tap walk of this window's applied rotation (freq + kick), unwrapped
     // from the mod-8 tap field to -4..+4 taps; f = floor(0.375 + r_u/2) is
     // the content-window shift in UIs (arithmetic >> 1 on the integer walk).
-    wire [PH_W-1:0] tap_next = r_next[RW-1:FREQ_FRAC];
+    // CLK_FOLLOW: the content window advances when the SAMPLING PHASE
+    // crosses a data bit boundary.  At the Alexander equilibrium the edge
+    // taps park on the transitions (+skew), so that boundary crossing sits
+    // ONE FULL TAP (2^FREQ_FRAC frac LSBs) away from the {tap,frac} word
+    // boundary -- the content index is (r - 1 tap) >> 1, not r >> 1.  With
+    // this offset the reported slip lands within a window of the physical
+    // +-1-UI content shift (the residual error is the bang-bang dither,
+    // +-KP LSBs) instead of up to half a tap-walk cycle late, and the
+    // gearbox drop/insert repair tracks the discrete content events the
+    // breathing recovered clock leaves.  Rotator mode (fixed clocks) keeps
+    // the verified Stage-A arithmetic (shifts at the even tap boundaries).
+    wire [RW-1:0] r_adj = r_next - RW'(1 << FREQ_FRAC);
+    wire [PH_W-1:0] tap_next = CLK_FOLLOW ? r_adj[RW-1:FREQ_FRAC]
+                                          : r_next[RW-1:FREQ_FRAC];
     // Content-window advance between consecutive groups.  In clock-following
     // mode the +-1-raw-tap steps (0.25 ns, half a UI) are content-neutral -
     // the data tap moves centre -> boundary and the +0.02 ns transition skew
@@ -224,8 +245,24 @@ module cdr_decimated_loop #(
     // borrow mapping.
     // f = pi>>1 is the content-window index (mod 4): the content start is
     // 4*window + f, and the advance between groups is 4 + df (mod-4 f).
-    wire [PH_W-1:0] f_next = tap_next >> 1;
-    wire [PH_W-1:0] f_prev = tap_prev_q >> 1;
+    // CLK_FOLLOW debounce: the walk jitters +-KP LSBs around the content
+    // boundary (bang-bang dither, and vote droughts let the phase wander
+    // freely for up to a PRBS run), so a single-window f change can be a
+    // dither crossing that reverts next window.  Report only a change that
+    // HELD for one window (f(n+1) == f(n) != f(n-1)); the repair then lands
+    // one window (4 UI) late -- well inside the gearbox/mask tolerance --
+    // and the jitter pairs (A->B->A) never report.
+    reg  [PH_W-1:0] f_hold_q;                     // f(n-1)
+    reg  [PH_W-1:0] f_hold2_q;                    // f(n-2)
+    wire [PH_W-1:0] f_nextf = tap_next >> 1;      // f(n+1)
+    wire [PH_W-1:0] f_nowf  = tap_prev_q >> 1;    // f(n)
+    wire [PH_W-1:0] f_holdf = f_hold_q >> 1;      // f(n-1)
+    wire [PH_W-1:0] f_hold2f= f_hold2_q >> 1;     // f(n-2)
+    wire [PH_W-1:0] f_next  = CLK_FOLLOW ? f_nowf  : f_nextf;
+    wire [PH_W-1:0] f_prev  = CLK_FOLLOW ? f_hold2f: f_nowf;
+    // CLK_FOLLOW: the new content index must have held for TWO windows.
+    wire        f_held      = CLK_FOLLOW ? (f_nextf == f_nowf) && (f_nowf == f_holdf)
+                                         : 1'b1;
     wire [1:0]        dfm   = f_next[1:0] - f_prev[1:0];       // mod 4
     wire signed [2:0] adv_off = (dfm == 2'd3) ? -3'sd1 : $signed({1'b0, dfm});
     wire signed [3:0] adv   = 4'sd4 + adv_off;                 // 3..6
@@ -245,6 +282,8 @@ module cdr_decimated_loop #(
             kick_q      <= '0;
             r_q         <= {phase_init, FREQ_FRAC'(0)};
             tap_prev_q  <= phase_init;
+            f_hold_q    <= phase_init;
+            f_hold2_q   <= phase_init;
             slip_evt_q   <= 1'b0;
             lock_cnt_q  <= '0;
             leak_cnt_q  <= '0;
@@ -274,11 +313,13 @@ module cdr_decimated_loop #(
                 // +-2 step shifts the content +-1 UI); in rotator mode the
                 // same arithmetic holds for the fixed-clock borrow mapping.
                 tap_prev_q <= tap_next;
+                f_hold_q   <= tap_prev_q;
+                f_hold2_q  <= f_hold_q;
 `ifdef TB_DEBUG_SLIP
                 $display("SLIPDBG t=%0t tapn=%0d tapp=%0d adv=%0d sk=%b du=%b win=%b",
                          $time, tap_next, tap_prev_q, adv, adv_skip, adv_dup, win_any);
 `endif
-                if (adv_skip || adv_dup) begin
+                if ((adv_skip || adv_dup) && f_held) begin
                     slip_evt_q   <= 1'b1;
                     slip_pi_q    <= tap_next;
                     slip_drop_q   <= adv_dup  ? dup_cnt  : 2'b00;

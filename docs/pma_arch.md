@@ -190,6 +190,68 @@ bits 0 errors, no `FREQ_FRAC≥10` workaround needed.  Open (in-spec):
 nonzero-ppm elastic + `PH_OFF` capture range → Stage-B `CLK_FOLLOW`
 clocking (RTL already supports both modes, TB not yet closed).
 
+**Stage B RX landed 2026-11-25 (real-clock hookup, `CLK_FOLLOW=1`)**:
+`pma/rx_clk8.sv` + `tb/tb_rx_parallel_pma.sv`. The sampler bank's
+`clk_ph[7:0]` and the loop's `clk_q` no longer come from the TB's ideal
+generators: they come from `rx_clk8` — the REAL `PLL_MULTIPHASE_DCO`
+travelling-wave ring (same signed-off `cdr_ihp130` block as TX Stage B,
+PH_W=3/STEP=3/CLOSE_LOAD=1, timed `PLL_CELL_*` stand-ins so it actually
+oscillates in vvp: measured T = 2.0000 ns / 500 MHz, ~2000 clean posedges per
+run) plus the decimated loop's `pi_code`/`pi_frac` re-timing the sampling
+phase.
+
+Phase model (abstraction stated honestly): the raw ring taps span a HALF
+period in STEP stages (~120 ps apart) — they cannot give the UI/8 sampler
+grid directly.  The **phase interpolator between ring and sampler is a
+behavioral sim model** (a real coarse-mux + fine interpolating delay line is
+a later physical block).  It maps the loop's 11-bit phase word
+`{pi_code, pi_frac}` DIRECTLY onto a continuous sampling phase:
+`phase = word · (PERIOD/2048)` (LSB 0.977 ps, full scale 4 UI, mod 2 ns) —
+every LSB moves every sampling instant by one LSB and frac→tap carries are
+representation rollovers with no discontinuity.  This deviates from (and
+fixes) the mapping sketched in `tb_cdr_parallel.sv`'s old Stage-B comment,
+whose tap[0]-dead variant snaps the phase back 0.25 ns at every frac carry —
+a real content revisit the loop's bookkeeping reported half a walk cycle
+late.  `clk_q` is re-timed with the phase ("clock follows"): at nonzero ppm
+the loop's frac field walks at the drift rate and `clk_q` BREATHES
+(±0.98 ps/LSB), so the steady-state ppm never produces discrete events.
+
+Loop changes (all `CLK_FOLLOW`-gated, Stage-A rotator mode untouched):
+- content-window index offset by ONE TAP (`(r − 2^FREQ_FRAC) >> 1`): at the
+  Alexander equilibrium the edge taps park on the transitions, so the
+  physical ±1-UI content shift happens at the bit-boundary crossing one tap
+  away from the word boundary — the old `tap>>1` report landed up to half a
+  walk cycle late.
+- integral clamp tightened to ±2^(FREQ_FRAC−4) = ±16 LSB/window
+  (±3900 ppm, still ≫ any reference offset; verified to ±1000 ppm): a hot
+  integral otherwise sweeps the re-timed phase across the eye before the
+  vote sign drains it.  (First attempt clamped only FMAX — every failing
+  case was a negative walk; FMIN must be symmetric.)
+- slip report debounced: the new content index must HOLD two windows before
+  the gearbox arms a repair — the bang-bang dither crossings that revert
+  within a window never report; real drift crossings report 1 window
+  (4 UI) late, inside the repair tolerance.
+- `cdr_parallel_top`: `pi_frac` exposed, `CLK_FOLLOW` parameter passed
+  through to the loop; gearbox repairs ENABLED in CLK_FOLLOW (the report now
+  lands on the physical events).  Stage-A (`ROT_EN=1`, `CLK_FOLLOW=0`)
+  verified unchanged: `tb_cdr_parallel` PPM=0 and PATTERN=3 still pass.
+  (Stage-A `PH_OFF=2` fails identically before and after — pre-existing
+  open item, this is the Stage-A capture-range case the spec already lists
+  as needing Stage-B clocking; the Stage-B TB captures `PH_OFF` 0..7.)
+
+Verified (`tb_rx_parallel_pma`, `LOCK_EDGES=128`, `SLIP_FORGIVE=64`,
+`KP_SHIFT=5`): behavioral mode — PPM=0/+1000/−300/−1000, PATTERN=3,
++300·P3, +1000·P3, PH_OFF 2/5 all lock and check 0 errors (lock ~520 clk_q
+cycles ≈ 1.0 µs); structural mode (real oscillating ring) — **PPM=0, +300
+and +1000 all lock + 0 errors** (the acceptance set), plus PATTERN=3,
++1000·P3, PH_OFF=5.  Where it still breaks (structural, non-acceptance
+cases): −300 (44-err burst), −1000 (stream misalignment), PH_OFF=2, and
+behavioral +300 (38-err burst) — all the same signature: a dither/drought
+excursion drags the sampling phase to the eye edge, the resulting ±1-UI
+content event is repaired but lands outside the ±64-bit mask or mismatches
+the event count by one.  Loop marginality, not architecture; the fix is
+loop damping (smaller KP / dead-zone), not the clocking.
+
 ### P3 — sampler catalog (re-admit non-stdcell samplers for PMA)
 Previous cycle swapped all DFFs to PDK-native DFF — correct for generic
 digital, but high-speed PMA needs exceptions.  Build a *generatable* catalog:

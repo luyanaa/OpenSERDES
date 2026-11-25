@@ -45,7 +45,17 @@ module cdr_parallel_top #(
     // 0 (v1 with PI-timed clocks, the TB re-times clk_ph/clk_q from
     // pi_code+pi_frac): the rotator is bypassed.  1: ideal fixed clocks, the
     // pi_code rotator remaps the bank samples.
-    parameter bit ROT_EN          = 1'b0
+    parameter bit ROT_EN          = 1'b0,
+    // 1 = Stage-B CLK_FOLLOW clocking: clk_ph/clk_q come from the external
+    // rx_clk8 (DCO + PI) driven by pi_code/pi_frac, and the loop's discrete
+    // slip-repair path is DISABLED -- with a continuously re-timed sampling
+    // clock the group content stays 4 consecutive UIs (the ppm tolerance is
+    // the breathing recovered clock itself, no drop/insert events), so the
+    // loop's f = tap>>1 slip report is bookkeeping for the pi_code walk, not
+    // a physical content shift.  The loop still exports slip_evt for
+    // observability.  0 = Stage-A rotator mode: fixed clocks + rotator, the
+    // slip repairs ARE the elastic mechanism (verified Stage-A path).
+    parameter bit CLK_FOLLOW      = 1'b0
 ) (
     input  wire                      clk_q,
     input  wire [7:0]                clk_ph,    // 8 phases, 45 deg apart @ 500 MHz
@@ -61,6 +71,8 @@ module cdr_parallel_top #(
     output wire [1:0]                slip_drop,   // duplicated bits to drop
     output wire [1:0]                slip_insert, // skipped bits to fill
     output wire [PH_W-1:0]           pi_code,
+    output wire [FREQ_FRAC-1:0]      pi_frac,   // fractional PI phase
+                                                // (rx_clk8 input in CLK_FOLLOW)
     output wire signed [FRAC_BITS:0] freq_trim
 );
 
@@ -143,6 +155,7 @@ module cdr_parallel_top #(
     );
 
     wire [PH_W-1:0] pi_c;
+    wire [FREQ_FRAC-1:0] pi_frac_c;
     wire            slip_evt_c;
     wire [PH_W-1:0] slip_pi_c;
     wire [1:0]      slip_drop_c, slip_insert_c;
@@ -151,7 +164,7 @@ module cdr_parallel_top #(
         .PH_W(PH_W), .FREQ_FRAC(FREQ_FRAC), .DECIM(DECIM), .KI(KI),
         .KP_SHIFT(KP_SHIFT), .LEAK_UI_BITS(LEAK_UI_BITS),
         .LOCK_EDGES(LOCK_EDGES), .LOCK_STALE_BITS(LOCK_STALE_BITS),
-        .FRAC_BITS(FRAC_BITS), .CLK_FOLLOW(1'b0)
+        .FRAC_BITS(FRAC_BITS), .CLK_FOLLOW(CLK_FOLLOW)
     ) u_loop (
         .clk_q      (clk_q),
         .rst_n      (rst_n),
@@ -160,6 +173,7 @@ module cdr_parallel_top #(
         .vote_valid (vote_valid),
         .phase_init (phase_init),
         .pi_code    (pi_c),
+        .pi_frac    (pi_frac_c),
         .lock       (lock),
         .lock_stale (lock_stale),
         .slip_evt   (slip_evt_c),
@@ -172,14 +186,30 @@ module cdr_parallel_top #(
     wire [DATA_W-1:0] gb_word;
     wire              gb_valid;
 
+    // CLK_FOLLOW elasticity: the ppm tolerance is the CONTINUOUSLY re-timed
+    // sampling clock (rx_clk8 breathes clk_q/clk_ph with pi_frac); the group
+    // content stays 4 consecutive data UIs and the recovered word stream is
+    // bit-complete, so the discrete gearbox drop/insert path must stay IDLE
+    // here -- the loop's slip report is the pi_code-walk bookkeeping (offset
+    // by one tap, see cdr_decimated_loop CLK_FOLLOW) and firing repairs on
+    // its dither crossings would CORRUPT the complete stream.  The discrete
+    // repair path is the fixed-clock rotator-mode (CLK_FOLLOW=0) mechanism.
+    // Downstream word alignment (rx_parallel_align / PCS comma align) absorbs
+    // the rare +-1-bit content events the dither excursions leave upstream of
+    // lock.
+    localparam bit GB_SLIP_EN = ~CLK_FOLLOW;
+    wire       gb_slip_evt = GB_SLIP_EN ? slip_evt_c : 1'b0;
+    wire [1:0] gb_slip_drop   = GB_SLIP_EN ? slip_drop_c   : 2'b00;
+    wire [1:0] gb_slip_insert = GB_SLIP_EN ? slip_insert_c : 2'b00;
+
     rx_parallel_gearbox #(.DATA_W(DATA_W)) u_gearbox (
         .clk_q      (clk_q),
         .rst_n      (rst_n),
         .enable     (enable),
         .data_q     (eff_data),
-        .slip_evt   (slip_evt_c),
-        .slip_drop  (slip_drop_c),
-        .slip_insert(slip_insert_c),
+        .slip_evt   (gb_slip_evt),
+        .slip_drop  (gb_slip_drop),
+        .slip_insert(gb_slip_insert),
         .rx_word    (gb_word),
         .word_valid (gb_valid)
     );
@@ -196,6 +226,7 @@ module cdr_parallel_top #(
     );
 
     assign pi_code    = pi_c;
+    assign pi_frac    = pi_frac_c;
     assign slip_evt   = slip_evt_c;
     assign slip_drop  = slip_drop_c;
     assign slip_insert= slip_insert_c;
