@@ -1,8 +1,10 @@
-# OpenSERDES 数字部分：工艺无关抽象层
+# OpenSERDES digital part: process-independent abstraction layer
 
-本目录把 OpenSERDES 的数字部分从 sky130 门级/硬宏中抽离出来，形成可综合、可参数化、无标准单元绑定的 RTL。
+This directory pulls the digital part of OpenSERDES out of the sky130 gate-level netlists / hard macros and turns it into synthesizable, parameterized RTL with no standard-cell binding.
 
-## 0. 目录与迁移
+> 中文版：[`README.zh-cn.md`](README.zh-cn.md)
+
+## 0. Layout and migration
 
 ```text
 rtl/            canonical digital RTL
@@ -20,27 +22,23 @@ legacy/rtl/     original serializer/deserializer sources, read-only
 legacy/analog/  original analog/layout evidence, read-only
 ```
 
-原有 `Serializer/`、`DeSerializer/` 保留其 GDS/SPICE/LEF/PDF 证据；旧的模拟/物理
-目录 `Inverter_Based_Tx/`、`OverSampling_CDR/`、`Resistive_FB_inverter/`、
-`Receiver_Bypassing_CDR/` 已移到 [`legacy/analog/`](legacy/analog/README.md)，只作
-只读 provenance。新数字流程只使用 `rtl/`。完整映射、兼容 adapter 和剩余 gap 见
-[`docs/migration.md`](docs/migration.md)。
+The original `Serializer/` and `DeSerializer/` keep their GDS/SPICE/LEF/PDF evidence. The old analog/physical directories `Inverter_Based_Tx/`, `OverSampling_CDR/`, `Resistive_FB_inverter/` and `Receiver_Bypassing_CDR/` have moved to [`legacy/analog/`](legacy/analog/README.md) as read-only provenance. The new digital flow uses only `rtl/`. The full mapping, compatibility adapters and remaining gaps are in [`docs/migration.md`](docs/migration.md).
 
-## 1. 设计原则
+## 1. Design principles
 
-- **不出现任何工艺单元名**：没有 `sky130_fd_sc_hd__*`、`sg13g2_*`、`ics55_*`。
-- **单时钟**：所有时序逻辑只由 `clk` 驱动，推进由 `enable` 控制。
-- **禁止生成时钟**：不再用 `READY`、`COMPLETE` 作为时钟。
-- **输入/输出寄存器化**：并行数据只在 `load && ready` 时采样；输出在完成时打拍。
-- **参数化数组**：`DATA_WIDTH`、`WORDS`、`LSB_FIRST`；`par_data` 是 `[WORDS-1:0][DATA_WIDTH-1:0]`，位选/字选用 generate 循环生成。
-- **复位一致性**：所有叶子块使用异步低有效 `rst_n`；顶层每个时钟域经过 `reset_sync`（异步置位、同步释放）。
-- **显式握手**：`ready/load`、`serial_valid`、`par_valid`、`busy`；另有 word-streaming valid/ready 架构。
-- **CDR 可插拔**：`fixed_oversampling`、`adaptive_oversampling`、`source_sync` 三种模式，默认由 generator 按 ppm/clocking/rate 选择。
-- **帧同步显式化**：`comma_align` 支持单次和 per-frame 重对齐，输出 `rx_frame_locked`、`rx_lock_stale` 和恢复串行流。
-- **验证分级**：`RTL_FUNCTIONAL`、`PRE_PNR_TIMING`、`POST_ROUTE_TIMING`、`PHYSICAL_SIGNOFF`、`LINK_VALIDATED`，不同等级的证据不能混用。
-- **CDR 是抽象替代实现**：原仓库只有门级 `CLK_RECOVERY`，本目录提供可综合的过采样 CDR；它不是原门级网表的逐周期克隆。
+- **No process cell names anywhere**: no `sky130_fd_sc_hd__*`, `sg13g2_*`, `ics55_*`.
+- **Single clock**: all sequential logic is driven only by `clk`; progress is controlled by `enable`.
+- **No generated clocks**: `READY` and `COMPLETE` are no longer used as clocks.
+- **Registered inputs/outputs**: parallel data is sampled only on `load && ready`; outputs are registered on completion.
+- **Parameterized arrays**: `DATA_WIDTH`, `WORDS`, `LSB_FIRST`; `par_data` is `[WORDS-1:0][DATA_WIDTH-1:0]`, and bit/word selection is built with generate loops.
+- **Consistent reset**: all leaf blocks use asynchronous active-low `rst_n`; at the top, each clock domain goes through `reset_sync` (asynchronous assert, synchronous release).
+- **Explicit handshakes**: `ready/load`, `serial_valid`, `par_valid`, `busy`; plus a word-streaming valid/ready architecture.
+- **Pluggable CDR**: three modes, `fixed_oversampling`, `adaptive_oversampling` and `source_sync`, chosen by default by the generator from ppm/clocking/rate.
+- **Explicit frame sync**: `comma_align` supports one-shot and per-frame realignment, and outputs `rx_frame_locked`, `rx_lock_stale` and the recovered serial stream.
+- **Verification levels**: `RTL_FUNCTIONAL`, `PRE_PNR_TIMING`, `POST_ROUTE_TIMING`, `PHYSICAL_SIGNOFF`, `LINK_VALIDATED`; evidence from different levels must not be mixed.
+- **The CDR is an abstract replacement**: the original repository only has a gate-level `CLK_RECOVERY`; this directory provides a synthesizable oversampling CDR. It is not a cycle-by-cycle clone of the original gate-level netlist.
 
-## 2. 模块
+## 2. Modules
 
 ### `rtl/serializer.sv`
 
@@ -55,22 +53,21 @@ serializer #(
 );
 ```
 
-- `load && ready` 采样 `par_data`。
-- 每个 `enable` 输出一个串行位。
-- `serial_valid` 在帧内为高；`frame_done` 在最后一位被接受后的下一拍脉冲。
-- 位序：
-  - `LSB_FIRST=1`：word0 bit0 → word0 bit31 → word1 bit0 ...
-  - `LSB_FIRST=0`：word0 bit31 → word0 bit0 → word1 bit31 ...
-- `CAPTURE_MODE=1`：用 `WORDS` 拍逐 word 捕获，把 256 个输入寄存器 enable 的
-  单网扇出降到 32；代价是 `ready` 低 `WORDS` 拍，外部数据需保持稳定。
-  生成器用 `--capture-mode` 选择。实测（one-hot capture）：sky130 10 ns +2.78 ns；
-  IHP 10 ns +5.66 ns；H7CL 10 ns +7.21 ns；H7CR 10 ns +6.39 ns；
-  H7CH 20 ns +13.15 ns；GF180 5 V 40 ns +22.50 ns。
-  跨工艺端点：H7CL TX 5 ns +1.03 ns，H7CL RX 2.5 ns（OS=2）+0.315 ns；
-  H7CL top 10 ns TX + OS=2 为 **+2.82 ns（100 MHz 链路）**；
-  H7CL top 5 ns TX + OS=2 为 **+0.315 ns（200 MHz 链路）**。
-  GF180 5 V：serializer 20 ns +2.50 ns，deserializer 20 ns +8.14 ns；
-  但 top 20 ns + OS=2（RX 10 ns）为 −17.13 ns，20 ns 全链路需 source-synchronous RX。
+- `load && ready` samples `par_data`.
+- Each `enable` outputs one serial bit.
+- `serial_valid` is high within a frame; `frame_done` pulses on the cycle after the last bit is accepted.
+- Bit order:
+  - `LSB_FIRST=1`: word0 bit0 → word0 bit31 → word1 bit0 ...
+  - `LSB_FIRST=0`: word0 bit31 → word0 bit0 → word1 bit31 ...
+- `CAPTURE_MODE=1`: capture one word per cycle over `WORDS` cycles, cutting the single-net fanout of the 256 input-register enables down to 32; the cost is `ready` low for `WORDS` cycles, and external data must stay stable.
+  The generator selects it with `--capture-mode`. Measured (one-hot capture): sky130 10 ns +2.78 ns;
+  IHP 10 ns +5.66 ns; H7CL 10 ns +7.21 ns; H7CR 10 ns +6.39 ns;
+  H7CH 20 ns +13.15 ns; GF180 5 V 40 ns +22.50 ns.
+  Cross-process endpoints: H7CL TX 5 ns +1.03 ns, H7CL RX 2.5 ns (OS=2) +0.315 ns;
+  H7CL top 10 ns TX + OS=2 is **+2.82 ns (100 MHz link)**;
+  H7CL top 5 ns TX + OS=2 is **+0.315 ns (200 MHz link)**.
+  GF180 5 V: serializer 20 ns +2.50 ns, deserializer 20 ns +8.14 ns;
+  but top 20 ns + OS=2 (RX 10 ns) is −17.13 ns, so a 20 ns full link needs a source-synchronous RX.
 
 ### `rtl/deserializer.sv`
 
@@ -85,151 +82,151 @@ deserializer #(
 );
 ```
 
-- `serial_valid && enable` 接收一个串行位。
-- `align` 为高时复位位/字计数器；下一个有效位成为 word0 bit0。它是 comma/training 对齐的挂钩。
-- 每个 word 由 `deserializer_word` 的一个 generate 实例持有；`par_data` 直接来自这些 word 寄存器，**没有 `INT_PAR_IN` 影子寄存器，也没有第二级 `PAR_IN` 锁存**。
-- 帧完成后 `par_data` 已经是 word/bit 顺序，`par_valid` 脉冲一拍。
-- word/bit 选择使用 one-hot 移位寄存器，捕获路径没有二进制比较器；H7CL 2.5 ns RX +0.315 ns。
-- 无 `COMPLETE` 生成时钟。
+- `serial_valid && enable` receives one serial bit.
+- When `align` is high, the bit/word counters reset; the next valid bit becomes word0 bit0. This is the hook for comma/training alignment.
+- Each word is held by one generate instance of `deserializer_word`; `par_data` comes directly from those word registers, **with no `INT_PAR_IN` shadow register and no second-stage `PAR_IN` latch**.
+- When a frame completes, `par_data` is already in word/bit order and `par_valid` pulses for one cycle.
+- Word/bit selection uses one-hot shift registers, so the capture path has no binary comparator; H7CL 2.5 ns RX +0.315 ns.
+- No `COMPLETE` generated clock.
 
 ### `rtl/deserializer_word.sv`
 
-每个 word 一个 `DATA_WIDTH` 寄存器组；`capture` 只在选中的 word 且 `serial_valid` 时有效。`par_data` 直接映射到这些 word 寄存器，修复了原 DeSer 的 `INT_PAR_IN` 传递问题。
+One `DATA_WIDTH` register bank per word; `capture` is active only for the selected word and when `serial_valid`. `par_data` maps directly to these word registers, fixing the original DeSer's `INT_PAR_IN` propagation problem.
 
 ### `rtl/serdes_soc_wrapper.sv`
 
-单时钟 SoC 参考顶层：APB CSR + TX AXIS + source-sync RX AXIS。APB map：reg0 control、reg1..6 scratch/保留、reg7 status、reg8 BIST_CTRL、reg10/11 pad BIST 计数、reg12 BIST_STATUS、reg13/14 word BIST 错误/帧计数。TX AXIS frame 为 comma + `WORDS` payload words，RX AXIS frame 为 `WORDS` payload words；`ALIGN_MODE=2` 每帧 comma 重对齐。`BIST_CTRL[0]` + `[6]=0` 是 pad 级模式：PRBS 直接驱动 `tx_serial_out` 并旁路 core；`BIST_CTRL[6]=1` 是 word/数据通路模式：PRBS 帧源替代 AXIS 输入，RX AXIS 输出被 checker 消费，完整经过 adapter/serializer/RX core。`BIST_CTRL[4]` 选择近端环回。pad 模式内部拉低 TX/RX core enable；计数器经 `bist_snapshot` 的请求/应答握手读取，避免撕裂。该 wrapper 用于单时钟集成验收；`spec/soc_single_clock.yaml` 是示例。
+Single-clock SoC reference top: APB CSR + TX AXIS + source-sync RX AXIS. APB map: reg0 control, reg1..6 scratch/reserved, reg7 status, reg8 BIST_CTRL, reg10/11 pad BIST counters, reg12 BIST_STATUS, reg13/14 word BIST error/frame counters. A TX AXIS frame is comma + `WORDS` payload words; an RX AXIS frame is `WORDS` payload words; `ALIGN_MODE=2` realigns on the comma every frame. `BIST_CTRL[0]` + `[6]=0` is pad-level mode: PRBS drives `tx_serial_out` directly and bypasses the core. `BIST_CTRL[6]=1` is word/datapath mode: a PRBS frame source replaces the AXIS input and the RX AXIS output is consumed by a checker, going through the full adapter/serializer/RX core. `BIST_CTRL[4]` selects near-end loopback. Pad mode internally pulls the TX/RX core enables low; counters are read through the request/acknowledge handshake of `bist_snapshot` to avoid tearing. This wrapper is for single-clock integration acceptance; `spec/soc_single_clock.yaml` is an example.
 
 ### `rtl/serdes_soc_cdc_wrapper.sv`
 
-多时钟 SoC 参考顶层：`pclk`/`s_axis_aclk`/`m_axis_aclk`/`tx_clk`/`rx_clk` 分离；TX/RX AXIS 各接 `async_fifo`，APB control/status 经 `cdc_sync` 2FF 同步。链路仍是 source-sync（`OVERSAMPLE=1`、comma per-frame），AXIS/APB 时钟可以与 link clock 不同。BIST 的 PRBS generator/checker 放在 `tx_clk` 域（连续比特流不能跨时钟），控制位逐位 `cdc_sync`，计数通过 `bist_snapshot` 稳定总线握手回到 `pclk`；非环回的外部 `rx_serial_in` 检查要求 `tx_clk`/`rx_clk` 同频同相，环回模式是确定性自检模式。`spec/soc.yaml` 生成该 wrapper。
+Multi-clock SoC reference top: `pclk`/`s_axis_aclk`/`m_axis_aclk`/`tx_clk`/`rx_clk` are separate; TX/RX AXIS each go through an `async_fifo`, and APB control/status go through `cdc_sync` 2FF synchronizers. The link is still source-sync (`OVERSAMPLE=1`, comma per frame), but the AXIS/APB clocks can differ from the link clock. The BIST PRBS generator/checker sit in the `tx_clk` domain (a continuous bit stream cannot cross clocks); control bits are `cdc_sync`'d bit by bit, and counters return to `pclk` through the `bist_snapshot` stable-bus handshake. Checking an external (non-loopback) `rx_serial_in` requires `tx_clk`/`rx_clk` to be the same frequency and phase; loopback mode is the deterministic self-test mode. `spec/soc.yaml` generates this wrapper.
 
 ### `rtl/serdes_bist.sv`
 
-PRBS BIST wrapper：`prbs_gen` + `prbs_check` 共享 `start/clear` 和 seed；输出 `serial_out`，检查 `serial_in`，暴露 `error/error_count/bit_count`。两个 SoC wrapper 已通过 APB 集成该原语：`BIST_CTRL` 控制 enable/start/clear/inject/loopback/snapshot，`BIST_ERROR_COUNT`/`BIST_BIT_COUNT` 为快照只读寄存器，`BIST_STATUS` 汇总 error/running/valid/width/word_mode。它是 pad 级比特流 BIST，旁路 serializer/deserializer；数据通路级验证由下面的 word BIST 提供。
+PRBS BIST wrapper: `prbs_gen` + `prbs_check` share `start/clear` and the seed; it outputs `serial_out`, checks `serial_in`, and exposes `error/error_count/bit_count`. Both SoC wrappers already integrate this primitive over APB: `BIST_CTRL` controls enable/start/clear/inject/loopback/snapshot, `BIST_ERROR_COUNT`/`BIST_BIT_COUNT` are snapshot read-only registers, and `BIST_STATUS` summarizes error/running/valid/width/word_mode. It is a pad-level bit-stream BIST that bypasses the serializer/deserializer; datapath-level verification is provided by the word BIST below.
 
 ### `rtl/prbs_word_gen.sv` / `rtl/prbs_word_check.sv`
 
-word/数据通路级 PRBS：generator 每帧发出 comma + `WORDS` 个 PRBS word（每 word 为 `DATA_WIDTH` 个连续 PRBS 位，comma 后重新从 seed 开始），checker 按 AXIS beat 逐 word 比对并在 `tlast` 结帧。两者组成“AXIS 级 BIST 帧源/信宿”，在单时钟 SoC wrapper 中通过 `BIST_CTRL[6]` 启用，覆盖 `axis_*_adapter`、serializer、RX core 和 comma 对齐；错误计数为比特错误数，另有帧计数。
+Word/datapath-level PRBS: the generator emits comma + `WORDS` PRBS words per frame (each word is `DATA_WIDTH` consecutive PRBS bits, restarting from the seed after the comma); the checker compares word by word per AXIS beat and closes the frame on `tlast`. Together they form an "AXIS-level BIST frame source/sink", enabled in the single-clock SoC wrapper through `BIST_CTRL[6]`, covering `axis_*_adapter`, the serializer, the RX core and comma alignment. The error count is a bit-error count, plus a frame count.
 
 ### `rtl/prbs_gen.sv` / `rtl/prbs_check.sv`
 
-PRBS7/15/31 串行 generator/checker，带 sticky `error`、`error_count` 和 `bit_count`。作为 BIST/链路测试原语；`soc`/`phy_ip` package 会把它连同 BIST wrapper 一起打包（soc wrapper 已直接依赖）。
+PRBS7/15/31 serial generator/checker with sticky `error`, `error_count` and `bit_count`. A BIST/link-test primitive; the `soc`/`phy_ip` packages bundle it together with the BIST wrapper (the soc wrapper already depends on it directly).
 
 ### `rtl/axis_tx_adapter.sv` / `rtl/axis_rx_adapter.sv`
 
 ### `rtl/serializer_half_rate.sv`
 
-Half-rate TX 原型：`clk_word` 负责捕获/握手，`clk_bit = 2*clk_word` 逐 bit 输出；
-request/acknowledge 跨两个时钟域。与 `serializer_stream` 位精确对照（8x4/16x4/
-32x8/5x3、LSB/MSB、40 帧）。sky130 HD TT 5 ns bit clock 下 worst slack
-**0.658 ns**（baseline 0.406 ns，约 +0.25 ns）。仍是原型，未接入 SoC/generator，
-`enable` 和完整 RX half-rate 状态机待补。
+Half-rate TX prototype: `clk_word` handles capture/handshake and `clk_bit = 2*clk_word` outputs bit by bit;
+request/acknowledge crosses the two clock domains. Bit-exact against `serializer_stream` (8x4/16x4/
+32x8/5x3, LSB/MSB, 40 frames). Worst slack at a sky130 HD TT 5 ns bit clock is
+**0.658 ns** (baseline 0.406 ns, about +0.25 ns). Still a prototype, not wired into the SoC/generator;
+`enable` and the full RX half-rate state machine are still to be done.
 
 ### `rtl/receiver_pair_sampler.sv`
 
-Full-rate sampler boundary for the half-rate RX prototype：bit clock 采样 2-bit
-history，在 word clock 输出 `bit0`（较早）/`bit1`（较新）与 `pair_valid`；
-`tb_receiver_pair_sampler` 与参考 history 对照。它不包含 CDR、comma alignment
-或完整帧 valid 语义。
+Full-rate sampler boundary for the half-rate RX prototype: the bit clock samples a 2-bit
+history and, on the word clock, outputs `bit0` (earlier) / `bit1` (newer) and `pair_valid`;
+`tb_receiver_pair_sampler` checks against a reference history. It contains no CDR, comma alignment
+or full frame-valid semantics.
 
 ### `rtl/deserializer_half_rate.sv`
 
-Half-rate RX 原型的并行 bank：每个 `clk_word` 接收 2 bit（bit0 先、bit1 后），
-word/bit 计数和 `par_valid` 在 word clock 运行；DDR/2-phase sampler、CDR 和
-comma alignment 不在该原型内。`tb_deserializer_half_rate` 覆盖 8x4/16x4/32x8、
-LSB/MSB、50 帧。sky130 HD TT 10 ns word clock 下 worst slack 6.866 ns
-（full-rate deserializer 5 ns 为 2.843 ns；周期不同，不能当作端到端 RX 结论）。
+Parallel bank of the half-rate RX prototype: each `clk_word` receives 2 bits (bit0 first, bit1 second);
+the word/bit counters and `par_valid` run on the word clock. The DDR/2-phase sampler, CDR and
+comma alignment are not in this prototype. `tb_deserializer_half_rate` covers 8x4/16x4/32x8,
+LSB/MSB, 50 frames. Worst slack at a sky130 HD TT 10 ns word clock is 6.866 ns
+(the full-rate deserializer at 5 ns is 2.843 ns; the periods differ, so this is not an end-to-end RX conclusion).
 
 ### `rtl/serializer_hier_2to1.sv`
 
-`serializer_stream` 的位精确 2:1 分级 word 选择树原型：接口/握手/输出时序相同，
-用 balanced 2:1 mux 代替 flat WORDS-way one-hot mux。已通过 8x4/32x8/5x3、
-LSB/MSB、随机 backpressure 对照 TB；sky130 HD 5 ns 的首次 Yosys/ABC 对比
-worst slack 与 baseline 相同（0.406 ns），说明纯组合 mux tree 本身不会被 ABC
-保留为更短路径；下一步需要寄存器化树级/half-rate 才能真正改变 critical path。
-见 [`docs/timing_optimization.md`](docs/timing_optimization.md)。
+A bit-exact 2:1 hierarchical word-select-tree prototype of `serializer_stream`: same interface/handshake/output timing,
+using a balanced 2:1 mux tree instead of a flat WORDS-way one-hot mux. Passes the comparison TB for 8x4/32x8/5x3,
+LSB/MSB and random backpressure. A first Yosys/ABC comparison at sky130 HD 5 ns gives the same
+worst slack as the baseline (0.406 ns), showing that ABC does not preserve a purely combinational mux tree
+as a shorter path; registered tree stages / half-rate are needed to actually change the critical path.
+See [`docs/timing_optimization.md`](docs/timing_optimization.md).
 
-AXIS word adapter：一个 beat 是一个 `DATA_WIDTH` word，`tlast` 标最后一 word。TX adapter 驱动 `serializer_stream` 的 `in_valid/in_ready/in_word`；RX adapter 把 `rx_frame_valid` 的并行 frame 拆成 AXIS beats，并在上一帧未排空时置 `frame_overflow`。
+AXIS word adapters: one beat is one `DATA_WIDTH` word, and `tlast` marks the last word. The TX adapter drives `serializer_stream`'s `in_valid/in_ready/in_word`; the RX adapter splits the parallel frame of `rx_frame_valid` into AXIS beats and asserts `frame_overflow` if the previous frame has not drained.
 
-`serdes_tx_axis_digital` / `serdes_rx_axis_digital` 是 AXIS endpoint wrapper；AXIS 时钟与 `tx_clk`/`rx_clk` 相同，跨时钟域需要外接 AXIS async FIFO。
+`serdes_tx_axis_digital` / `serdes_rx_axis_digital` are AXIS endpoint wrappers; the AXIS clock is the same as `tx_clk`/`rx_clk`, so crossing clock domains needs an external AXIS async FIFO.
 
 ### `rtl/apb_csr.sv` / `rtl/async_fifo.sv`
 
-`apb_csr` 是 word-aligned APB 控制/状态寄存器组：默认最后一个地址只读 `status_i`；`STATUS_IDX` 可移动状态寄存器，`RO_MASK`/`ro_i` 可增加任意只读寄存器（BIST 计数即用此机制），只读地址忽略写入；非 word 对齐或越界访问返回 `pslverr`。它用于 `soc`/`phy_ip` preset 的配置接口，目前是独立原语，尚未强制接入数字 top。
+`apb_csr` is a word-aligned APB control/status register bank: by default the last address is read-only `status_i`; `STATUS_IDX` moves the status register, and `RO_MASK`/`ro_i` add arbitrary read-only registers (the BIST counters use this mechanism); writes to read-only addresses are ignored, and non-word-aligned or out-of-range accesses return `pslverr`. It is the configuration interface for the `soc`/`phy_ip` presets; it is currently a standalone primitive, not yet mandatory in the digital top.
 
-`async_fifo` 是双时钟 Gray-pointer FIFO，`DEPTH` 必须为 2 的幂；小深度用寄存器阵列实现。它可作为 RX 恢复时钟域到本地 SoC 时钟域的 CDC 原语，但 CDC clean 仍需目标工具的 CDC 检查，不能由 RTL 自证。
+`async_fifo` is a dual-clock Gray-pointer FIFO; `DEPTH` must be a power of two, and small depths are built from register arrays. It can serve as the CDC primitive from the RX recovered-clock domain to the local SoC clock domain, but CDC cleanliness still needs the target tool's CDC check and cannot be self-proven by the RTL.
 
 ### `rtl/link_training_fsm.sv` / `rtl/crc_frame.sv`
 
-`link_training_fsm` 是独立的数字训练状态机：先扫描相位轴，再扫描阈值轴，用单调错误计数在每个候选的 dwell 窗口内做差，冻结最佳设置；锁定时持续监测错误增长，超阈值会自动重新训练。输出 `phase_sel`/`thresh_sel` 只是**执行器请求**，`phase_we`/`thresh_we` 是单周期装载脉冲。当前 CDR 没有外部相位/阈值输入，因此该 FSM **尚未接入** `serdes_digital_top`；不要把它当成已验证的 link training。
+`link_training_fsm` is a standalone digital training state machine: it sweeps the phase axis first, then the threshold axis, takes differences of a monotonic error counter within each candidate's dwell window, and freezes the best setting; while locked it keeps monitoring error growth and automatically retrains above a threshold. The outputs `phase_sel`/`thresh_sel` are only **actuator requests**, and `phase_we`/`thresh_we` are single-cycle load pulses. The current CDR has no external phase/threshold input, so this FSM is **not yet wired into** `serdes_digital_top`; do not treat it as verified link training.
 
-`crc_frame` 是参数化串行 CRC 原语，已验证 CRC-16/CCITT-FALSE（`0x29B1`）和 CRC-32/ISO-HDLC（`0xCBF43926`）。它只做 CRC 累加，不定义 AXIS 帧、sync word、sequence ID 或重传，尚未接入生成包的 frame 路径。
+`crc_frame` is a parameterized serial CRC primitive, verified for CRC-16/CCITT-FALSE (`0x29B1`) and CRC-32/ISO-HDLC (`0xCBF43926`). It only accumulates CRC; it does not define AXIS framing, sync words, sequence IDs or retransmission, and it is not yet wired into the generated package's frame path.
 
-训练/CRC 的能力边界和后续接入条件见 `docs/digital_training_crc.md`。
+Capability boundaries and integration conditions for training/CRC are in `docs/digital_training_crc.md`.
 
 ### `rtl/axis_crc_inserter.sv` / `rtl/axis_crc_checker.sv`
 
-AXIS CRC 插入/检查原语。插入器把 CRC beats 追加在 payload 之后，用 `m_axis_tuser` 标 payload 最后一拍，`m_axis_tlast` 留给最后 CRC beat；检查器转发 payload、消费 CRC beats，并输出 `crc_ok` / `crc_error`。`serdes_tx_axis_digital` / `serdes_rx_axis_digital` 通过 `CRC_ENABLE` 可选启用该路径，serialized frame 增加 `ceil(CRC_WIDTH/DATA_WIDTH)` 个 word；SoC async wrapper 尚未暴露 CRC CSR。
+AXIS CRC insert/check primitives. The inserter appends CRC beats after the payload, marks the last payload beat with `m_axis_tuser`, and leaves `m_axis_tlast` for the last CRC beat; the checker forwards the payload, consumes the CRC beats, and outputs `crc_ok` / `crc_error`. `serdes_tx_axis_digital` / `serdes_rx_axis_digital` can optionally enable this path through `CRC_ENABLE`, adding `ceil(CRC_WIDTH/DATA_WIDTH)` words to the serialized frame; the SoC async wrapper does not expose CRC CSRs yet.
 
 ### `rtl/encoder_8b10b.sv` / `rtl/decoder_8b10b.sv`
 
-8b/10b 编解码器，已验证全部 256 个数据字节和 K28.5 round-trip。实现改编自 MIT 许可的 `libsv`，来源和许可证见 `docs/third_party.md`。`pcs_8b10b_tx/rx` 提供带 valid/error 的 PCS wrapper；`serdes_8b10b_top` 把 8-bit payload 编码到 10-bit line word，generator 在 `payload_width: 8`、`target: link`、`align: external` 时接受 `coding: 8b10b`。
+8b/10b encoder/decoder, verified for all 256 data bytes and a K28.5 round trip. The implementation is adapted from the MIT-licensed `libsv`; source and license are in `docs/third_party.md`. `pcs_8b10b_tx/rx` provide PCS wrappers with valid/error; `serdes_8b10b_top` encodes an 8-bit payload into a 10-bit line word, and the generator accepts `coding: 8b10b` when `payload_width: 8`, `target: link`, `align: external`.
 
 ### `rtl/pcs_64b66b.sv`
 
-64b/66b 原语：2-bit sync header + 64-bit self-synchronous scrambler payload，支持 data/control block header、非法 sync 拒绝，以及 66-to-64-bit gearbox。`serdes_64b66b_top` 把 64-bit payload 编码到 66-bit line word；generator 在 `payload_width: 64`、`target: link`、`align: external` 时接受 `coding: 64b66b`。`RX_GEARBOX=1` 时 RX 侧由 `pcs_64b66b_rx_gearbox` 从 1-bit 串行流用 66-bit 滑窗锁块，`pcs_64b66b_ctrl_decode` 区分纯数据/全控制/混合起止块（`rx_ctrl_kind`/`rx_block_type`）；该模式限定 `WORDS==1`，TX 在帧间插入 IEEE 全控制 idle 块以保持块边界。完整 control-field 提取与 lane distribution 仍是独立 PCS 工作。详见 `docs/pcs_coding.md`。
+64b/66b primitive: 2-bit sync header + 64-bit self-synchronous scrambled payload, supporting data/control block headers, rejection of illegal sync, and a 66-to-64-bit gearbox. `serdes_64b66b_top` encodes a 64-bit payload into a 66-bit line word; the generator accepts `coding: 64b66b` when `payload_width: 64`, `target: link`, `align: external`. With `RX_GEARBOX=1`, the RX side uses `pcs_64b66b_rx_gearbox` to lock blocks from the 1-bit serial stream with a 66-bit sliding window, and `pcs_64b66b_ctrl_decode` distinguishes pure-data / all-control / mixed start/terminate blocks (`rx_ctrl_kind`/`rx_block_type`); this mode is restricted to `WORDS==1`, and TX inserts IEEE all-control idle blocks between frames to preserve block boundaries. Full control-field extraction and lane distribution remain separate PCS work. See `docs/pcs_coding.md`.
 
-### 协议 PHY 基础层（USB/PCIe 方向）
+### Protocol PHY base layer (towards USB/PCIe)
 
-三轮外部研究（LiteICLink、LitePCIe soft PHY 与 PR #250、USB3-PIPE、LiteEth basex）之后补齐的"作为 USB/PCIe PHY 的 SerDes 基础层"：`rtl/link_watchdog.sv`（"还在试"vs"卡死"）、`rtl/saturating_counter.sv`（饱和不回转的误码/掉链计数）、`rtl/clock_cycles.sv`（Gray 计数跨域，实测 ppm 对照相位模型）、`rtl/tx_ctrl_align.sv`（控制输入与在途数据对齐，PR #250 的 `tx_idle_delay`）；`pcs_8b10b_rx_stream` 新增 `SUBSTITUTE_ERROR`（把解码/极性错误替换成 K28.4 带上 charisk 上报，PCIe 6.3.1.4），`pcs_8b10b_comma` 新增搜索看门狗并贯通 `serdes_rx_digital`；SoC wrapper 新增 CSR16–19（误码计数、掉链计数、TX/RX 周期）与 `CSR0[5]/[6]`、`CSR7[8..10]`。见 `docs/phy_base_layer.md`。
+After three rounds of external research (LiteICLink, the LitePCIe soft PHY and PR #250, USB3-PIPE, LiteEth basex), the "SerDes as a USB/PCIe PHY base layer" pieces were added: `rtl/link_watchdog.sv` ("still trying" vs "stuck"), `rtl/saturating_counter.sv` (saturating, non-wrapping bit-error/link-drop counters), `rtl/clock_cycles.sv` (Gray counter across domains, measured ppm checked against the phase model), `rtl/tx_ctrl_align.sv` (aligning control inputs with in-flight data, PR #250's `tx_idle_delay`); `pcs_8b10b_rx_stream` gained `SUBSTITUTE_ERROR` (replace decode/disparity errors with K28.4 and report via charisk, PCIe 6.3.1.4), and `pcs_8b10b_comma` gained a search watchdog wired through `serdes_rx_digital`; the SoC wrapper gained CSR16–19 (bit-error count, link-drop count, TX/RX cycles) and `CSR0[5]/[6]`, `CSR7[8..10]`. See `docs/phy_base_layer.md`.
 
-### SoC 集成的总线适配
+### Bus adaptation for SoC integration
 
-`serdes_soc_cdc_wrapper` 的数据面是 AXI4-Stream、控制面是 APB（CSR0 控制、CSR7 状态、CSR8–12 BIST、CSR13–15 训练/CRC、CSR16–19 链路健康与周期测量），`PKT_ENABLE=1` 时 `s_axis` 前端已接入 Packetizer 支持变长帧。
+The data plane of `serdes_soc_cdc_wrapper` is AXI4-Stream and the control plane is APB (CSR0 control, CSR7 status, CSR8–12 BIST, CSR13–15 training/CRC, CSR16–19 link health and cycle measurement). With `PKT_ENABLE=1`, the Packetizer is wired into the `s_axis` front end to support variable-length frames.
 
-Wishbone SoC 通过两个适配器接入，**不复制任何寄存器**：`rtl/wb_apb_bridge.sv`（Wishbone B4 从口 → APB 主口，访问同一份 CSR，含越界/非对齐/部分 `sel` 的错误路径，被拒的请求不会触达寄存器组）与 `rtl/wb_axis_fifo.sv`（Wishbone 从口 ↔ AXIS：写推 TX 字、读弹 RX 字，FIFO 满/空以 `wb_err` 上报而非静默丢弃，`tx_flush` 可丢弃已入队的 TX 字）。两者均为单时钟，跨到 SerDes 字时钟由 wrapper 内已有的 `async_fifo` 承担。见 `docs/soc_streaming.md`。
+A Wishbone SoC connects through two adapters, **without duplicating any registers**: `rtl/wb_apb_bridge.sv` (Wishbone B4 slave → APB master, accessing the same CSRs, with error paths for out-of-range / unaligned / partial `sel`; rejected requests never reach the register bank) and `rtl/wb_axis_fifo.sv` (Wishbone slave ↔ AXIS: writes push TX words, reads pop RX words, FIFO full/empty are reported as `wb_err` rather than silently dropped, and `tx_flush` can discard queued TX words). Both are single-clock; crossing into the SerDes word clock is handled by the `async_fifo` already in the wrapper. See `docs/soc_streaming.md`.
 
-### 抖动/相位参考模型
+### Jitter/phase reference model
 
-`verification/channel/phase_model.py` 与 `tb/jitter_clock.sv` 是**同一个模型的两份实现**，使用完全相同的整数运算（16-bit xorshift、Irwin-Hall 高斯替代、64 项 Q1.15 正弦表、截断 ppm 斜坡），因此 RTL 与 Python 的 TIE 序列逐位一致；`tb/tb_phase_model.sv` 读 Python 写出的向量并逐边沿比对，`make phase-model-rtl` 与 4 个 `phase_model_*` 回归用例守住这个等价性。支持 RJ / SJ / ppm / DCD 四个轴，已覆盖 6 种配置。边界：不是信道模型（无 ISI/反射/CTLE-DFE/SSC），高斯是有界的 ±6σ 替代，`tj_at_ber` 是 dual-Dirac 预算而非实测 BER。见 `docs/phase_model.md`。
+`verification/channel/phase_model.py` and `tb/jitter_clock.sv` are **two implementations of the same model** using exactly the same integer arithmetic (16-bit xorshift, Irwin-Hall Gaussian substitute, 64-entry Q1.15 sine table, truncated ppm ramp), so the RTL and Python TIE sequences match bit for bit. `tb/tb_phase_model.sv` reads vectors written by Python and compares edge by edge; `make phase-model-rtl` and 4 `phase_model_*` regression cases guard this equivalence. Supports four axes, RJ / SJ / ppm / DCD, with 6 configurations covered. Boundaries: it is not a channel model (no ISI/reflections/CTLE-DFE/SSC), the Gaussian is a bounded ±6σ substitute, and `tj_at_ber` is a dual-Dirac budget, not a measured BER. See `docs/phase_model.md`.
 
-### 多 Lane 与链路层
+### Multi-lane and link layer
 
-`rtl/serdes_multilane_top.sv` 把多路 source-sync / bang-bang 通道（每 lane 一个 `serializer_stream` + `serdes_rx_digital` + `async_fifo`）合成一个 word 流：TX 在所有 lane 的同一 word slot 发送，每 `MARKER_PERIOD` 个 payload word 插入一个带 epoch 的 marker，空闲时发 idle；RX 侧 `rtl/lane_deskew.sv` 用 per-lane 弹性缓冲吸收 lane 间整字偏移，从 marker 边界锁步放行，输出只有 payload（`marker_ok` 每 `MARKER_PERIOD` 个输出字 pulse 一次）。参数约束 `MARKER_PERIOD > MAX_SKEW`、`DESKEW_DEPTH >= 2*MARKER_PERIOD + MAX_SKEW`（2 的幂）在 elaboration 期 fail-closed；`CDR_MODE != 2` 时要求 `OVERSAMPLE >= 4` 且 `CDR_BYPASS=0`。SoC 侧由 `rtl/axis_lane_bonder.sv` 的 `axis_lane_bonder`/`axis_lane_debonder` 做宽 AXIS（`LANES*DATA_WIDTH`）与逐 lane word 之间的转换，debonder 用 `link_ok` 门控并在 `underflow` 计数被丢弃的 beat。`preset: multilane` 可直接生成该 package（`spec/multilane.yaml`，2/4/8 lane）。见 `docs/multilane.md`。
+`rtl/serdes_multilane_top.sv` combines several source-sync / bang-bang lanes (each lane one `serializer_stream` + `serdes_rx_digital` + `async_fifo`) into one word stream: TX sends in the same word slot on all lanes, inserts a marker carrying an epoch every `MARKER_PERIOD` payload words, and sends idle when there is nothing to send. On the RX side, `rtl/lane_deskew.sv` absorbs whole-word inter-lane skew with per-lane elastic buffers and releases in lockstep from marker boundaries; the output is payload only (`marker_ok` pulses once every `MARKER_PERIOD` output words). Parameter constraints `MARKER_PERIOD > MAX_SKEW` and `DESKEW_DEPTH >= 2*MARKER_PERIOD + MAX_SKEW` (power of two) fail closed at elaboration; when `CDR_MODE != 2`, `OVERSAMPLE >= 4` and `CDR_BYPASS=0` are required. On the SoC side, `axis_lane_bonder`/`axis_lane_debonder` in `rtl/axis_lane_bonder.sv` convert between wide AXIS (`LANES*DATA_WIDTH`) and per-lane words; the debonder is gated by `link_ok` and counts dropped beats in `underflow`. `preset: multilane` generates this package directly (`spec/multilane.yaml`, 2/4/8 lanes). See `docs/multilane.md`.
 
-`rtl/axis_frame_packetizer.sv` 把变长 AXIS 帧切片成 `axis_tx_adapter` 要求的固定 `WORDS` beat 帧（头 beat 带 `last_frag`/`frag_len`），`axis_frame_depacketizer` 负责还原；`rtl/axis_ordered_set_insert.sv` 在每个分片链前补回 `comma` 有序集。`serdes_soc_cdc_wrapper` 的 `PKT_ENABLE=1` 把这一层接在 `s_axis` 前端 / `m_axis` 后端，SoC 侧可直接收发任意长度帧（以太网、AXI burst），`tb_soc_cdc_packetizer` 端到端验证 5 帧 36 字节逐字节一致。见 `docs/soc_streaming.md`。`rtl/axis_reliable_link.sv` 提供 go-back-N 可靠传输：`axis_crc_inserter/checker`（`STORE_AND_FORWARD=1`）+ 极简 Sequence ID + 累计 ACK/NAK，坏帧丢弃、重复帧重 ACK、超时/NAK 回退，超过 `RETRY_LIMIT` 置 sticky `link_error`。两者都是协议逻辑，`tlast`/`tuser` 是 sideband，接到串行链路需要 in-band 帧边界。见 `docs/link_layers.md`。
+`rtl/axis_frame_packetizer.sv` slices variable-length AXIS frames into the fixed `WORDS`-beat frames required by `axis_tx_adapter` (the header beat carries `last_frag`/`frag_len`), and `axis_frame_depacketizer` reassembles them; `rtl/axis_ordered_set_insert.sv` puts the `comma` ordered set back in front of each fragment chain. With `PKT_ENABLE=1`, `serdes_soc_cdc_wrapper` places this layer at the `s_axis` front end / `m_axis` back end, so the SoC side can send and receive frames of any length (Ethernet, AXI bursts) directly; `tb_soc_cdc_packetizer` verifies 5 frames of 36 bytes end to end, byte for byte. See `docs/soc_streaming.md`. `rtl/axis_reliable_link.sv` provides go-back-N reliable transport: `axis_crc_inserter/checker` (`STORE_AND_FORWARD=1`) + a minimal Sequence ID + cumulative ACK/NAK; bad frames are dropped, duplicate frames are re-ACKed, timeout/NAK cause a rollback, and exceeding `RETRY_LIMIT` sets a sticky `link_error`. Both are protocol logic; `tlast`/`tuser` are sideband, so connecting to a serial link needs in-band frame boundaries. See `docs/link_layers.md`.
 
 ### `rtl/receiver_sampler.sv`
 
-Receiver 数字边界的 1-bit 采样模型：只建模原 `Receiver.sp` 中 2 GHz NAND DFF 的 `q <= d` 行为，不建模 resistive-feedback inverter、CMOS inverter 或模拟 setup/hold。
+1-bit sampling model of the receiver's digital boundary: it models only the `q <= d` behavior of the 2 GHz NAND DFF in the original `Receiver.sp`, not the resistive-feedback inverter, the CMOS inverter or analog setup/hold.
 
 ### `rtl/reset_sync.sv`
 
-异步置位、同步释放的复位同步器。顶层 `serdes_digital_top` 为 TX/RX 两个时钟域各实例化一个。
+Reset synchronizer with asynchronous assert and synchronous release. The top `serdes_digital_top` instantiates one for each of the TX/RX clock domains.
 
 ### `rtl/serdes_tx_digital.sv` / `rtl/serdes_rx_digital.sv`
 
-TX/RX 独立端点 wrapper。两者可以分别用不同 PDK 综合，再在同一链路中组合；协议/RTL 不变，只换目标库和 analog wrapper。
+Independent TX/RX endpoint wrappers. The two can be synthesized separately with different PDKs and then combined in the same link; the protocol/RTL is unchanged, only the target library and analog wrapper change.
 
-`serdes_rx_digital` 的 `CDR_MODE` 选择 CDR：`0=fixed_oversampling`、`1=adaptive_oversampling`、`2=source_sync`、`3=bang_bang`、`4=dll_phase`；旧的 `CDR_BYPASS=1` 等价于 `CDR_MODE=2`。mode 4 的相位选择/采样器在数字网表之外：顶层输出 `rx_dll_tap`，输入 `rx_smp`（见 `docs/dll_backend.md`）。source-sync 模式下外部 `rx_clk` 作为 bit clock，经 `receiver_sampler` 后直接进入 deserializer；此时 `rx_clk_out=rx_clk`、`rx_lock=1`，`OVERSAMPLE` 不参与。
+`CDR_MODE` of `serdes_rx_digital` selects the CDR: `0=fixed_oversampling`, `1=adaptive_oversampling`, `2=source_sync`, `3=bang_bang`, `4=dll_phase`; the old `CDR_BYPASS=1` is equivalent to `CDR_MODE=2`. In mode 4 the phase selection/sampler is outside the digital netlist: the top outputs `rx_dll_tap` and takes `rx_smp` as input (see `docs/dll_backend.md`). In source-sync mode the external `rx_clk` is the bit clock and goes through `receiver_sampler` straight into the deserializer; then `rx_clk_out=rx_clk`, `rx_lock=1`, and `OVERSAMPLE` does not apply.
 
-`ALIGN_MODE`：`0=外部 rx_align`、`1=comma 单次对齐`、`2=comma 每帧重对齐`。新增输出 `rx_frame_locked`、`rx_frame_valid`（= `rx_par_valid & rx_frame_locked`）、`rx_serial_data`、`rx_serial_valid`、`rx_freq_trim`，用于链路 scoreboard、状态恢复和 calibration 观测。
+`ALIGN_MODE`: `0=external rx_align`, `1=comma one-shot alignment`, `2=comma realignment every frame`. New outputs `rx_frame_locked`, `rx_frame_valid` (= `rx_par_valid & rx_frame_locked`), `rx_serial_data`, `rx_serial_valid` and `rx_freq_trim` are for link scoreboards, state recovery and calibration observation.
 
 ### `rtl/serdes_digital_top.sv`
 
-由 `serdes_tx_digital` + `serdes_rx_digital` 组成的数字顶层。TX/RX 时钟独立；`rx_clk_out` 仅监视，`rx_sample_strobe` 才是数据有效选通。`rx_frame_locked` 表示 comma/training 帧对齐已建立；`rx_lock_stale` 只表示长时间没有边沿，不应单独用来停止接收。`TRAINING_ENABLE=1` 时，`train_error_count` 驱动 `link_training_fsm`，其 `phase_sel` 接到 CDR 的 `phase_offset`。`serdes_soc_cdc_wrapper` 还提供 rx_clk 域训练和 APB CSR 13/14 telemetry（best_errors、locked/busy/retrain/phase）；错误源仍由外部 scoreboard/PRBS checker 提供，generator 开关尚未接入，默认关闭。
+Digital top made of `serdes_tx_digital` + `serdes_rx_digital`. TX/RX clocks are independent; `rx_clk_out` is for monitoring only, and `rx_sample_strobe` is the data-valid strobe. `rx_frame_locked` means comma/training frame alignment is established; `rx_lock_stale` only means no edges for a long time and should not be used alone to stop receiving. With `TRAINING_ENABLE=1`, `train_error_count` drives `link_training_fsm`, whose `phase_sel` connects to the CDR's `phase_offset`. `serdes_soc_cdc_wrapper` also provides rx_clk-domain training and APB CSR 13/14 telemetry (best_errors, locked/busy/retrain/phase); the error source is still an external scoreboard/PRBS checker, the generator switch is not wired up yet, and it is off by default.
 
 ### `rtl/cdr_sync.sv` / `rtl/cdr_oversampling.sv` / `rtl/cdr_adaptive.sv`
 
-CDR 被拆成明确的三段：
+The CDR is split into three explicit stages:
 
 ```text
 raw data -> cdr_sync (STAGES flops) -> edge detect + data select
          -> phase counter -> sample_strobe -> deserializer
 ```
 
-`cdr_sync` 的 `samples[0]` 是最新样本，`samples[STAGES-1]` 是最老、已稳定的样本。边沿检测和**数据选择都使用老样本**，因此增加 `SYNC_STAGES` 会真正增加数据路径的亚稳态建立时间，而不只是边沿检测路径。默认 `SYNC_STAGES=3`，MTBF 仍需在目标 PDK 上确认同步寄存器未被优化/合并。
+`samples[0]` of `cdr_sync` is the newest sample and `samples[STAGES-1]` the oldest, settled sample. Edge detection and **data selection both use the old sample**, so increasing `SYNC_STAGES` really increases the metastability settling time of the data path, not just the edge-detect path. The default is `SYNC_STAGES=3`; MTBF still needs to be confirmed on the target PDK, making sure the synchronizer registers are not optimized away or merged.
 
 ```
 cdr_oversampling #(
@@ -241,11 +238,11 @@ cdr_oversampling #(
 );
 ```
 
-- `fixed_oversampling`：捕获阶段每个边沿把相位计数器装 0；锁定后自由运行。它不跟踪频偏。
-- `sample_strobe` 每比特脉冲一次，是**数据有效选通**；应使用它，而不是 `clk_out`，来接收 `data_out`。
-- `lock` 在连续检测到 `LOCK_THRESH` 个边沿后置位；长时间没有边沿只置 `lock_stale`，**不会**用数据模式相关的衰减把 lock 拉低。
-- `flush` 清除 lock/相位状态，用于协议恢复。
-- 约束：`OVERSAMPLE ≥ 4`；`OVERSAMPLE=2` 是受限制模式，generator 必须显式 `allow_os2: true`。
+- `fixed_oversampling`: during acquisition, every edge loads 0 into the phase counter; after lock it runs freely. It does not track frequency offset.
+- `sample_strobe` pulses once per bit and is the **data-valid strobe**; use it, not `clk_out`, to receive `data_out`.
+- `lock` asserts after `LOCK_THRESH` consecutive edges are detected; a long absence of edges only sets `lock_stale` and **does not** pull lock low through data-pattern-dependent decay.
+- `flush` clears lock/phase state, for protocol recovery.
+- Constraint: `OVERSAMPLE ≥ 4`; `OVERSAMPLE=2` is a restricted mode, and the generator must have `allow_os2: true` explicitly.
 
 ```
 cdr_adaptive #(
@@ -260,61 +257,61 @@ cdr_adaptive #(
 );
 ```
 
-- `adaptive_oversampling`：用 fractional period control 偶尔插入/删除一个采样周期，跟踪 TX/RX ppm 频偏；`freq_trim` 是带符号环路状态。
-- 锁定后有一个 `LOOP_SETTLE_BITS` 窗口，避免捕获瞬态把采样相位推偏；deadband 过滤 1/OVERSAMPLE UI 的量化抖动。
-- 这是**一阶频率跟踪环**，不是二阶 jitter-filtering PLL。建议 `OVERSAMPLE ≥ 8`；高抖动链路应使用 phase interpolator/PLL CDR。
-- 已验证 `PPM = 0, +700, -700` 和 `100 ppm`，5000 bits 连续恢复无 bit slip（`tb_cdr_adaptive`，`FRAC_BITS=12`）。**限制**：jitter tolerance、gate-level equivalence 和模拟前端仍未验证；生产级高抖动链路仍应使用二阶环或 phase interpolator。
+- `adaptive_oversampling`: uses fractional period control to occasionally insert/delete one sample period, tracking the TX/RX ppm offset; `freq_trim` is the signed loop state.
+- After lock there is a `LOOP_SETTLE_BITS` window that keeps acquisition transients from pushing the sampling phase off; a deadband filters the 1/OVERSAMPLE UI quantization jitter.
+- This is a **first-order frequency-tracking loop**, not a second-order jitter-filtering PLL. `OVERSAMPLE ≥ 8` is recommended; high-jitter links should use a phase-interpolator/PLL CDR.
+- Verified at `PPM = 0, +700, -700` and `100 ppm`, 5000 bits recovered continuously without bit slip (`tb_cdr_adaptive`, `FRAC_BITS=12`). **Limitations**: jitter tolerance, gate-level equivalence and the analog front end are not verified; production high-jitter links should still use a second-order loop or a phase interpolator.
 
 ### `rtl/comma_align.sv`
 
-在恢复串行流中搜索 `SYNC_PATTERN`（默认 8'hBC）。匹配发生在 pattern 最后一个 bit；该 bit 被 deserializer 的 `align` 优先级丢弃，下一个有效 bit 成为 word0 bit0。`ALIGN_MODE=2` 时每个 `rx_par_valid` 后重新 arm，支持连续/带空隙的 per-frame 重对齐。`flush` 或 CDR lock 丢失会清除 `rx_frame_locked`。
+Searches the recovered serial stream for `SYNC_PATTERN` (default 8'hBC). A match occurs on the last bit of the pattern; that bit is dropped by the deserializer's `align` priority, and the next valid bit becomes word0 bit0. With `ALIGN_MODE=2`, it re-arms after every `rx_par_valid`, supporting continuous or gapped per-frame realignment. `flush` or loss of CDR lock clears `rx_frame_locked`.
 
-## 3. 与 OpenSERDES 原实现的关键差异
+## 3. Key differences from the original OpenSERDES implementation
 
-| 原实现 | 抽象层 |
+| Original implementation | Abstraction layer |
 |---|---|
-| Serializer 依赖 `READY` 边沿、`int_PAR` 多驱动且被综合删除 | 单 `clk` + `load/ready`，输入寄存器真正保留 |
-| Deserializer 256 个 DFF 由 `COMPLETE` 直接打拍 | 单 `clk` + `enable`，无生成时钟 |
-| Deserializer `4'd3` 分支缺少 `OUT[0] <= SERIAL_IN` | 按位索引写入，无 state-3 位滑移 |
-| 300 个并行输出直接暴露 | `WORDS×DATA_WIDTH` 参数化数组，可由 generator 选择并行/串行配置 |
-| DeSer `INT_PAR_IN` 没有正确传递 | 每个 word 单寄存器组，`par_data` 直连，无影子锁存 |
-| CDR 只有门级网表、22 位 SCAN_IN 语义未文档化 | fixed/adaptive/source-sync 三种可综合模式；明确 `sample_strobe/lock/lock_stale/freq_trim` 契约；`comma_align` 帧同步 |
-| 原 Serializer 只有 13 个 DFF（输入寄存器被删），DeSer 更多 | 抽象后 Serializer 266 FF、DeSer 266 FF、Top 550 FF；单时钟 + `enable`，必须走 CTS；见 `docs/clocking.md` |
-| 无 testbench | 自检 TB 见 `Makefile` 的 `SIM_BINS` 与 `tb/`（serializer LSB/MSB/capture/stream、deserializer LSB/MSB、loopback LSB/MSB、32×8、link scoreboard、channel、fixed/adaptive CDR、4x bang-bang CDR、phase_offset 0..3 扫描、生成端点 bang-bang、frame sync、CDR bypass、compat legacy/port-order、APB CSR、async FIFO、AXIS TX/RX adapter + endpoint、PRBS7/15/31、pad BIST7/15/31、word BIST、单/多时钟 SoC wrapper） |
+| Serializer depends on the `READY` edge; `int_PAR` is multiply driven and removed by synthesis | Single `clk` + `load/ready`; input registers are really kept |
+| Deserializer's 256 DFFs are clocked directly by `COMPLETE` | Single `clk` + `enable`, no generated clock |
+| Deserializer's `4'd3` branch is missing `OUT[0] <= SERIAL_IN` | Indexed bit writes, no state-3 bit slip |
+| 300 parallel outputs exposed directly | Parameterized `WORDS×DATA_WIDTH` array; the generator can choose parallel/serial configurations |
+| DeSer `INT_PAR_IN` not propagated correctly | One register bank per word, `par_data` connected directly, no shadow latch |
+| CDR exists only as a gate-level netlist; 22-bit SCAN_IN semantics undocumented | Three synthesizable modes (fixed/adaptive/source-sync); explicit `sample_strobe/lock/lock_stale/freq_trim` contract; `comma_align` frame sync |
+| Original Serializer has only 13 DFFs (input registers removed), DeSer more | After abstraction: Serializer 266 FF, DeSer 266 FF, Top 550 FF; single clock + `enable`, must go through CTS; see `docs/clocking.md` |
+| No testbench | Self-checking TBs in the `Makefile`'s `SIM_BINS` and `tb/` (serializer LSB/MSB/capture/stream, deserializer LSB/MSB, loopback LSB/MSB, 32×8, link scoreboard, channel, fixed/adaptive CDR, 4x bang-bang CDR, phase_offset 0..3 sweep, generated-endpoint bang-bang, frame sync, CDR bypass, compat legacy/port-order, APB CSR, async FIFO, AXIS TX/RX adapter + endpoint, PRBS7/15/31, pad BIST7/15/31, word BIST, single/multi-clock SoC wrappers) |
 
-## 4. 验证
+## 4. Verification
 
 ```bash
-make sim      # iverilog：全部自检 TB（清单见 Makefile SIM_BINS）
-make regress  # 参数矩阵 + link/scoreboard + generator 包检查
-make lint     # Verilator -Wall（0 warning）
-make synth    # Yosys 通用门级检查（先经 sv2v v0.0.12 转成 Verilog）
-make gen SPEC=spec/default.yaml OUT=out/default   # 包内生成 rtl/sv2v/*.v 供 LibreLane/Yosys
+make sim      # iverilog: all self-checking TBs (list in Makefile SIM_BINS)
+make regress  # parameter matrix + link/scoreboard + generator package checks
+make lint     # Verilator -Wall (0 warnings)
+make synth    # Yosys generic gate-level check (converted to Verilog first with sv2v v0.0.12)
+make gen SPEC=spec/default.yaml OUT=out/default   # generates rtl/sv2v/*.v inside the package for LibreLane/Yosys
 make qualify REPORT=signoff.json LEVEL=PRE_PNR_TIMING
 make signoff PACKAGE=out/default REPORTS=out/default/reports SIGNOFF_LEVEL=POST_ROUTE_TIMING
 make verify-link VERIFY_PACKAGE=out/soc  # bound SI/BER + RTL JTOL gate -> reports/ber.json
 make ppa-import PPA_CSV=measured.csv PPA_OUT=tech/ppa_measured.yaml
 ```
 
-已验证：
+Verified:
 
-- `tb_serializer` LSB/MSB/capture：PASS
-- `tb_serializer_stream`：PASS（per-word valid/ready，背靠背帧）
-- `tb_deserializer` LSB/MSB：PASS
-- `tb_serdes_loopback` LSB/MSB：PASS
-- `tb_serdes_default` 32×8：PASS
-- `tb_serdes_channel`：真实 `rx_serial_data` 串行 scoreboard + `rx_par_data` 并行帧 scoreboard；覆盖 comma per-frame 对齐、帧间空隙、`rx_flush` 后重锁：PASS
-- `tb_channel` delay/invert/error 注入：PASS
-- `tb_cdr`：固定 CDR，PRBS7，OS=4 和 OS=2 各 200 个恢复 bit 与发送序列逐 bit 比较：PASS
-- `tb_cdr_adaptive`：0 / +700 / -700 / 100 ppm，5000 bit 连续恢复：PASS
-- `tb_frame_sync`：comma、gap、mid-frame flush/re-acquire：PASS
-- `tb_cdr_bypass`：source-sync receiver-only：PASS
-- `tb_compat_legacy` / `tb_compat_port_order`：named 和 positional legacy 兼容：PASS
-- Verilator lint：0 warning
-- Yosys synth：仅通用门/DFF，无 latch、无 memory
-- `scripts/regress.py`：回归矩阵（case 数由脚本动态统计，本次运行 72/72），含参数矩阵、link scoreboard、APB/FIFO、AXIS endpoint、PRBS/BIST、单/多时钟 SoC wrapper、generator package、signoff collector 和 measured-PPA gate
+- `tb_serializer` LSB/MSB/capture: PASS
+- `tb_serializer_stream`: PASS (per-word valid/ready, back-to-back frames)
+- `tb_deserializer` LSB/MSB: PASS
+- `tb_serdes_loopback` LSB/MSB: PASS
+- `tb_serdes_default` 32×8: PASS
+- `tb_serdes_channel`: real `rx_serial_data` serial scoreboard + `rx_par_data` parallel frame scoreboard; covers comma per-frame alignment, inter-frame gaps, relock after `rx_flush`: PASS
+- `tb_channel` delay/invert/error injection: PASS
+- `tb_cdr`: fixed CDR, PRBS7, OS=4 and OS=2, 200 recovered bits each compared bit by bit with the transmitted sequence: PASS
+- `tb_cdr_adaptive`: 0 / +700 / -700 / 100 ppm, 5000 bits recovered continuously: PASS
+- `tb_frame_sync`: comma, gap, mid-frame flush/re-acquire: PASS
+- `tb_cdr_bypass`: source-sync receiver-only: PASS
+- `tb_compat_legacy` / `tb_compat_port_order`: named and positional legacy compatibility: PASS
+- Verilator lint: 0 warnings
+- Yosys synth: generic gates/DFFs only, no latches, no memories
+- `scripts/regress.py`: regression matrix (case count computed dynamically by the script; this run 72/72), including the parameter matrix, link scoreboard, APB/FIFO, AXIS endpoint, PRBS/BIST, single/multi-clock SoC wrappers, generator package, signoff collector and measured-PPA gate
 
-SI/BER 验证框架（`verification/`，纯 Python + 可选 iverilog）：
+SI/BER verification framework (`verification/`, pure Python + optional iverilog):
 
 ```bash
 pip install -r verification/requirements.txt
@@ -322,39 +319,39 @@ python -m verification.cli eye     --profile verification/profiles/stressed.yaml
 python -m verification.cli bathtub --profile verification/profiles/stressed.yaml --out build/verify/bathtub.png
 python -m verification.cli eye --profile verification/profiles/stressed.yaml --channel-file channel.s4p --channel-port-map tx_p=0,tx_n=1,rx_p=2,rx_n=3 --out build/verify/eye_touch.png
 python -m verification.cli jtol    --profile verification/profiles/stressed.yaml --out build/verify/jtol.json --model analytic
-python -m verification.rtl.runner  --nbits 800 --sj-peak-ui 0.2 --sj-freq-hz 500000   # 真实 cdr_adaptive
-python -m verification.rtl.runner  --nbits 600 --chain rx --noise-rms-v 0.12      # 完整 serdes_rx_digital + 模拟信道切片
+python -m verification.rtl.runner  --nbits 800 --sj-peak-ui 0.2 --sj-freq-hz 500000   # real cdr_adaptive
+python -m verification.rtl.runner  --nbits 600 --chain rx --noise-rms-v 0.12      # full serdes_rx_digital + analog channel slicer
 make verify-link VERIFY_PACKAGE=out/soc PYTHON=/usr/bin/python3                            # capability gate -> reports/ber.json
-make verify-link VERIFY_PACKAGE=out/soc VERIFY_ANALOG_LUT=build/verify/sky130_lut.json  # 绑定 package + sky130 LUT
-make analog-lut ANALOG_TECH=sky130 PYTHON=/usr/bin/python3                                  # tech config 驱动，自动发现 ~/.ciel/ciel 的 sky130 PM3 模型
-make analog-tech-check ANALOG_TECH=sky130 PYTHON=/usr/bin/python3                           # 打印模型/Magic/KLayout 解析结果
-make sky130-pvt PYTHON=/usr/bin/python3                                                    # 45 点 corner x V x T LUT
-make sky130-mc PYTHON=/usr/bin/python3 MC_SAMPLES=20                                       # behavioral mismatch MC（非 PDK MC）
+make verify-link VERIFY_PACKAGE=out/soc VERIFY_ANALOG_LUT=build/verify/sky130_lut.json  # bound package + sky130 LUT
+make analog-lut ANALOG_TECH=sky130 PYTHON=/usr/bin/python3                                  # tech-config driven; auto-discovers sky130 PM3 models in ~/.ciel/ciel
+make analog-tech-check ANALOG_TECH=sky130 PYTHON=/usr/bin/python3                           # print model/Magic/KLayout resolution
+make sky130-pvt PYTHON=/usr/bin/python3                                                    # 45-point corner x V x T LUT
+make sky130-mc PYTHON=/usr/bin/python3 MC_SAMPLES=20                                       # behavioral mismatch MC (not PDK MC)
 make pex-compare SCHEM_LUT=... PEX_LUT=...                                                # PEX vs schematic LUT delta
-make analog-lut-demo PYTHON=/usr/bin/python3                                                # 无 PDK 时的 generic 自检（非 sky130）
+make analog-lut-demo PYTHON=/usr/bin/python3                                                # generic self-check without a PDK (not sky130)
 ```
 
-`make verify-link VERIFY_PACKAGE=<out>` 读取 package manifest 的 line rate、DATA_WIDTH、WORDS、SYNC_LEN、design/interface，拒绝未绑定或参数不一致的声明；通过后把 eye/bathtub/JTOL 结果写成 `reports/ber.json` 并回写 `link_capability`。`--chain frame`（默认）用实际生成的帧宽度做 `rx_par_data` scoreboard。`verification/analog/` 提供 tech-config 驱动的原理图级 LUT 提取（ngspice + PDK 模型，不含 PEX；sky130 已支持，gf180/ihp 为 scaffold）；`scripts/verify_link.py --analog-lut ... --tx-load-ff ...` 可用 TX rise time 推导的 RC tau 替换 profile 值。PVT/PEX 仍不在声明范围内。
+`make verify-link VERIFY_PACKAGE=<out>` reads the line rate, DATA_WIDTH, WORDS, SYNC_LEN and design/interface from the package manifest and rejects unbound or inconsistent claims; on success it writes the eye/bathtub/JTOL results to `reports/ber.json` and writes back `link_capability`. `--chain frame` (the default) uses the actually generated frame width for the `rx_par_data` scoreboard. `verification/analog/` provides tech-config-driven schematic-level LUT extraction (ngspice + PDK models, no PEX; sky130 supported, gf180/ihp are scaffolds); `scripts/verify_link.py --analog-lut ... --tx-load-ff ...` can replace the profile value with an RC tau derived from the TX rise time. PVT/PEX are still outside the claimed scope.
 
-`verification/` 把三类问题分开：2-UI eye / eye metrics、固定相位或固定阈值扫描的经验 BER bathtub（0 误码只报 3/N 上界，不报 BER=0）、以及 Gaussian 尾部统计 BER。`jtol --model analytic` 是明确标注的固定相位演示，不含 CDR；`verification.rtl.runner` 用 iverilog 驱动真实 RTL：`--chain cdr` 直接驱动 `cdr_adaptive`，`--chain rx` 把 Python 模拟信道（ISI + AWGN + 阈值）切片后的码流送入完整 `serdes_rx_digital` 链；`--chain frame` 进一步加 comma 帧格式，用 `rx_par_data`/`rx_frame_valid` 做帧级 scoreboard。统计实际恢复比特/帧的 BER、bit slip 与 lock loss。它仍不是模拟 TX/RX、PEX 或晶体管级模型；详见 `verification/README.md`。
+`verification/` separates three kinds of questions: 2-UI eye / eye metrics, empirical BER bathtubs from fixed-phase or fixed-threshold sweeps (zero errors report only a 3/N upper bound, never BER=0), and Gaussian-tail statistical BER. `jtol --model analytic` is an explicitly labeled fixed-phase demo without a CDR; `verification.rtl.runner` drives the real RTL with iverilog: `--chain cdr` drives `cdr_adaptive` directly, `--chain rx` feeds the bit stream sliced from the Python analog channel (ISI + AWGN + threshold) into the full `serdes_rx_digital` chain, and `--chain frame` adds the comma frame format and uses `rx_par_data`/`rx_frame_valid` for a frame-level scoreboard. It counts BER, bit slips and lock losses on the actually recovered bits/frames. It is still not an analog TX/RX, PEX or transistor-level model; see `verification/README.md`.
 
-CI（`.github/workflows/ci.yml`）在每次 push/PR 上安装 pinned sv2v、生成 `out/ci-soc`、运行 `make sim lint synth regress`、框架测试和绑定 package 的 `make verify-link`，并上传 `ber.json`；缺 PyYAML、iverilog、sv2v 或任一 gate 失败都会使 CI 失败。原生 SystemVerilog 仍用于 iverilog/Verilator，Yosys/LibreLane 只读 `rtl/sv2v/*.v`。
+CI (`.github/workflows/ci.yml`) installs a pinned sv2v on every push/PR, generates `out/ci-soc`, runs `make sim lint synth regress`, the framework tests and `make verify-link` on the bound package, and uploads `ber.json`; a missing PyYAML, iverilog or sv2v, or any failing gate, fails CI. Native SystemVerilog is still used for iverilog/Verilator; Yosys/LibreLane read only `rtl/sv2v/*.v`.
 
-顶层/信道/SDC：
+Top/channel/SDC:
 
-- `rtl/serdes_digital_top.sv`：数字顶层
-- `tb/channel_model.sv`：延迟/反相/确定性误码注入的数字信道模型（不含模拟损耗/ISI）
-- `constraints/serdes_digital.sdc`：TX/RX 双时钟、异步 clock group、uncertainty、I/O delay 模板（模板值未用目标 PDK 工具签核，生成器需替换周期/uncertainty）
-- `scripts/gen_ip.py`：spec → 自包含 package（RTL/filelist/params/3 级 SDC/PnR config/manifest）
-- `scripts/qualify.py`：按 `RTL_FUNCTIONAL → ... → LINK_VALIDATED` 检查证据，拒绝跨级声明
-- `docs/clocking.md`：原网表时钟树审计与 skew 预算（已按 3 级 CTS/均衡扇出修正）
-- `docs/prepnr_sta.md`：pre-PnR STA 方法学、reset/control 分离、三种工艺分级与线延迟预算
-- `tech/<pdk>/tech.yaml`：PDK/SCL/LIB/corner/CTS 目标；路径用 `${PDK_ROOT}` / `${PDK_LIB_ROOT}` 展开，见 `tech/README.md`
-- `scripts/analyze_clock_tree.py`：从 `.lvs.v` 提取时钟树深度/扇出
+- `rtl/serdes_digital_top.sv`: digital top
+- `tb/channel_model.sv`: digital channel model with delay/inversion/deterministic error injection (no analog loss/ISI)
+- `constraints/serdes_digital.sdc`: TX/RX dual clocks, asynchronous clock groups, uncertainty, I/O delay template (template values are not signed off with target-PDK tools; the generator must replace period/uncertainty)
+- `scripts/gen_ip.py`: spec → self-contained package (RTL/filelist/params/3-level SDC/PnR config/manifest)
+- `scripts/qualify.py`: checks evidence along `RTL_FUNCTIONAL → ... → LINK_VALIDATED` and rejects cross-level claims
+- `docs/clocking.md`: clock-tree audit of the original netlist and skew budget (corrected for 3-level CTS / balanced fanout)
+- `docs/prepnr_sta.md`: pre-PnR STA methodology, reset/control separation, three process tiers and wire-delay budget
+- `tech/<pdk>/tech.yaml`: PDK/SCL/LIB/corner/CTS targets; paths expand `${PDK_ROOT}` / `${PDK_LIB_ROOT}`, see `tech/README.md`
+- `scripts/analyze_clock_tree.py`: extracts clock-tree depth/fanout from `.lvs.v`
 
-## 5. 参数与目标工艺
+## 5. Parameters and target processes
 
-`DATA_WIDTH`/`WORDS` 不绑定工艺；`RATIO=DATA_WIDTH*WORDS` 在模块内部派生，避免参数不一致。目标工艺由 `tech/<pdk>/tech.yaml` 的 `limits` 选择，实际字段为：
+`DATA_WIDTH`/`WORDS` are not tied to a process; `RATIO=DATA_WIDTH*WORDS` is derived inside the modules to avoid inconsistent parameters. The target process is selected by `limits` in `tech/<pdk>/tech.yaml`; the actual fields are:
 
 ```yaml
 limits:
@@ -365,83 +362,83 @@ limits:
   max_link_line_rate_mbps: 50
 ```
 
-这些 gate 来自 pre-PnR 测量，是保守值，不是 signoff。generator 会按 `target=link/tx/rx` 选择 link 或 endpoint gate，并拒绝超限配置；`--relax-limits` 只用于显式实验。
+These gates come from pre-PnR measurements; they are conservative values, not signoff. The generator picks the link or endpoint gate by `target=link/tx/rx` and rejects configurations beyond the limits; `--relax-limits` is only for explicit experiments.
 
-生成器不再按“工艺名 → 固定架构”查表，而是：
+The generator no longer looks up "process name → fixed architecture"; instead it:
 
-1. 从 `tech/arch_db.yaml` 读取候选架构和相对 area/power/latency；
-2. 按 target、RATIO、line rate、oversample、clocking、ppm 过滤；
-3. 计算 Pareto frontier，并按 `optimization.objectives` 选一个；
-4. 生成 package，并在 `manifest.json` 记录候选、confidence、参数和 git commit。
+1. reads candidate architectures and relative area/power/latency from `tech/arch_db.yaml`;
+2. filters by target, RATIO, line rate, oversample, clocking and ppm;
+3. computes the Pareto frontier and picks one by `optimization.objectives`;
+4. generates the package and records candidates, confidence, parameters and the git commit in `manifest.json`.
 
-默认规则：
+Default rules:
 
-- `RATIO <= 128` 可用 single-cycle `parallel_mux`；更大 RATIO 用 `word_group_capture`。
-- 窄输入 / MPW 小面积目标可用 endpoint-only `word_streaming`。
-- 同源时钟用 `fixed_oversampling`；有 ppm 频偏用 `adaptive_oversampling`（OS ≥ 8）；有 forwarded clock 用 `source_sync`。
-- `apb_csr`、`async_fifo`、`axis_tx_adapter`、`axis_rx_adapter`、AXIS endpoint、PRBS、pad 级 APB BIST 和单/多时钟 SoC wrapper 均有可验证 RTL；`target=tx/rx` 的 AXIS package 和 source-sync `soc` package 可以直接生成。`phy_ip` 仍缺 calibration/DFT 集成，必须显式 `--allow-incomplete`。
+- `RATIO <= 128` can use single-cycle `parallel_mux`; larger RATIO uses `word_group_capture`.
+- Narrow-input / small-area MPW targets can use endpoint-only `word_streaming`.
+- Same-source clocks use `fixed_oversampling`; ppm offset uses `adaptive_oversampling` (OS ≥ 8); a forwarded clock uses `source_sync`.
+- `apb_csr`, `async_fifo`, `axis_tx_adapter`, `axis_rx_adapter`, AXIS endpoints, PRBS, pad-level APB BIST and the single/multi-clock SoC wrappers all have verifiable RTL; AXIS packages for `target=tx/rx` and the source-sync `soc` package can be generated directly. `phy_ip` still lacks calibration/DFT integration and requires an explicit `--allow-incomplete`.
 
-## 6. 下一层抽象
+## 6. The next abstraction layer
 
-已落地：
+Landed:
 
-- Frame alignment/comma（`comma_align`，单次和 per-frame 重对齐）。
-- fixed/adaptive/source-sync 三种 CDR。
-- word-streaming serializer 架构。
-- spec-driven package generator、三级 SDC、qualification gate。
-- 8b/10b、64b/66b 编码层 package（`serdes_8b10b_top` / `serdes_64b66b_top`，generator 的 `coding:` 选择）、scrambler（`pcs_64b66b`）、CRC 原语（`crc_frame` / `axis_crc_*`，CRC-16/32 已验证）。8b/10b 的 K 码控制通路已打通（`tx_charisk/rx_charisk` 直通到 `pcs_8b10b_tx.ctrl`，`/I/ /S/ /T/` 可用），comma 对齐改为 10-bit K28.5 正负极性检测并支持 `RETRIGGER=1` per-frame 重对齐；64b/66b 增加了 66-bit 滑窗块锁、控制块类型解码和 RX gearbox。**边界**：8b10b package 的 `enc_ctrl` 仍恒为 0（K 码要经 `tx_charisk` 显式驱动，generator 不生成 K 码流）；64b66b 的 control-field 只做分类不做字节提取，无 lane distribution；CRC 尚未接入生成包的 frame 路径。限制记录在 `manifest.capabilities.coding.limitations` 与 `docs/pcs_coding.md`。
+- Frame alignment/comma (`comma_align`, one-shot and per-frame realignment).
+- Three CDRs: fixed/adaptive/source-sync.
+- Word-streaming serializer architecture.
+- Spec-driven package generator, three-level SDC, qualification gate.
+- 8b/10b and 64b/66b coding-layer packages (`serdes_8b10b_top` / `serdes_64b66b_top`, selected by the generator's `coding:`), scrambler (`pcs_64b66b`), CRC primitives (`crc_frame` / `axis_crc_*`, CRC-16/32 verified). The 8b/10b K-code control path is connected (`tx_charisk/rx_charisk` pass through to `pcs_8b10b_tx.ctrl`, so `/I/ /S/ /T/` are usable); comma alignment now detects 10-bit K28.5 in both disparities and supports `RETRIGGER=1` per-frame realignment; 64b/66b gained a 66-bit sliding-window block lock, control-block type decoding and an RX gearbox. **Boundaries**: the 8b10b package's `enc_ctrl` is still always 0 (K codes must be driven explicitly through `tx_charisk`; the generator does not generate K-code streams); 64b66b control fields are only classified, not byte-extracted, and there is no lane distribution; CRC is not yet wired into the generated package's frame path. The limitations are recorded in `manifest.capabilities.coding.limitations` and `docs/pcs_coding.md`.
 
-仍未实现 / 不在本目录承诺：
+Still not implemented / not promised by this directory:
 
-- FEC、完整 PCS（K 码有序集调度、64b/66b control-field 提取与 lane distribution、多 lane 64b/66b gearbox）、CRC/可靠传输的生成包 frame 接入。
-- 单时钟 `serdes_soc_wrapper`、多时钟 `serdes_soc_cdc_wrapper`、pad BIST 和 word/数据通路 BIST 已实现并测试；APB 控制的注入/环回/快照已集成。仍缺 calibration、non-source-sync SoC CDR 集成，以及 CDC wrapper 的 word BIST（当前只在单时钟 wrapper 中）。
-- Scan/DFT、clock gating、BIST/calibration、DFT signoff。
-- 模拟 TX/RX 的 Verilog-A/RNM wrapper、PEX、SI/PI、jitter/BER、silicon correlation。
-- 目标 PDK 的 cellmap/floorplan/post-route signoff adapter；当前 `native_dff` 仍是文档字段，尚无自动 `dfflibmap` runner。
-- 标准单元目录/可用性见 [`docs/library_catalog.md`]，sky130 各家族的逐 cell DRC/LVS 与 9-track 混合库（`hd`+`hdll`）布线与 PPA 见 [`docs/sky130_ifamily_mix.md`](docs/sky130_ifamily_mix.md)，结构优化路线见 [`docs/timing_optimization.md`](docs/timing_optimization.md)，sky130 PVT 证据见 [`docs/pvt_sky130.md`](docs/pvt_sky130.md)，PEX 状态见 [`docs/pex_status.md`](docs/pex_status.md)，PDK MC（ngspice 局部失配 / Xyce 全局 process）见 [`docs/mc_pdk.md`](docs/mc_pdk.md)，generated-top SoC E2E 见 [`docs/soc_e2e.md`](docs/soc_e2e.md)，模拟宏契约见 [`docs/analog_contracts.md`](docs/analog_contracts.md)，混合信号 PEX 链与 RX PEX 数字恢复见 [`docs/mixed_signal.md`](docs/mixed_signal.md)，宏 PnR 状态见 [`docs/analog_pnr.md`](docs/analog_pnr.md)，跨工艺宏生成器见 [`docs/macro_generator.md`](docs/macro_generator.md)，外部 ADPLL（`../adpll_gen`）的功能缺口与 `clock_source` 契约评审见 [`docs/adpll_gen_review.md`](docs/adpll_gen_review.md)，IHP130 三条性能路径的实测对照（OS=2 / 驱动单元 / 两级进位）见 [`docs/ihp_perf_paths.md`](docs/ihp_perf_paths.md)。
+- FEC, a full PCS (K-code ordered-set scheduling, 64b/66b control-field extraction and lane distribution, a multi-lane 64b/66b gearbox), and wiring CRC/reliable transport into the generated package's frame path.
+- The single-clock `serdes_soc_wrapper`, multi-clock `serdes_soc_cdc_wrapper`, pad BIST and word/datapath BIST are implemented and tested; APB-controlled injection/loopback/snapshot are integrated. Still missing: calibration, non-source-sync SoC CDR integration, and word BIST in the CDC wrapper (currently only in the single-clock wrapper).
+- Scan/DFT, clock gating, BIST/calibration, DFT signoff.
+- Verilog-A/RNM wrappers for analog TX/RX, PEX, SI/PI, jitter/BER, silicon correlation.
+- Cellmap/floorplan/post-route signoff adapters for target PDKs; `native_dff` is currently still a documentation field, with no automatic `dfflibmap` runner.
+- Standard-cell catalog/availability: [`docs/library_catalog.md`]; per-cell DRC/LVS of the sky130 families and routing/PPA of the 9-track mixed library (`hd`+`hdll`): [`docs/sky130_ifamily_mix.md`](docs/sky130_ifamily_mix.md); structural optimization roadmap: [`docs/timing_optimization.md`](docs/timing_optimization.md); sky130 PVT evidence: [`docs/pvt_sky130.md`](docs/pvt_sky130.md); PEX status: [`docs/pex_status.md`](docs/pex_status.md); PDK MC (ngspice local mismatch / Xyce global process): [`docs/mc_pdk.md`](docs/mc_pdk.md); generated-top SoC E2E: [`docs/soc_e2e.md`](docs/soc_e2e.md); analog macro contracts: [`docs/analog_contracts.md`](docs/analog_contracts.md); mixed-signal PEX chain and RX PEX digital recovery: [`docs/mixed_signal.md`](docs/mixed_signal.md); macro PnR status: [`docs/analog_pnr.md`](docs/analog_pnr.md); cross-process macro generator: [`docs/macro_generator.md`](docs/macro_generator.md); review of the external ADPLL (`../adpll_gen`) functional gaps and the `clock_source` contract: [`docs/adpll_gen_review.md`](docs/adpll_gen_review.md); measured comparison of three IHP130 performance paths (OS=2 / drive cells / two-level carry): [`docs/ihp_perf_paths.md`](docs/ihp_perf_paths.md).
 
-## 7. 原生 DFF 映射策略
+## 7. Native DFF mapping strategy
 
-- RTL 只推断时序元件（`always_ff`），**不手写任何 PDK DFF 单元名**。
-- 综合阶段用 Yosys `dfflibmap -liberty <PDK lib>` 映射到目标 PDK 的原生 DFF。
-- 已确认的原生映射：
+- The RTL only infers sequential elements (`always_ff`) and **never hand-instantiates any PDK DFF cell name**.
+- At synthesis, Yosys `dfflibmap -liberty <PDK lib>` maps them to the target PDK's native DFF.
+- Confirmed native mappings:
 
-| PDK | 原生 DFF | 证据 |
+| PDK | Native DFF | Evidence |
 |---|---|---|
-| sky130A | `sky130_fd_sc_hd__dfrtp_1` | top 550 个该单元；`unmapped=0` |
-| gf180mcuD 7t5v0 | `gf180mcu_fd_sc_mcu7t5v0__dffrnq_1` | top 550 个该单元；`unmapped=0` |
-| IHP SG13G2 | `sg13g2_dfrbpq_1` | 手动 Yosys `dfflibmap` 后 550 个该单元 |
-| icsprout55 H7CH (HVT) | `DFFRQX2H7H` | 7T；Top 550 个 |
-| icsprout55 H7CL (LVT) | `DFFRQX2H7L` | 7T；Top 550 个 |
-| icsprout55 H7CR (RVT) | `DFFRQX2H7R` | 7T；Top 550 个；`unmapped=0` |
+| sky130A | `sky130_fd_sc_hd__dfrtp_1` | top has 550 of this cell; `unmapped=0` |
+| gf180mcuD 7t5v0 | `gf180mcu_fd_sc_mcu7t5v0__dffrnq_1` | top has 550 of this cell; `unmapped=0` |
+| IHP SG13G2 | `sg13g2_dfrbpq_1` | 550 of this cell after a manual Yosys `dfflibmap` |
+| icsprout55 H7CH (HVT) | `DFFRQX2H7H` | 7T; Top 550 |
+| icsprout55 H7CL (LVT) | `DFFRQX2H7L` | 7T; Top 550 |
+| icsprout55 H7CR (RVT) | `DFFRQX2H7R` | 7T; Top 550; `unmapped=0` |
 
-不使用 OpenSERDES 的 NAND 主从 DFF / 自定义 DFF 作为数字标准单元。
-原始 `DFF/` 和 `NAND/` 物理单元已移入 `legacy/DFF/`、`legacy/NAND/`，只作
-provenance；默认数字流程使用 PDK 标准单元 DFF/NAND。
+OpenSERDES's NAND master-slave DFF / custom DFF is not used as a digital standard cell.
+The original `DFF/` and `NAND/` physical cells have moved to `legacy/DFF/` and `legacy/NAND/` as
+provenance only; the default digital flow uses the PDK standard-cell DFF/NAND.
 
-icsprout55 的三种库都是 **7-track**（cell height 1.4 µm，M1 pitch 0.2 µm）：
+All three icsprout55 libraries are **7-track** (cell height 1.4 µm, M1 pitch 0.2 µm):
 
-| 变体 | Vt | 用途 |
+| Variant | Vt | Use |
 |---|---|---|
-| `H7CH` | HVT | 低漏电，速度最慢 |
-| `H7CL` | LVT | 高速，漏电较高 |
-| `H7CR` | RVT | 默认平衡 |
+| `H7CH` | HVT | Low leakage, slowest |
+| `H7CL` | LVT | High speed, higher leakage |
+| `H7CR` | RVT | Default, balanced |
 
-三种变体的 cell footprint/面积相同，差别在 Vt、时序和漏电；不要把它们当成三个不同工艺节点。GF180 的 `mcu7t5v0` 也是 7T；IHP SG13G2 的 cell height 3.78 µm / M1 pitch 0.42 µm 更接近 9T，跨 PDK 面积对比必须归一化 track 高度。
+The three variants have the same cell footprints/areas and differ in Vt, timing and leakage; do not treat them as three different process nodes. GF180's `mcu7t5v0` is also 7T; IHP SG13G2's cell height of 3.78 µm / M1 pitch 0.42 µm is closer to 9T, so cross-PDK area comparisons must normalize for track height.
 
-50 MHz pre-PNR 对比（Top，ss corner）：
+50 MHz pre-PnR comparison (Top, ss corner):
 
-| 变体 | Setup WNS (ss) | 结论 |
+| Variant | Setup WNS (ss) | Conclusion |
 |---|---:|---|
-| H7CH (HVT) | −10.65 ns | 50 MHz 不闭合 |
-| H7CL (LVT) | +2.38 ns | 50 MHz 通过（pre-CTS hold 余量仅 4.7 ps） |
-| H7CR (RVT) | +1.58 ns | 50 MHz 通过（pre-CTS hold 余量 14.7 ps） |
+| H7CH (HVT) | −10.65 ns | 50 MHz does not close |
+| H7CL (LVT) | +2.38 ns | 50 MHz passes (pre-CTS hold margin only 4.7 ps) |
+| H7CR (RVT) | +1.58 ns | 50 MHz passes (pre-CTS hold margin 14.7 ps) |
 
-Serializer 单独在 50 MHz：H7CH −25.97 ns、H7CL −1.01 ns、H7CR −5.63 ns，三者都不闭合；需要 25 MHz 或对 256:1 mux 加流水。Top 通过的原因包含顶层优化/连接差异，不能据此宣称 Serializer 单独也通过。
+The Serializer alone at 50 MHz: H7CH −25.97 ns, H7CL −1.01 ns, H7CR −5.63 ns; none of the three closes, so it needs 25 MHz or pipelining of the 256:1 mux. The reasons Top passes include top-level optimization/connectivity differences, so this cannot be used to claim the Serializer passes on its own.
 
-## 8. Generator、presets 与 qualification
+## 8. Generator, presets and qualification
 
-生成器入口是 `scripts/gen_ip.py`，spec 示例在 `spec/`：
+The generator entry point is `scripts/gen_ip.py`; example specs are in `spec/`:
 
 ```bash
 python3 scripts/gen_ip.py --spec spec/default.yaml --out out/default --force
@@ -449,19 +446,19 @@ python3 scripts/gen_ip.py --spec spec/default.yaml --check
 python3 scripts/gen_ip.py --list-arch
 ```
 
-输出 package 包含 `rtl/`、`rtl/filelist.f`、`params.svh/json`、`constraints/{pre_pnr,post_cts,signoff}.sdc`、`pnr/librelane.yaml`、`manifest.json` 和 `README.md`。注意 `word_group_capture` 仍是 frame-level hold（`ready` 低 `WORDS` 拍，外部总线需保持稳定），不是 per-word handshake；需要真正的逐 word 握手时选 `word_streaming`。`pre_pnr.sdc` 排除 async reset recovery/removal；`post_cts.sdc`/`signoff.sdc` 用 `set_propagated_clock` 并重新启用 reset 检查。
+The output package contains `rtl/`, `rtl/filelist.f`, `params.svh/json`, `constraints/{pre_pnr,post_cts,signoff}.sdc`, `pnr/librelane.yaml`, `manifest.json` and `README.md`. Note that `word_group_capture` is still a frame-level hold (`ready` is low for `WORDS` cycles and the external bus must stay stable), not a per-word handshake; choose `word_streaming` when a real per-word handshake is needed. `pre_pnr.sdc` excludes async reset recovery/removal; `post_cts.sdc`/`signoff.sdc` use `set_propagated_clock` and re-enable the reset checks.
 
-| preset | 数据 | 控制 | CDC | 状态 |
+| preset | Data | Control | CDC | Status |
 |---|---|---|---|---|
-| `minimal` | valid/ready parallel | native | none | 可用 |
-| `default` | valid/ready parallel | native | auto | 可用 |
-| `soc` | AXI4-Stream | APB | none 或 async FIFO | `serdes_soc_wrapper`（单时钟）/ `serdes_soc_cdc_wrapper`（多时钟，source-sync link）可用 |
-| `phy_ip` | valid/ready + BIST/calibration/DFT | APB | async FIFO | APB/FIFO 原语可用；BIST/DFT 集成仍 scaffold |
+| `minimal` | valid/ready parallel | native | none | Available |
+| `default` | valid/ready parallel | native | auto | Available |
+| `soc` | AXI4-Stream | APB | none or async FIFO | `serdes_soc_wrapper` (single clock) / `serdes_soc_cdc_wrapper` (multi-clock, source-sync link) available |
+| `phy_ip` | valid/ready + BIST/calibration/DFT | APB | async FIFO | APB/FIFO primitives available; BIST/DFT integration still a scaffold |
 
-验证等级由 `scripts/qualify.py` 强制执行：`RTL_FUNCTIONAL`（lint/sim/synth）、`PRE_PNR_TIMING`、`POST_ROUTE_TIMING`、`PHYSICAL_SIGNOFF`、`LINK_VALIDATED`。`scripts/collect_signoff.py` 把 PnR/STA/DRC/LVS/CDC/BER 报告收集成 `signoff.json`；缺失的检查不会被猜测为通过。
+Verification levels are enforced by `scripts/qualify.py`: `RTL_FUNCTIONAL` (lint/sim/synth), `PRE_PNR_TIMING`, `POST_ROUTE_TIMING`, `PHYSICAL_SIGNOFF`, `LINK_VALIDATED`. `scripts/collect_signoff.py` collects PnR/STA/DRC/LVS/CDC/BER reports into `signoff.json`; missing checks are never assumed to pass.
 
-实测 PPA 通过 `scripts/import_ppa.py` 写入 `tech/ppa_measured.yaml`，generator 的 `--ppa-db` 会在能力过滤前应用；manifest 记录 `ppa_source`、confidence 和绝对值。详细规则见 [`docs/generator.md`](docs/generator.md) 和 [`docs/qualification.md`](docs/qualification.md)。
+Measured PPA is written to `tech/ppa_measured.yaml` through `scripts/import_ppa.py`; the generator's `--ppa-db` applies it before capability filtering, and the manifest records `ppa_source`, confidence and absolute values. Detailed rules are in [`docs/generator.md`](docs/generator.md) and [`docs/qualification.md`](docs/qualification.md).
 
-## 9. 许可
+## 9. License
 
-原 OpenSERDES 为 GPL-3.0。本目录是行为/接口级的 clean rewrite，未复制原门级网表；对外分发前请确认 GPL 义务与目标 PDK 许可。
+The original OpenSERDES is GPL-3.0. This directory is a behavioral/interface-level clean rewrite and does not copy the original gate-level netlists; confirm GPL obligations and target-PDK licenses before distributing externally.
