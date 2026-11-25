@@ -261,16 +261,23 @@ module cdr_decimated_loop #(
     // and the jitter pairs (A->B->A) never report.
     reg  [PH_W-1:0] f_hold_q;                     // f(n-1)
     reg  [PH_W-1:0] f_hold2_q;                    // f(n-2)
-    wire [PH_W-1:0] f_nextf = tap_next >> 1;      // f(n+1)
+    wire [PH_W-1:0] f_nextf = tap_next >> 1;      // f(n+1), pipeline input
     wire [PH_W-1:0] f_nowf  = tap_prev_q >> 1;    // f(n)
     wire [PH_W-1:0] f_holdf = f_hold_q >> 1;      // f(n-1)
     wire [PH_W-1:0] f_hold2f= f_hold2_q >> 1;     // f(n-2)
-    wire [PH_W-1:0] f_next  = CLK_FOLLOW ? f_nowf  : f_nextf;
-    wire [PH_W-1:0] f_prev  = CLK_FOLLOW ? f_hold2f: f_nowf;
-    // CLK_FOLLOW: the new content index must have held for TWO windows.
-    wire        f_held      = CLK_FOLLOW ? (f_nextf == f_nowf) && (f_nowf == f_holdf)
-                                         : 1'b1;
-    wire [1:0]        dfm   = f_next[1:0] - f_prev[1:0];       // mod 4
+    // CLK_FOLLOW slip bookkeeping (oracle-derived): in clock-following mode
+    // the breathing clk_q absorbs the ppm drift, so there are NO discrete
+    // physical content slips -- slip_evt is a REPRESENTATION-ONLY marker that
+    // the registered content index f moved, emitted for the checker/gearbox
+    // to mask the tag region.  Emit on EVERY registered f transition
+    // (f_nowf != f_holdf): direction-symmetric, one event per index change,
+    // no debounce (a debounce both swallowed real transitions and let the
+    // checker split segments into un-maskable short runs).  adv/drop/insert
+    // stay as the bookkeeping delta of that transition.
+    wire [PH_W-1:0] f_new  = CLK_FOLLOW ? f_nowf   : f_nextf;   // current idx
+    wire        f_held      = CLK_FOLLOW ? (f_nowf != f_holdf)  // every transition
+                                          : 1'b1;
+    wire [1:0]        dfm   = f_new[1:0] - f_holdf[1:0];        // mod 4
     wire signed [2:0] adv_off = (dfm == 2'd3) ? -3'sd1 : $signed({1'b0, dfm});
     wire signed [3:0] adv   = 4'sd4 + adv_off;                 // 3..6
     wire       adv_skip = (adv > 4);
@@ -328,7 +335,7 @@ module cdr_decimated_loop #(
 `endif
                 if ((adv_skip || adv_dup) && f_held) begin
                     slip_evt_q   <= 1'b1;
-                    slip_pi_q    <= tap_next;
+                    slip_pi_q    <= tap_prev_q;   // the held index (settled)
                     slip_drop_q   <= adv_dup  ? dup_cnt  : 2'b00;
                     slip_insert_q <= adv_skip ? skip_cnt : 2'b00;
                 end

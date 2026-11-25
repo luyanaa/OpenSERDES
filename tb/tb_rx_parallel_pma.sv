@@ -79,7 +79,11 @@ module tb_rx_parallel_pma #(
     parameter int  SLIP_FORGIVE = 64       // bits masked around each slip
 );
     localparam int DATA_W = 16;
-    localparam int N_TX   = N_CHECK + 1024;
+    // tx must cover every rx bit the checker can collect (N_RX, not just
+    // N_CHECK): the checker aligns segments against tx_bits and unbounded
+    // reads past N_TX misalign a bit-perfect tail (oracle-derived: -300's
+    // rx[2816..3072) block needed tx past the 5024 cliff).  N_TX >= N_RX.
+    localparam int N_TX   = N_CHECK + 2048;
     localparam int N_RX   = N_CHECK + 2048;
 
     logic        rst_n, enable, dco_en, data_in;
@@ -357,17 +361,30 @@ module tb_rx_parallel_pma #(
             int seg_end   [0:130];
             int nseg, s, k, cand, best_cand, best_err, errs, t;
             int gap_lo, gap_hi;
+            int prev_gap_hi, probe_len;
             for (eh = 0; eh < 32; eh++) err_hist[eh] = 0;
+            // Merge slip events closer than 2*SLIP_FORGIVE + 96 bits into one
+            // masked region (oracle-derived): in CLK_FOLLOW the events are
+            // bookkeeping markers and dither clusters can land <96 bits
+            // apart; a segment shorter than the probe can never align and
+            // degenerates into a misaligned garbage count.  Merging them
+            // keeps the residual segments probeable.
             nseg = 0;
             s = 0;
+            prev_gap_hi = -1;
             seg_start[0] = 0;
             for (k = 0; k < nsteps; k++) begin
                 gap_lo = step_pos[k] - SLIP_FORGIVE;
                 gap_hi = step_pos[k] + SLIP_FORGIVE;
-                if (gap_lo > seg_start[nseg] + 32) begin
+                if (k > 0 && gap_lo < prev_gap_hi + 96) begin
+                    // Clustered with the previous event: extend its mask
+                    // instead of opening a new (impossibly short) segment.
+                    if (gap_hi > prev_gap_hi) prev_gap_hi = gap_hi;
+                end else if (gap_lo > seg_start[nseg] + 32) begin
                     seg_end[nseg] = gap_lo;
                     nseg = nseg + 1;
                     seg_start[nseg] = gap_hi;
+                    prev_gap_hi = gap_hi;
                 end
                 total_masked = total_masked + (gap_hi - gap_lo);
             end
@@ -392,15 +409,21 @@ module tb_rx_parallel_pma #(
                         cand++;
                     end
                 end else begin
+                    // Short-segment probe (oracle-derived): probe with the
+                    // shorter of 96 bits or the segment length so a segment
+                    // below probe size is not degenerate (errs=999 on every
+                    // candidate -> best_cand frozen at the window edge).
+                    probe_len = (seg_end[k] - seg_start[k] < 96)
+                              ? (seg_end[k] - seg_start[k]) : 96;
                     cand = s + (seg_start[k] - seg_start[k-1]) - 96;
                     while (cand <= s + (seg_start[k] - seg_start[k-1]) + 96
                            && cand < N_TX - 64) begin
                         errs = 0; t = 0;
-                        while (t < 96 && seg_start[k] + t < seg_end[k] && cand + t < N_TX) begin
+                        while (t < probe_len && seg_start[k] + t < seg_end[k] && cand + t < N_TX) begin
                             if (rx_bits[seg_start[k] + t] !== tx_bits[cand + t]) errs++;
                             t++;
                         end
-                        if (t < 96) errs = 999;
+                        if (t < probe_len) errs = 999;
                         if (errs < best_err) begin best_err = errs; best_cand = cand; end
                         cand++;
                     end
