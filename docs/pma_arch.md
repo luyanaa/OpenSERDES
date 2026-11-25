@@ -232,25 +232,51 @@ Loop changes (all `CLK_FOLLOW`-gated, Stage-A rotator mode untouched):
   within a window never report; real drift crossings report 1 window
   (4 UI) late, inside the repair tolerance.
 - `cdr_parallel_top`: `pi_frac` exposed, `CLK_FOLLOW` parameter passed
-  through to the loop; gearbox repairs ENABLED in CLK_FOLLOW (the report now
-  lands on the physical events).  Stage-A (`ROT_EN=1`, `CLK_FOLLOW=0`)
+  through to the loop.  Stage-A (`ROT_EN=1`, `CLK_FOLLOW=0`)
   verified unchanged: `tb_cdr_parallel` PPM=0 and PATTERN=3 still pass.
   (Stage-A `PH_OFF=2` fails identically before and after — pre-existing
   open item, this is the Stage-A capture-range case the spec already lists
   as needing Stage-B clocking; the Stage-B TB captures `PH_OFF` 0..7.)
 
-Verified (`tb_rx_parallel_pma`, `LOCK_EDGES=128`, `SLIP_FORGIVE=64`,
-`KP_SHIFT=5`): behavioral mode — PPM=0/+1000/−300/−1000, PATTERN=3,
-+300·P3, +1000·P3, PH_OFF 2/5 all lock and check 0 errors (lock ~520 clk_q
-cycles ≈ 1.0 µs); structural mode (real oscillating ring) — **PPM=0, +300
-and +1000 all lock + 0 errors** (the acceptance set), plus PATTERN=3,
-+1000·P3, PH_OFF=5.  Where it still breaks (structural, non-acceptance
-cases): −300 (44-err burst), −1000 (stream misalignment), PH_OFF=2, and
-behavioral +300 (38-err burst) — all the same signature: a dither/drought
-excursion drags the sampling phase to the eye edge, the resulting ±1-UI
-content event is repaired but lands outside the ±64-bit mask or mismatches
-the event count by one.  Loop marginality, not architecture; the fix is
-loop damping (smaller KP / dead-zone), not the clocking.
+**P2 Stage-B closure (2026-11-25, honest BER)**: the structural failures
+reported above (−300/−1000/+300 bursts) were NEVER a loop-damping problem —
+an instrumented oracle run showed the rx stream was bit-exact the whole time
+(the bang-bang limit cycle is ~0.04 UI, 3× inside the 0.125 UI eye).  Three
+separate bugs produced them, all now closed:
+
+1. `r_adj = r − 1<<FREQ_FRAC` tagged slips ~64 LSB (≈26 windows at +300 ppm)
+   off the real first-data-tap crossing at `r + PH_OFF_LSB` — fixed to
+   `r + 192` (commit `28f7b4c`).
+2. The `f_held` debounce `(f_nextf == f_nowf == f_holdf)` was unreachable on
+   any window where the phase stepped, so real crossings were swallowed —
+   slip_evt now emits on every registered f-index transition (`f80d38c`).
+3. `rx_clk8` applied the PI word on the ring posedge, which drifts ±1 group
+   from `t_g`, so votes were attributed to a phase off by a group — `freq_q`
+   railed to FMAX.  `apply_pi` now runs at the `clk_q` group boundary, the
+   same point the behavioral scheduler applies it (`d582c1e`).
+
+Plus two BBPD correctness fixes (`60f4823`): the vote sum was truncated to
+`signed[2:0]` so an all-early group (+4) wrapped to −4, and the UI0 edge used
+this cycle's `edge_q[3]` instead of the previous boundary `e3_prev_q`.
+
+**Acceptance gate upgraded (`4c1619f`)**: `tb_rx_parallel_pma` now checks
+continuous unmasked PRBS31 — one-time alignment after lock (unique 128-bit
+correlate), then every one of N_CHECK bits compared at the frozen offset.
+No re-alignment, no SLIP_FORGIVE masking, no segmentation.  PATTERN sweep:
+0=PRBS31, 1=alternating, 2=long-no-transition (the CDR worst case, locks at
+~1488 cycles), 3=6%-density.  RATE_MHZ covers 250 MHz (1 Gb/s) and 500 MHz
+(2 Gb/s).  slip_evt steps are diagnostics only.
+
+**RTL restructured for physical closure (`0c91eaf`)**: the CLK_FOLLOW
+gearbox is a fixed 4→DATA_W nibble-segmented assembler (no variable-width
+repair — the breathing clock leaves no discrete slips); the CDR's
+vote→decision→integral→phase chain is split into 4 registered window stages
+(decision→phase latency 2 windows).  yosys `synth` clean, no latches.
+
+**Verified**: continuous unmasked PRBS31 on the real `pll_multiphase_dco`
+ring — PPM=0/±300/±600/±1000 all PASS **BER 0** at both 500 MHz and 250 MHz,
+all patterns; Stage-A rotator regression unchanged.  This is the first honest
+BER on the physical clocking path.
 
 ### P3 — sampler catalog (re-admit non-stdcell samplers for PMA)
 Previous cycle swapped all DFFs to PDK-native DFF — correct for generic
