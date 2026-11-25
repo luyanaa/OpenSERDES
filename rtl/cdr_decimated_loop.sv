@@ -103,7 +103,7 @@ module cdr_decimated_loop #(
     input  wire                      clk_q,
     input  wire                      rst_n,
     input  wire                      enable,
-    input  wire signed [2:0]         vote,        // -4..+4 from cdr_parallel_bbpd
+    input  wire signed [3:0]         vote,        // -4..+4 from cdr_parallel_bbpd
     input  wire                      vote_valid,
     input  wire [PH_W-1:0]           phase_init,
     output wire [PH_W-1:0]           pi_code,     // rotation of the sample grid

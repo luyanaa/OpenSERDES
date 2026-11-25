@@ -58,24 +58,30 @@ module rx_parallel_gearbox #(
     // Bits to push this cycle, stream order (index 0 first).
     reg [6:0] push_bits;
     int       push_n;
-    int       d, n;
 
     always_comb begin
+        // Block-local temporaries so no module-scope signal latches.
+        int d, n;
+        d = 0;  n = 0;                  // comb temps: assign every path (no latch)
         push_n = enable ? 4 : 0;
-        push_bits[0] = data_q[0];
-        push_bits[1] = data_q[1];
-        push_bits[2] = data_q[2];
-        push_bits[3] = data_q[3];
+        // Default the full 7-bit field so no element latches (the insert path
+        // uses bits 4..6; the drop path leaves them at this default).
+        push_bits = {3'b000, data_q};
         if (fire) begin
             if (pend_drop_q != 2'b00) begin
                 d = pend_drop_q;            // 1..3 leading bits skipped
-                for (n = 0; n < 4 - d; n++)
-                    push_bits[n] = data_q[n + d];
+                // Constant-bounded loop (Yosys can't unroll n < 4-d): copy
+                // conditionally so bits n >= 4-d keep the default data_q[n].
+                for (n = 0; n < 4; n++)
+                    if (n < 4 - d)
+                        push_bits[n] = data_q[n + d];
                 push_n = 4 - d;
             end else if (pend_ins_q != 2'b00) begin
                 d = pend_ins_q;             // 1..3 repeats prepended
-                for (n = 0; n < d; n++)
-                    push_bits[n] = last_bit_q;
+                // Constant bound on n < d likewise.
+                for (n = 0; n < 4; n++)
+                    if (n < d)
+                        push_bits[n] = last_bit_q;
                 push_bits[d]   = data_q[0];
                 push_bits[d+1] = data_q[1];
                 push_bits[d+2] = data_q[2];
@@ -116,16 +122,18 @@ module rx_parallel_gearbox #(
                 int            c;
                 shreg_n = shreg_q;
                 c       = fill_q;
-                for (int i = 0; i < push_n; i++) begin
-                    if (c == BITS - 1) begin
-                        shreg_n[BITS-1] = push_bits[i];
-                        rx_word         <= shreg_n;
-                        word_valid      <= 1'b1;
-                        shreg_n         = '0;
-                        c               = 0;
-                    end else begin
-                        shreg_n[c] = push_bits[i];
-                        c          = c + 1;
+                for (int i = 0; i < 7; i++) begin  // push_n <= 7 (4+3 insert)
+                    if (i < push_n) begin
+                        if (c == BITS - 1) begin
+                            shreg_n[BITS-1] = push_bits[i];
+                            rx_word         <= shreg_n;
+                            word_valid      <= 1'b1;
+                            shreg_n         = '0;
+                            c               = 0;
+                        end else begin
+                            shreg_n[c] = push_bits[i];
+                            c          = c + 1;
+                        end
                     end
                 end
                 shreg_q    <= shreg_n;

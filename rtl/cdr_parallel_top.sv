@@ -141,7 +141,7 @@ module cdr_parallel_top #(
         end
     end
 
-    wire signed [2:0] vote;
+    wire signed [3:0] vote;
     wire              vote_valid;
 
     cdr_parallel_bbpd #(.DECIM(DECIM)) u_bbpd (

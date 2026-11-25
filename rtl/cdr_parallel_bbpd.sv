@@ -36,7 +36,7 @@ module cdr_parallel_bbpd #(
     input  wire               enable,
     input  wire [3:0]         data_q,    // data taps, UI order 0..3
     input  wire [3:0]         edge_q,    // edge taps, boundary order 0..3
-    output reg  signed [2:0]  vote,      // summed early/late vote, -4..+4
+    output reg  signed [3:0]  vote,      // summed early/late vote, -4..+4
     output reg                vote_valid // >=1 transition in this 4-UI group
 );
 
@@ -46,21 +46,25 @@ module cdr_parallel_bbpd #(
     reg e3_prev_q;
 
     // Per-UI transition and Alexander decision.  e == older bit means the edge
-    // tap sampled before the transition -> early -> +1.
+    // tap sampled before the transition -> early -> +1.  UI0's boundary edge
+    // is the PREVIOUS cycle's e3 (e3_prev_q), not this cycle's edge_q[3] --
+    // edge_q[3] is the boundary that ENDS UI3 / closes this group.  Using the
+    // wrong edge made a lone cross-group transition vote the wrong way.
     wire        trans0 = enable && (data_q[0] != d3_prev_q);
     wire        trans1 = enable && (data_q[1] != data_q[0]);
     wire        trans2 = enable && (data_q[2] != data_q[1]);
     wire        trans3 = enable && (data_q[3] != data_q[2]);
 
-    wire signed [3:0] v0 = trans0 ? ((edge_q[3] == d3_prev_q) ? 4'sd1  : -4'sd1) : 4'sd0;
-    wire signed [3:0] v1 = trans1 ? ((edge_q[0] == data_q[0]) ? 4'sd1  : -4'sd1) : 4'sd0;
-    wire signed [3:0] v2 = trans2 ? ((edge_q[1] == data_q[1]) ? 4'sd1  : -4'sd1) : 4'sd0;
-    wire signed [3:0] v3 = trans3 ? ((edge_q[2] == data_q[2]) ? 4'sd1  : -4'sd1) : 4'sd0;
+    wire signed [4:0] v0 = trans0 ? ((e3_prev_q == d3_prev_q) ? 5'sd1  : -5'sd1) : 5'sd0;
+    wire signed [4:0] v1 = trans1 ? ((edge_q[0] == data_q[0]) ? 5'sd1  : -5'sd1) : 5'sd0;
+    wire signed [4:0] v2 = trans2 ? ((edge_q[1] == data_q[1]) ? 5'sd1  : -5'sd1) : 5'sd0;
+    wire signed [4:0] v3 = trans3 ? ((edge_q[2] == data_q[2]) ? 5'sd1  : -5'sd1) : 5'sd0;
 
     wire signed [4:0] v01 = v0 + v1;
     wire signed [4:0] v23 = v2 + v3;
-    // Truncating signed assignment: |sum| <= 4 fits in 3 bits.
-    wire signed [2:0] vote_c = v01 + v23;
+    // Sum range is -4..+4: carry it in 4 bits (a 3-bit signed field wraps
+    // +4 -> -4, so an all-early group read as all-late).
+    wire signed [3:0] vote_c = v01 + v23;
 
     always_ff @(posedge clk_q or negedge rst_n) begin
         if (!rst_n) begin
