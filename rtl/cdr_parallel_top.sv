@@ -202,7 +202,7 @@ module cdr_parallel_top #(
     wire [1:0] gb_slip_drop   = GB_SLIP_EN ? slip_drop_c   : 2'b00;
     wire [1:0] gb_slip_insert = GB_SLIP_EN ? slip_insert_c : 2'b00;
 
-    rx_parallel_gearbox #(.DATA_W(DATA_W)) u_gearbox (
+    rx_parallel_gearbox #(.DATA_W(DATA_W), .CLK_FOLLOW(CLK_FOLLOW)) u_gearbox (
         .clk_q      (clk_q),
         .rst_n      (rst_n),
         .enable     (enable),

@@ -41,6 +41,39 @@
 //   * LOCK_EDGES counts windows that carried a vote (lock budget in UI is
 //     LOCK_EDGES * DECIM).
 //
+// PIPELINED LOOP (CLK_FOLLOW = 1)
+// -------------------------------
+// The legacy update computed vote_sum_c -> sign -> freq_next -> r_next ->
+// tap_next -> slip decode as ONE combinational chain in the window-boundary
+// cycle -- fine in sim, a disaster for physical timing closure (the whole
+// loop in one 8 ns cycle).  CLK_FOLLOW mode restructures it into REAL
+// registered pipeline stages, each registering its result once per DECIM
+// window, so the critical path is a single stage:
+//
+//   (a) vote accumulation   : every clk_q cycle, vote_sum_q += vote
+//                             (this is the only per-cycle logic)
+//   (b) bang-bang decision  : at window w's end, register sgn_q = sign of
+//                             the window's net vote (+1/0/-1) and any_q =
+//                             "window carried a vote"
+//   (c) integral update     : at window w+1's end, register
+//                             freq_q += KI*sgn_q (clamped), kick_q = KP*sgn_q
+//                             (or the drought leak / stale counters)
+//   (d) phase word          : at window w+2's end, register
+//                             r_q += freq_q + kick_q  (the pre-update values)
+//                             and the tap/f slip-bookkeeping history chain
+//
+// The decision -> phase-word latency is therefore two DECIM windows (16 UI =
+// 8 ns at 2 Gb/s with DECIM=16) instead of the legacy one window.  The added
+// latency changes the effective loop bandwidth / phase margin: re-tune note
+// is in the parameter block (KP_SHIFT / FMAX unchanged, decision timing is
+// the staged cadence above -- the limit cycle was re-verified inside the eye
+// budget with tb_rx_parallel_pma across the ppm sweep).
+//
+// Rotator mode (CLK_FOLLOW = 0) keeps the legacy single-boundary update
+// VERBATIM -- it is the verified Stage-A path (tb_cdr_parallel, PPM=0) and
+// its slip-repair tag timing is tied to the one-window latency; do not
+// pipeline it without re-verifying that path.
+//
 // Phase word and pi_code
 // ----------------------
 //   r_q = { tap[PH_W-1:0], frac[FREQ_FRAC-1:0] }
@@ -69,9 +102,7 @@
 //   walk against the ppm drift - the eye budget (~+-0.125 UI) bounds the
 //   tolerable drift to ~0.25 UI total.  True ppm tracking needs the Stage-B
 //   clocking (CLK_FOLLOW=1: pi_code+pi_frac re-time the PI clock, the frac
-//   field tracks the drift smoothly and clk_q follows); that path is
-//   implemented here but its elastic-timing closure against the gearbox is
-//   not verified yet - see docs/rx_parallel_spec.md.
+//   field tracks the drift smoothly and clk_q follows).
 // -----------------------------------------------------------------------------
 module cdr_decimated_loop #(
     parameter int PH_W            = 3,   // taps per 4 UI; one tap = 0.5 UI
@@ -85,10 +116,11 @@ module cdr_decimated_loop #(
     parameter int FRAC_BITS       = 12,  // freq_trim probe width
     // 1 = Stage-B clocking: pi_code+pi_frac re-time the sampler/PI clock
     // (clk_q follows), so every tap step is a +-1-UI content shift and the
-    // fractional field tracks ppm smoothly.  0 = ideal fixed clocks with the
-    // pi_code rotator in cdr_parallel_top: content shifts happen only at
-    // even tap-boundary crossings (the +-1-tap dither inside a pair is
-    // content-neutral).
+    // fractional field tracks ppm smoothly.  The loop runs the PIPELINED
+    // stage structure above.  0 = ideal fixed clocks with the pi_code
+    // rotator in cdr_parallel_top: legacy single-boundary update (Stage-A
+    // verified path), content shifts happen only at even tap-boundary
+    // crossings (the +-1-tap dither inside a pair is content-neutral).
     parameter bit CLK_FOLLOW      = 1'b1,
     // Content-crossing locus (CLK_FOLLOW only).  The physical content shift
     // happens when the FIRST DATA TAP -- sitting PH_OFF_LSB frac-LSBs after
@@ -146,59 +178,70 @@ module cdr_decimated_loop #(
     localparam logic [LEAK_W-1:0]  LEAK_MAX  = {LEAK_W{1'b1}};
     localparam logic [STALE_W-1:0] STALE_MAX = {STALE_W{1'b1}};
 
+    // ---- stage (a): vote accumulation (every clk_q cycle) ------------------
     reg [WIN_W-1:0]        win_cnt_q;
     reg signed [VS_W-1:0]  vote_sum_q;
     reg                    win_vote_q;      // window carried >= 1 vote
+
+    wire signed [VS_W-1:0] vote_sum_c = vote_sum_q
+        + ((vote_valid && enable) ? VS_W'(vote) : VS_W'(0));
+    wire                   last_win  = (win_cnt_q == WIN_W'(WIN_CYC - 1));
+    wire                   win_any   = win_vote_q || (vote_valid && enable);
+
+    // ---- stage (b): bang-bang decision (registered at the window end) ------
+    // Window net sign: early (positive) must DELAY the sampling phase.
+    reg signed [1:0]       sgn_q;           // +1 / 0 / -1 of the last window
+    reg                    any_q;           // that window carried a vote
+
+    wire signed [VS_W-1:0] s = vote_sum_c;  // decision input (registered out)
+    wire                   vote_pos = (s > 0);
+    wire                   vote_neg = (s < 0);
+
+    // ---- stage (c): integral update (registered one window later) ----------
     reg signed [FW-1:0]    freq_q;          // delay correction, taps/window
     reg signed [FW-1:0]    kick_q;          // one-window proportional kick
+    reg [LOCK_W-1:0]       lock_cnt_q;
+    reg [LEAK_W-1:0]       leak_cnt_q;
+    reg [STALE_W-1:0]      stale_cnt_q;
+    reg                    lock_q, stale_q;
+
+    // Integral increment from the PREVIOUS window's decision (KI == 1 ->
+    // incrementer, same trick as cdr_bang_bang).  Early (positive) delays
+    // the sampling phase: freq_q increases.
+    wire signed [FW-1:0] dfreq = (KI == 1) ? FW'(sgn_q)
+                                           : (sgn_q > 0) ? KI_S
+                                           : (sgn_q < 0) ? -KI_S : FW'(0);
+    wire signed [FW-1:0] freq_next = (freq_q + dfreq > FMAX) ? FMAX
+                                   : (freq_q + dfreq < FMIN) ? FMIN
+                                   : freq_q + dfreq;
+    wire signed [FW-1:0] kick_next = (sgn_q > 0) ? KP : (sgn_q < 0) ? -KP : FW'(0);
+
+    // Legacy (rotator-mode) integral increment, from THIS window's net sign
+    // -- identical to the pre-pipeline always_comb, clamp included.
+    wire signed [FW-1:0] dfreq_l = (KI == 1) ? FW'((vote_pos) ? 2'sd1 : (vote_neg) ? -2'sd1 : 2'sd0)
+                                 : (vote_pos) ? KI_S : (vote_neg) ? -KI_S : FW'(0);
+    wire signed [FW-1:0] freq_next_l = (freq_q + dfreq_l > FMAX) ? FMAX
+                                     : (freq_q + dfreq_l < FMIN) ? FMIN
+                                     : freq_q + dfreq_l;
+
+    // ---- stage (d): phase word / r_next ------------------------------------
     reg [RW-1:0]           r_q;             // {frac, tap} rotation accumulator
     reg [PH_W-1:0]         tap_prev_q;      // mod-8 tap at the last window
     reg signed [3:0]       tap_dlt_u;
     reg                    slip_evt_q;
     reg [2:0]              slip_pi_q;
     reg [1:0]              slip_drop_q, slip_insert_q;
-    reg [LOCK_W-1:0]       lock_cnt_q;
-    reg [LEAK_W-1:0]       leak_cnt_q;
-    reg [STALE_W-1:0]      stale_cnt_q;
-    reg                    lock_q, stale_q;
-
-    // Window accumulation, this cycle's vote included.
-    wire signed [VS_W-1:0] vote_sum_c = vote_sum_q
-        + ((vote_valid && enable) ? VS_W'(vote) : VS_W'(0));
-    wire                   last_win  = (win_cnt_q == WIN_W'(WIN_CYC - 1));
-    wire                   win_any   = win_vote_q || (vote_valid && enable);
-
-    // Window end: one bang-bang decision on the window's net vote sign.
-    wire signed [VS_W-1:0] s        = last_win ? vote_sum_c : vote_sum_q;
-    wire                   vote_pos = (s > 0);
-    wire                   vote_neg = (s < 0);
-
-    reg signed [FW-1:0] freq_next;
-    always_comb begin
-        // KI == 1 -> incrementer, same trick as cdr_bang_bang.  Early
-        // (positive window vote) must delay the sampling phase: freq_q
-        // increases.
-        if (KI == 1) begin
-            freq_next = vote_pos ? (freq_q + FW'(1)) :
-                        vote_neg ? (freq_q - FW'(1)) : freq_q;
-        end else begin
-            freq_next = freq_q + (vote_pos ? KI_S : vote_neg ? -KI_S : FW'(0));
-        end
-        if (freq_next > FMAX) freq_next = FMAX;
-        else if (freq_next < FMIN) freq_next = FMIN;
-    end
-
-    wire signed [FW-1:0] kick_next  = vote_pos ? KP : vote_neg ? -KP : FW'(0);
-    wire signed [FW-1:0] kick_apply = kick_q;   // applied one window late
 
     // Rotation word: persistent walk (freq_q, the integrator) plus the
     // proportional kick (the damping term - the kick moves the sampling
     // phase immediately, in clock-following mode by kick*0.98 ps, far below
     // one UI, so it never shifts the content).  Arithmetic is sign-extended
     // at FW width; the low RW bits are the mod-8-tap rotation and wraparound
-    // is intended.
+    // is intended.  In the pipelined path freq_q/kick_q are the stage-(c)
+    // registered values (one window behind the decision) -- one registered
+    // add per stage, never the whole chain.
     wire signed [FW:0]  r_step = $signed({freq_q[FW-1], freq_q})
-                               + $signed({kick_apply[FW-1], kick_apply});
+                               + $signed({kick_q[FW-1], kick_q});
     wire signed [FW:0]  r_sum  = $signed({{(FW-RW+1){r_q[RW-1]}}, r_q}) + r_step;
     wire [RW-1:0]       r_next = r_sum[RW-1:0];
 
@@ -292,6 +335,8 @@ module cdr_decimated_loop #(
             win_cnt_q   <= '0;
             vote_sum_q  <= '0;
             win_vote_q  <= 1'b0;
+            sgn_q       <= 2'sd0;
+            any_q       <= 1'b0;
             freq_q      <= '0;
             kick_q      <= '0;
             r_q         <= {phase_init, FREQ_FRAC'(0)};
@@ -304,7 +349,93 @@ module cdr_decimated_loop #(
             stale_cnt_q <= '0;
             lock_q      <= 1'b0;
             stale_q     <= 1'b0;
-        end else if (enable) begin
+        end else if (!enable) begin
+            // idle
+        end else if (CLK_FOLLOW) begin
+            // --------------------------------------------------------
+            // PIPELINED path (Stage-B / external-clock closure).
+            // --------------------------------------------------------
+            // Stage (a): per-cycle vote accumulation.
+            vote_sum_q <= vote_sum_c;
+            if (vote_valid)
+                win_vote_q <= 1'b1;
+            slip_evt_q   <= 1'b0;
+
+            if (!last_win) begin
+                win_cnt_q <= win_cnt_q + 1'b1;
+            end else begin
+                // Window end: register each pipeline stage once per window.
+                win_cnt_q  <= '0;
+                vote_sum_q <= '0;
+                win_vote_q <= 1'b0;
+
+                // Stage (b): bang-bang decision on the window's net sign.
+                sgn_q <= vote_pos ? 2'sd1 : vote_neg ? -2'sd1 : 2'sd0;
+                any_q <= win_any;
+
+                // Stage (c): integral update from the PREVIOUS window's
+                // decision (one registered add + clamp).
+                if (any_q) begin
+                    freq_q <= freq_next;
+                    kick_q <= kick_next;      // kicks only after vote windows
+                    if (lock_cnt_q != LOCK_MAX)
+                        lock_cnt_q <= lock_cnt_q + 1'b1;
+                    if (!lock_q && (lock_cnt_q >= LOCK_MAX))
+                        lock_q <= 1'b1;
+                end else begin
+                    // Vote-less window: drought counters.  The thresholds are
+                    // in windows, scaled so the per-UI rate matches
+                    // cdr_bang_bang (LEAK_WBITS / STALE_WBITS).
+                    kick_q <= '0;             // kick cleared after one window
+                    if (STALE_WBITS == 0) begin
+                        stale_cnt_q <= '0;
+                        stale_q     <= 1'b1;
+                    end else if (stale_cnt_q == STALE_MAX) begin
+                        stale_cnt_q <= '0;
+                        stale_q     <= 1'b1;
+                    end else begin
+                        stale_cnt_q <= stale_cnt_q + 1'b1;
+                    end
+                    if (LEAK_ON) begin
+                        if (LEAK_WBITS == 0 || leak_cnt_q == LEAK_MAX) begin
+                            leak_cnt_q <= '0;
+                            if (freq_q > 0)      freq_q <= freq_q - FW'(1);
+                            else if (freq_q < 0) freq_q <= freq_q + FW'(1);
+                        end else begin
+                            leak_cnt_q <= leak_cnt_q + 1'b1;
+                        end
+                    end
+                end
+
+                // Stage (d): phase word walk from the stage-(c) registered
+                // freq/kick (pre-update values).  The walk runs every
+                // window: the ppm drift and the mod-8 wrap do not wait for
+                // a vote.  The content advance per group is
+                // 4 + (f(pi_next)-f(pi_prev)) with f = tap>>1: in
+                // clock-following mode f counts half-UI coarse steps (a
+                // +-1-raw-tap dither is content-neutral, a +-2 step shifts
+                // the content +-1 UI).
+                r_q        <= r_next;
+                tap_prev_q <= tap_next;
+                f_hold_q   <= tap_prev_q;
+                f_hold2_q  <= f_hold_q;
+`ifdef TB_DEBUG_SLIP
+                $display("SLIPDBG t=%0t tapn=%0d tapp=%0d adv=%0d sk=%b du=%b win=%b",
+                         $time, tap_next, tap_prev_q, adv, adv_skip, adv_dup, win_any);
+`endif
+                if ((adv_skip || adv_dup) && f_held) begin
+                    slip_evt_q   <= 1'b1;
+                    slip_pi_q    <= tap_prev_q;   // the held index (settled)
+                    slip_drop_q   <= adv_dup  ? dup_cnt  : 2'b00;
+                    slip_insert_q <= adv_skip ? skip_cnt : 2'b00;
+                end
+            end
+        end else begin
+            // --------------------------------------------------------
+            // LEGACY single-boundary path (Stage-A rotator, verified).
+            // One combinational chain vote_sum_c -> freq_next -> r_next ->
+            // tap_next -> slip decode in the window-boundary cycle.
+            // --------------------------------------------------------
             vote_sum_q <= vote_sum_c;
             if (vote_valid)
                 win_vote_q <= 1'b1;
@@ -320,12 +451,7 @@ module cdr_decimated_loop #(
                 kick_q     <= '0;             // kick cleared after one window
 
                 // Tap walk and slip reporting run every window: the ppm
-                // drift and the mod-8 wrap do not wait for a vote.  The
-                // content advance per group is 4 + (f(pi_next)-f(pi_prev))
-                // with f = tap>>1: in clock-following mode f counts half-UI
-                // coarse steps (a +-1-raw-tap dither is content-neutral, a
-                // +-2 step shifts the content +-1 UI); in rotator mode the
-                // same arithmetic holds for the fixed-clock borrow mapping.
+                // drift and the mod-8 wrap do not wait for a vote.
                 tap_prev_q <= tap_next;
                 f_hold_q   <= tap_prev_q;
                 f_hold2_q  <= f_hold_q;
@@ -340,9 +466,21 @@ module cdr_decimated_loop #(
                     slip_insert_q <= adv_skip ? skip_cnt : 2'b00;
                 end
 
+                // Window net sign (legacy: combinational from this window).
+                if (vote_pos)       sgn_q <= 2'sd1;
+                else if (vote_neg)  sgn_q <= -2'sd1;
+                else                sgn_q <= 2'sd0;
+                any_q <= win_any;
+
                 if (win_any) begin
-                    freq_q     <= freq_next;
-                    kick_q     <= kick_next;  // kicks only on vote windows
+                    // Integral: KI == 1 -> incrementer, same trick as
+                    // cdr_bang_bang.  Early (positive window vote) must
+                    // delay the sampling phase: freq_q increases.  Clamp
+                    // applies to the incremented value (matches the legacy
+                    // always_comb freq_next exactly).
+                    freq_q <= freq_next_l;
+
+                    kick_q     <= vote_pos ? KP : vote_neg ? -KP : FW'(0);
                     r_q        <= r_next;
                     if (lock_cnt_q != LOCK_MAX)
                         lock_cnt_q <= lock_cnt_q + 1'b1;
