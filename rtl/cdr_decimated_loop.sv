@@ -89,7 +89,16 @@ module cdr_decimated_loop #(
     // pi_code rotator in cdr_parallel_top: content shifts happen only at
     // even tap-boundary crossings (the +-1-tap dither inside a pair is
     // content-neutral).
-    parameter bit CLK_FOLLOW      = 1'b1
+    parameter bit CLK_FOLLOW      = 1'b1,
+    // Content-crossing locus (CLK_FOLLOW only).  The physical content shift
+    // happens when the FIRST DATA TAP -- sitting PH_OFF_LSB frac-LSBs after
+    // the group-start phase r -- crosses a data bit boundary.  In frac-LSB
+    // units (FREQ_FRAC bits below a tap, LSB = 0.5UI/2^FREQ_FRAC): the data
+    // tap offset is 0.1875 ns at a 2.0 ns group period.  Default 192 =
+    // 0.1875/2.0 * 2048 with FREQ_FRAC=8 (r spans 8 taps = 2048 LSB).  Make
+    // this match rx_clk8's PH_OFF_NS; a wrong value relocates the slip tag
+    // away from the real +-1-UI crossing (the +300ppm burst).
+    parameter int PH_OFF_LSB      = 192
 ) (
     input  wire                      clk_q,
     input  wire                      rst_n,
@@ -218,18 +227,16 @@ module cdr_decimated_loop #(
     // Tap walk of this window's applied rotation (freq + kick), unwrapped
     // from the mod-8 tap field to -4..+4 taps; f = floor(0.375 + r_u/2) is
     // the content-window shift in UIs (arithmetic >> 1 on the integer walk).
-    // CLK_FOLLOW: the content window advances when the SAMPLING PHASE
-    // crosses a data bit boundary.  At the Alexander equilibrium the edge
-    // taps park on the transitions (+skew), so that boundary crossing sits
-    // ONE FULL TAP (2^FREQ_FRAC frac LSBs) away from the {tap,frac} word
-    // boundary -- the content index is (r - 1 tap) >> 1, not r >> 1.  With
-    // this offset the reported slip lands within a window of the physical
-    // +-1-UI content shift (the residual error is the bang-bang dither,
-    // +-KP LSBs) instead of up to half a tap-walk cycle late, and the
-    // gearbox drop/insert repair tracks the discrete content events the
-    // breathing recovered clock leaves.  Rotator mode (fixed clocks) keeps
-    // the verified Stage-A arithmetic (shifts at the even tap boundaries).
-    wire [RW-1:0] r_adj = r_next - RW'(1 << FREQ_FRAC);
+    // CLK_FOLLOW: the content window advances when the FIRST DATA TAP
+    // crosses a bit boundary.  That tap sits PH_OFF_LSB after the group-start
+    // phase r, so the content index is (r + PH_OFF_LSB) shifted into taps --
+    // the tap field is r's top PH_W bits, one tap = 2^FREQ_FRAC LSB = 0.5 UI.
+    // The earlier (r - 1<<FREQ_FRAC) offset tagged the slip ~64 LSB (≈26
+    // windows at +300 ppm) away from the real crossing, far outside the
+    // repair mask -- oracle-derived root cause of the +300 ppm burst.
+    // Rotator mode (fixed clocks) keeps the verified Stage-A arithmetic
+    // (shifts at the even tap boundaries).
+    wire [RW-1:0] r_adj = r_next + RW'(PH_OFF_LSB);
     wire [PH_W-1:0] tap_next = CLK_FOLLOW ? r_adj[RW-1:FREQ_FRAC]
                                           : r_next[RW-1:FREQ_FRAC];
     // Content-window advance between consecutive groups.  In clock-following
