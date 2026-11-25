@@ -197,24 +197,22 @@ module rx_clk8 #(
 `else
     // Structural scheduler: the ring PACES the groups (one clean DCO_OUT
     // posedge = one group) and the group start advances delta-wise,
-    // t_g += PERIOD + d, exactly like the behavioral path.  Anchoring each
-    // group directly at edge + (phase word mod PERIOD) is discontinuous at
-    // the phase-word's mod-2 ns wrap (the anchor jumps a full period, a
-    // +-4 UI content shift); the continuous representation is the delta
-    // walk.  The ring's own period error accumulates as a slowly drifting
-    // offset between t_g and the ring edges (~2 fs/period with the timed
-    // cells; a real silicon PI re-centers continuously -- that block is the
-    // later physical work this model stands in for).
+    // t_g += PERIOD + d, exactly like the behavioral path.  The ring edge
+    // only marks the group; the PI word is applied at the clk_q boundary
+    // (below), the same point behavioral's #(t_g-$realtime) arrival applies
+    // it.  Sampling apply_pi on the ring edge read r_q a sliding ~+-1-group
+    // offset from the window boundary the vote was computed on -- the vote
+    // was then attributed to the wrong phase and the integrator railed to
+    // FMAX (oracle-derived root cause of the structural ppm failures).
     reg dco_prev = 1'b0;
     always @(dco_out) begin
         if (dco_out === 1'b1 && dco_prev === 1'b0) begin
             tr_rise = $realtime;
-            #0.001;               // let the loop's NBA update land
-            apply_pi;
-            if (t_g_prev < 0.0)
+            if (t_g_prev < 0.0) begin
+                #0.001;               // settle
+                apply_pi;
                 t_g = tr_rise + ph_cur;        // first group: real anchor
-            else
-                t_g = t_g_prev + PERIOD_NS + d_step;
+            end
             t_g_prev = t_g;
             publish_times;
         end
@@ -236,6 +234,20 @@ module rx_clk8 #(
             if (d_clk < 0.000001) d_clk = 0.000001;
             #(d_clk);
             clk_q = 1'b1;
+`ifdef RX_CLK8_STRUCT
+            // Apply the PI phase at the group boundary (same point
+            // behavioral's #(t_g-$realtime) arrival applies it): read r_q
+            // after the NBA settle on this clk_q edge, then schedule the
+            // next group start delta-wise.  Applying on the ring edge
+            // instead read the phase word a sliding offset from the window
+            // boundary -> the vote was attributed to the wrong phase and
+            // the integrator railed to FMAX.
+            #0.001;
+            apply_pi;
+            t_g = t_qr + PERIOD_NS + d_step;
+            t_g_prev = t_g;
+            publish_times;
+`endif
             #(PERIOD_NS / 2.0);
             clk_q = 1'b0;
         end
