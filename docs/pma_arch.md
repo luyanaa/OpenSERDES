@@ -406,3 +406,26 @@ physical macros.
 - No regression: CDR_MODE=4 / `ddr` / `source_sync`/`independent`
   clock_source fail-closed semantics unchanged; 50 Mb/s path-1 boundary
   preserved.
+
+### TX edge-rate corner verdict (measured 2026-11-28, `build/verify/tx_macro_ss/`)
+
+`tx_macro` (IHP PEX netlist) 20-80% edge rates, square input:
+
+| corner | 100 fF | 500 fF | 1 pF |
+|---|---|---|---|
+| TT 1.2V/25C | 35/33 ps | 72/49 ps | 122/68 ps |
+| SS 1.08V/125C | 54/51 ps | 113/77 ps | 191/108 ps |
+
+(rise/fall; load = total pad+package+board+receiver capacitance)
+
+- **1.5 Gb/s all-PVT: edge-rate PASS** — worst 191 ps at SS/1 pF vs 200 ps
+  (0.3 UI) budget, marginal; at ≤500 fF total load comfortable.  Rise/fall
+  asymmetry ~40 ps at SS needs attention (duty distortion into the sampler).
+- **2 Gb/s at SS: FAIL** at 1 pF (191 > 150 ps), marginal at 500 fF —
+  confirms the corner-graded spec (2G = TT/FF) and motivates either a
+  stronger driver or load control for any SS-2G stretch.
+- Combined with the 375 MHz-domain feasibility (SS inv_4 ~87 ps yardstick,
+  ~6-10 gate-equivalent paths vs ~30 budget) and the dll8 range coverage,
+  **1.5 Gb/s all-PVT is feasible but is a stretch target, not the baseline**;
+  the gated risks are the 500/375 MHz timing closure in PnR and the duty
+  distortion, both measurable before tapeout.
